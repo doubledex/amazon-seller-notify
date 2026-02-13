@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@source "../views";
+
+.padded-table {
+    padding: 20px; /* Or padding-left: 20px; padding-right: 20px; `*/
+}
+
+/* Or, if you want to apply it only to the table's container: */
+.table-container {
+    padding: 20px;
+}
+.table-container table { /* Target the table inside the container */
+    width: 100%; /* If you want the table to fill the container */
+}
+
+svg { /* Target all SVGs within the pagination */
+    width: 1em; /* Adjust the width */
+    height: 1em; /* Adjust the height */
+}
+.h1 h2 { color: yellow;}
