@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use SellingPartnerApi\SellingPartnerApi;
-use SellingPartnerApi\Enums\Endpoint;
 use DateTime;
 use Illuminate\Support\Facades\Log;
 use App\Services\MarketplaceService;
@@ -31,8 +30,9 @@ class OrderController extends Controller
 
     public function __construct()
     {
-        $regionConfig = (new RegionConfigService())->spApiConfig();
-        $endpoint = Endpoint::tryFrom((string) $regionConfig['endpoint']) ?? Endpoint::EU;
+        $regionService = new RegionConfigService();
+        $regionConfig = $regionService->spApiConfig();
+        $endpoint = $regionService->spApiEndpointEnum();
 
         $this->connector = SellingPartnerApi::seller(
             clientId: (string) $regionConfig['client_id'],

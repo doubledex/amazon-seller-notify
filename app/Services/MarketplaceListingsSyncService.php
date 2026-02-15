@@ -8,7 +8,6 @@ use App\Models\SpApiReportRequest;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Saloon\Http\Response as SaloonResponse;
-use SellingPartnerApi\Enums\Endpoint;
 use SellingPartnerApi\Seller\ReportsV20210630\Dto\CreateReportSpecification;
 use SellingPartnerApi\SellingPartnerApi;
 
@@ -300,13 +299,14 @@ class MarketplaceListingsSyncService
 
     private function makeConnector(?string $region = null): SellingPartnerApi
     {
-        $regionConfig = (new RegionConfigService())->spApiConfig($region);
+        $regionService = new RegionConfigService();
+        $regionConfig = $regionService->spApiConfig($region);
 
         return SellingPartnerApi::seller(
             clientId: (string) $regionConfig['client_id'],
             clientSecret: (string) $regionConfig['client_secret'],
             refreshToken: (string) $regionConfig['refresh_token'],
-            endpoint: Endpoint::tryFrom((string) $regionConfig['endpoint']) ?? Endpoint::EU,
+            endpoint: $regionService->spApiEndpointEnum($region),
         );
     }
 

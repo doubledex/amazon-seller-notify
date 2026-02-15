@@ -7,7 +7,6 @@ use App\Models\OrderItem;
 use App\Models\OrderShipAddress;
 use App\Models\PostalCodeGeo;
 use Illuminate\Support\Facades\Log;
-use SellingPartnerApi\Enums\Endpoint;
 use SellingPartnerApi\SellingPartnerApi;
 use Saloon\Exceptions\Request\Statuses\TooManyRequestsException;
 use Saloon\Http\Response;
@@ -31,8 +30,9 @@ class OrderSyncService
         $itemsLimit = max(0, min($itemsLimit, 500));
         $addressLimit = max(0, min($addressLimit, 500));
 
-        $regionConfig = (new RegionConfigService())->spApiConfig($region);
-        $endpoint = Endpoint::tryFrom((string) $regionConfig['endpoint']) ?? Endpoint::EU;
+        $regionService = new RegionConfigService();
+        $regionConfig = $regionService->spApiConfig($region);
+        $endpoint = $regionService->spApiEndpointEnum($region);
 
         $connector = SellingPartnerApi::seller(
             clientId: (string) $regionConfig['client_id'],

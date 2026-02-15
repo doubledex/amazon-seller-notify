@@ -56,6 +56,33 @@ test('sp-api config prefers region-specific keys when present', function () {
         ->and($config['marketplace_ids'])->toBe(['ATVPDKIKX0DER']);
 });
 
+test('sp-api endpoint enum resolves from region code', function () {
+    config()->set('services.amazon_sp_api', [
+        'client_id' => 'legacy-client',
+        'client_secret' => 'legacy-secret',
+        'refresh_token' => 'legacy-refresh',
+        'application_id' => 'legacy-app',
+        'marketplace_ids' => ['LEGACY'],
+        'endpoint' => 'EU',
+        'regions' => ['EU', 'NA'],
+        'by_region' => [
+            'NA' => [
+                'client_id' => 'na-client',
+                'client_secret' => 'na-secret',
+                'refresh_token' => 'na-refresh',
+                'application_id' => 'na-app',
+                'marketplace_ids' => ['ATVPDKIKX0DER'],
+                'endpoint' => 'NA',
+            ],
+        ],
+    ]);
+
+    $service = new RegionConfigService();
+    $endpoint = $service->spApiEndpointEnum('NA');
+
+    expect($endpoint->value)->toBe('https://sellingpartnerapi-na.amazon.com');
+});
+
 test('ads config falls back to legacy keys', function () {
     config()->set('services.amazon_ads', [
         'client_id' => 'legacy-ads-client',

@@ -2,6 +2,9 @@
 
 namespace App\Services;
 
+use SellingPartnerApi\Enums\Endpoint;
+use SellingPartnerApi\Enums\Region;
+
 class RegionConfigService
 {
     private const VALID_REGIONS = ['EU', 'NA', 'FE'];
@@ -65,8 +68,20 @@ class RegionConfigService
 
     public function defaultSpApiRegion(): string
     {
-        $region = $this->normalizeRegion((string) config('services.amazon_sp_api.endpoint', 'EU'));
+        $region = $this->normalizeEndpointOrRegionToRegion((string) config('services.amazon_sp_api.endpoint', 'EU'));
         return $region ?? 'EU';
+    }
+
+    public function spApiEndpointEnum(?string $region = null): Endpoint
+    {
+        $config = $this->spApiConfig($region);
+        $endpointRaw = trim((string) ($config['endpoint'] ?? ''));
+
+        $normalizedRegion = $this->normalizeEndpointOrRegionToRegion($endpointRaw)
+            ?? $this->normalizeEndpointOrRegionToRegion((string) ($config['region'] ?? 'EU'))
+            ?? 'EU';
+
+        return Endpoint::byRegion(Region::from($normalizedRegion));
     }
 
     public function defaultAdsRegion(): string
@@ -92,6 +107,30 @@ class RegionConfigService
     {
         $region = strtoupper(trim((string) $region));
         return in_array($region, self::VALID_REGIONS, true) ? $region : null;
+    }
+
+    private function normalizeEndpointOrRegionToRegion(string $value): ?string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+
+        $region = $this->normalizeRegion($value);
+        if ($region !== null) {
+            return $region;
+        }
+
+        $endpoint = Endpoint::tryFrom($value);
+        if ($endpoint === null) {
+            return null;
+        }
+
+        return match ($endpoint) {
+            Endpoint::NA, Endpoint::NA_SANDBOX => 'NA',
+            Endpoint::EU, Endpoint::EU_SANDBOX => 'EU',
+            Endpoint::FE, Endpoint::FE_SANDBOX => 'FE',
+        };
     }
 
     private function normalizeMarketplaceIds(array $marketplaceIds): array

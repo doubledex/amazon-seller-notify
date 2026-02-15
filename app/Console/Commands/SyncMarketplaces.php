@@ -5,7 +5,6 @@ namespace App\Console\Commands;
 use App\Services\MarketplaceService;
 use App\Services\RegionConfigService;
 use Illuminate\Console\Command;
-use SellingPartnerApi\Enums\Endpoint;
 use SellingPartnerApi\SellingPartnerApi;
 
 class SyncMarketplaces extends Command
@@ -15,8 +14,10 @@ class SyncMarketplaces extends Command
 
     public function handle(): int
     {
-        $regionConfig = (new RegionConfigService())->spApiConfig((string) ($this->option('region') ?? ''));
-        $endpoint = Endpoint::tryFrom((string) $regionConfig['endpoint']) ?? Endpoint::EU;
+        $region = (string) ($this->option('region') ?? '');
+        $regionService = new RegionConfigService();
+        $regionConfig = $regionService->spApiConfig($region);
+        $endpoint = $regionService->spApiEndpointEnum($region);
 
         $connector = SellingPartnerApi::seller(
             clientId: (string) $regionConfig['client_id'],

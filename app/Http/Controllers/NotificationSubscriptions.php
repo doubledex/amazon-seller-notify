@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Services\RegionConfigService;
 use Illuminate\Http\Request;
 use SellingPartnerApi\SellingPartnerApi;
-use SellingPartnerApi\Enums\Endpoint;
 use Illuminate\Support\Facades\Log;
 // use function config;
 use SellingPartnerApi\Seller\NotificationsV1\Dto\DestinationResourceSpecification;
@@ -19,8 +18,9 @@ class NotificationSubscriptions extends Controller
 
     public function __construct()
     {
-        $regionConfig = (new RegionConfigService())->spApiConfig();
-        $endpointEnum = Endpoint::tryFrom((string) $regionConfig['endpoint']) ?? Endpoint::EU;
+        $regionService = new RegionConfigService();
+        $regionConfig = $regionService->spApiConfig();
+        $endpointEnum = $regionService->spApiEndpointEnum();
 
         $this->connector = SellingPartnerApi::seller(
             clientId: (string) $regionConfig['client_id'],
