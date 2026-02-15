@@ -15,6 +15,7 @@ class Order extends Model
         'sales_channel',
         'marketplace_id',
         'is_business_order',
+        'is_marketplace_facilitator',
         'order_total_amount',
         'order_total_currency',
         'shipping_city',
@@ -29,6 +30,7 @@ class Order extends Model
     protected $casts = [
         'raw_order' => 'array',
         'is_business_order' => 'boolean',
+        'is_marketplace_facilitator' => 'boolean',
         'purchase_date' => 'datetime',
         'last_synced_at' => 'datetime',
     ];

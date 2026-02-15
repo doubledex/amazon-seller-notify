@@ -1,0 +1,294 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Services\FxRateService;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Http\Request;
+
+class MetricsController extends Controller
+{
+    public function index(Request $request, FxRateService $fxRateService)
+    {
+        $fromInput = $request->input('from');
+        $toInput = $request->input('to');
+
+        $from = $fromInput ? Carbon::parse($fromInput)->toDateString() : now()->subDays(30)->toDateString();
+        $to = $toInput ? Carbon::parse($toInput)->toDateString() : now()->toDateString();
+        if ($to < $from) {
+            [$from, $to] = [$to, $from];
+        }
+
+        $itemTotals = DB::table('order_items')
+            ->selectRaw("
+                amazon_order_id,
+                MAX(COALESCE(item_price_currency, '')) as item_currency,
+                SUM(COALESCE(quantity_ordered, 0) * COALESCE(item_price_amount, 0)) as item_total
+            ")
+            ->groupBy('amazon_order_id');
+
+        $salesRows = DB::table('orders')
+            ->join('marketplaces', 'marketplaces.id', '=', 'orders.marketplace_id')
+            ->leftJoinSub($itemTotals, 'item_totals', function ($join) {
+                $join->on('item_totals.amazon_order_id', '=', 'orders.amazon_order_id');
+            })
+            ->selectRaw("
+                DATE(orders.purchase_date) as metric_date,
+                marketplaces.country_code as country_code,
+                COALESCE(
+                    NULLIF(orders.order_total_currency, ''),
+                    NULLIF(item_totals.item_currency, ''),
+                    'GBP'
+                ) as currency,
+                SUM(
+                    CASE
+                        WHEN COALESCE(orders.order_total_amount, 0) > 0 THEN orders.order_total_amount
+                        ELSE COALESCE(item_totals.item_total, 0)
+                    END
+                ) as sales_amount,
+                COUNT(*) as order_count
+            ")
+            ->whereDate('orders.purchase_date', '>=', $from)
+            ->whereDate('orders.purchase_date', '<=', $to)
+            ->whereRaw("UPPER(COALESCE(orders.order_status, '')) NOT IN ('CANCELED', 'CANCELLED')")
+            ->groupByRaw("
+                DATE(orders.purchase_date),
+                marketplaces.country_code,
+                COALESCE(NULLIF(orders.order_total_currency, ''), NULLIF(item_totals.item_currency, ''), 'GBP')
+            ")
+            ->get();
+
+        $pendingSalesRows = DB::table('orders')
+            ->join('marketplaces', 'marketplaces.id', '=', 'orders.marketplace_id')
+            ->leftJoinSub($itemTotals, 'item_totals', function ($join) {
+                $join->on('item_totals.amazon_order_id', '=', 'orders.amazon_order_id');
+            })
+            ->selectRaw("
+                DATE(orders.purchase_date) as metric_date,
+                marketplaces.country_code as country_code,
+                COUNT(*) as pending_count
+            ")
+            ->whereDate('orders.purchase_date', '>=', $from)
+            ->whereDate('orders.purchase_date', '<=', $to)
+            ->whereRaw("UPPER(COALESCE(orders.order_status, '')) IN ('PENDING', 'UNSHIPPED')")
+            ->whereRaw("COALESCE(orders.order_total_amount, 0) <= 0")
+            ->whereRaw("COALESCE(item_totals.item_total, 0) <= 0")
+            ->groupByRaw("DATE(orders.purchase_date), marketplaces.country_code")
+            ->get();
+
+        $unitRows = DB::table('orders')
+            ->join('marketplaces', 'marketplaces.id', '=', 'orders.marketplace_id')
+            ->leftJoin('order_items', 'order_items.amazon_order_id', '=', 'orders.amazon_order_id')
+            ->selectRaw("
+                DATE(orders.purchase_date) as metric_date,
+                marketplaces.country_code as country_code,
+                SUM(COALESCE(order_items.quantity_ordered, 0)) as units
+            ")
+            ->whereDate('orders.purchase_date', '>=', $from)
+            ->whereDate('orders.purchase_date', '<=', $to)
+            ->whereRaw("UPPER(COALESCE(orders.order_status, '')) NOT IN ('CANCELED', 'CANCELLED')")
+            ->groupByRaw("DATE(orders.purchase_date), marketplaces.country_code")
+            ->get();
+
+        $adRows = DB::table('amazon_ads_report_daily_spends as ds')
+            ->join('amazon_ads_report_requests as rr', 'rr.id', '=', 'ds.report_request_id')
+            ->selectRaw("
+                ds.metric_date as metric_date,
+                rr.country_code as country_code,
+                COALESCE(ds.source_currency, rr.currency_code, ds.currency, 'GBP') as currency,
+                SUM(COALESCE(ds.source_amount, ds.amount_local)) as ad_amount
+            ")
+            ->whereDate('ds.metric_date', '>=', $from)
+            ->whereDate('ds.metric_date', '<=', $to)
+            ->groupBy('ds.metric_date', 'rr.country_code', 'ds.source_currency', 'rr.currency_code', 'ds.currency')
+            ->get();
+
+        $dates = [];
+        $breakdown = [];
+
+        foreach ($salesRows as $row) {
+            $date = (string) $row->metric_date;
+            $country = $this->normalizeMarketplaceCode((string) $row->country_code);
+            $currency = strtoupper((string) $row->currency);
+            $amount = (float) $row->sales_amount;
+            if ($date === '' || $country === '') {
+                continue;
+            }
+
+            $dates[$date] = true;
+            $key = $date . '|' . $country;
+            if (!isset($breakdown[$key])) {
+                $breakdown[$key] = [
+                    'date' => $date,
+                    'country' => $country,
+                    'currency' => $currency,
+                    'sales_local' => 0.0,
+                    'sales_gbp' => 0.0,
+                    'order_count' => 0,
+                    'units' => 0,
+                    'ad_local' => 0.0,
+                    'ad_gbp' => 0.0,
+                    'pending_sales_data' => false,
+                ];
+            }
+
+            $breakdown[$key]['currency'] = $currency;
+            $breakdown[$key]['sales_local'] += $amount;
+            $breakdown[$key]['sales_gbp'] += $fxRateService->convert($amount, $currency, 'GBP', $date) ?? 0.0;
+            $breakdown[$key]['order_count'] += (int) ($row->order_count ?? 0);
+        }
+
+        foreach ($unitRows as $row) {
+            $date = (string) $row->metric_date;
+            $country = $this->normalizeMarketplaceCode((string) $row->country_code);
+            if ($date === '' || $country === '') {
+                continue;
+            }
+
+            $dates[$date] = true;
+            $key = $date . '|' . $country;
+            if (!isset($breakdown[$key])) {
+                $breakdown[$key] = [
+                    'date' => $date,
+                    'country' => $country,
+                    'currency' => 'GBP',
+                    'sales_local' => 0.0,
+                    'sales_gbp' => 0.0,
+                    'order_count' => 0,
+                    'units' => 0,
+                    'ad_local' => 0.0,
+                    'ad_gbp' => 0.0,
+                    'pending_sales_data' => false,
+                ];
+            }
+            $breakdown[$key]['units'] += (int) ($row->units ?? 0);
+        }
+
+        foreach ($pendingSalesRows as $row) {
+            $date = (string) $row->metric_date;
+            $country = $this->normalizeMarketplaceCode((string) $row->country_code);
+            if ($date === '' || $country === '') {
+                continue;
+            }
+
+            $dates[$date] = true;
+            $key = $date . '|' . $country;
+            if (!isset($breakdown[$key])) {
+                $breakdown[$key] = [
+                    'date' => $date,
+                    'country' => $country,
+                    'currency' => 'GBP',
+                    'sales_local' => 0.0,
+                    'sales_gbp' => 0.0,
+                    'order_count' => 0,
+                    'units' => 0,
+                    'ad_local' => 0.0,
+                    'ad_gbp' => 0.0,
+                    'pending_sales_data' => false,
+                ];
+            }
+            $breakdown[$key]['pending_sales_data'] = ((int) ($row->pending_count ?? 0)) > 0;
+        }
+
+        foreach ($adRows as $row) {
+            $date = (string) $row->metric_date;
+            $country = $this->normalizeMarketplaceCode((string) $row->country_code);
+            $currency = strtoupper((string) $row->currency);
+            $amount = (float) $row->ad_amount;
+            if ($date === '' || $country === '') {
+                continue;
+            }
+
+            $dates[$date] = true;
+            $key = $date . '|' . $country;
+            if (!isset($breakdown[$key])) {
+                $breakdown[$key] = [
+                    'date' => $date,
+                    'country' => $country,
+                    'currency' => $currency,
+                    'sales_local' => 0.0,
+                    'sales_gbp' => 0.0,
+                    'order_count' => 0,
+                    'units' => 0,
+                    'ad_local' => 0.0,
+                    'ad_gbp' => 0.0,
+                    'pending_sales_data' => false,
+                ];
+            }
+
+            $breakdown[$key]['currency'] = $currency;
+            $breakdown[$key]['ad_local'] += $amount;
+            $breakdown[$key]['ad_gbp'] += $fxRateService->convert($amount, $currency, 'GBP', $date) ?? 0.0;
+        }
+
+        $dailyRows = [];
+        $dateList = array_keys($dates);
+        rsort($dateList);
+
+        foreach ($dateList as $date) {
+            $items = [];
+            $totalSalesGbp = 0.0;
+            $totalAdGbp = 0.0;
+            $totalOrders = 0;
+            $totalUnits = 0;
+            $hasPendingSalesData = false;
+
+            foreach ($breakdown as $entry) {
+                if ($entry['date'] !== $date) {
+                    continue;
+                }
+
+                $acos = $entry['sales_gbp'] > 0 ? ($entry['ad_gbp'] / $entry['sales_gbp']) * 100 : null;
+                $entry['acos_percent'] = $acos;
+                $entry['currency_symbol'] = $this->currencySymbol($entry['currency']);
+                $items[] = $entry;
+                $totalSalesGbp += $entry['sales_gbp'];
+                $totalAdGbp += $entry['ad_gbp'];
+                $totalOrders += (int) ($entry['order_count'] ?? 0);
+                $totalUnits += (int) ($entry['units'] ?? 0);
+                $hasPendingSalesData = $hasPendingSalesData || (bool) ($entry['pending_sales_data'] ?? false);
+            }
+
+            usort($items, fn ($a, $b) => strcmp($a['country'], $b['country']));
+            $dailyRows[] = [
+                'date' => $date,
+                'sales_gbp' => $totalSalesGbp,
+                'ad_gbp' => $totalAdGbp,
+                'order_count' => $totalOrders,
+                'units' => $totalUnits,
+                'acos_percent' => $totalSalesGbp > 0 ? ($totalAdGbp / $totalSalesGbp) * 100 : null,
+                'pending_sales_data' => $hasPendingSalesData,
+                'items' => $items,
+            ];
+        }
+
+        return view('metrics.index', [
+            'rows' => $dailyRows,
+            'from' => $from,
+            'to' => $to,
+        ]);
+    }
+
+    private function currencySymbol(string $currency): string
+    {
+        return match (strtoupper($currency)) {
+            'GBP' => '£',
+            'EUR' => '€',
+            'USD' => '$',
+            'SEK' => 'kr',
+            'PLN' => 'zł',
+            default => strtoupper($currency) . ' ',
+        };
+    }
+
+    private function normalizeMarketplaceCode(string $countryCode): string
+    {
+        $code = strtoupper(trim($countryCode));
+        if ($code === 'UK') {
+            return 'GB';
+        }
+
+        return $code;
+    }
+}

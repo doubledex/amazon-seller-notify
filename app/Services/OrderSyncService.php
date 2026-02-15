@@ -16,6 +16,7 @@ class OrderSyncService
 {
     private const FINAL_STATUSES = ['Shipped', 'Canceled', 'Unfulfillable'];
     private const GEO_MAX_PER_RUN = 50;
+    private const MAX_API_RETRY_ATTEMPTS = 6;
 
     public function sync(
         int $days,
@@ -61,12 +62,27 @@ class OrderSyncService
 
         do {
             $page++;
-            $response = $nextToken
-                ? $ordersApi->getOrders(marketplaceIds: $marketplaceIds, nextToken: $nextToken)
-                : $ordersApi->getOrders(createdAfter: $createdAfter, createdBefore: $createdBefore, marketplaceIds: $marketplaceIds);
+            $response = $this->callSpApiWithRetries(
+                fn () => $nextToken
+                    ? $ordersApi->getOrders(marketplaceIds: $marketplaceIds, nextToken: $nextToken)
+                    : $ordersApi->getOrders(createdAfter: $createdAfter, createdBefore: $createdBefore, marketplaceIds: $marketplaceIds),
+                'orders.getOrders',
+                self::MAX_API_RETRY_ATTEMPTS
+            );
+
+            if (!$response) {
+                return [
+                    'ok' => false,
+                    'message' => 'Orders API error after retries.',
+                ];
+            }
 
             if ($response->status() >= 400) {
-                Log::error('Orders sync error', ['status' => $response->status(), 'body' => $response->body()]);
+                Log::error('Orders sync error', [
+                    'status' => $response->status(),
+                    'request_id' => $this->extractRequestId($response),
+                    'body' => $response->body(),
+                ]);
                 return [
                     'ok' => false,
                     'message' => 'Orders API error: ' . $response->status(),
@@ -155,59 +171,68 @@ class OrderSyncService
                     $addressMissing = OrderShipAddress::query()->where('order_id', $orderId)->count() === 0;
 
                     if (($needsDetails || $itemsMissing) && $itemsFetched < $itemsLimit) {
-                        try {
-                            $itemsResponse = $ordersApi->getOrderItems($orderId);
-                            if ($itemsResponse->status() < 400) {
-                                $itemsData = $itemsResponse->json();
-                                $items = $itemsData['payload']['OrderItems'] ?? [];
-                                foreach ($items as $item) {
-                                    $itemId = $item['OrderItemId'] ?? null;
-                                    if (!$itemId) {
-                                        continue;
-                                    }
-                                    OrderItem::updateOrCreate(
-                                        ['order_item_id' => $itemId],
-                                        [
-                                            'amazon_order_id' => $orderId,
-                                            'asin' => $item['ASIN'] ?? null,
-                                            'seller_sku' => $item['SellerSKU'] ?? null,
-                                            'title' => $item['Title'] ?? null,
-                                            'quantity_ordered' => $item['QuantityOrdered'] ?? null,
-                                            'item_price_amount' => $item['ItemPrice']['Amount'] ?? null,
-                                            'item_price_currency' => $item['ItemPrice']['CurrencyCode'] ?? null,
-                                            'raw_item' => json_encode($item),
-                                        ]
-                                    );
+                        $itemsResponse = $this->callSpApiWithRetries(
+                            fn () => $ordersApi->getOrderItems($orderId),
+                            'orders.getOrderItems',
+                            self::MAX_API_RETRY_ATTEMPTS
+                        );
+
+                        if ($itemsResponse && $itemsResponse->status() < 400) {
+                            $itemsData = $itemsResponse->json();
+                            $items = $itemsData['payload']['OrderItems'] ?? [];
+                            $isMarketplaceFacilitator = false;
+                            foreach ($items as $item) {
+                                $itemId = $item['OrderItemId'] ?? null;
+                                if (!$itemId) {
+                                    continue;
                                 }
-                                $itemsFetched++;
+                                OrderItem::updateOrCreate(
+                                    ['order_item_id' => $itemId],
+                                    [
+                                        'amazon_order_id' => $orderId,
+                                        'asin' => $item['ASIN'] ?? null,
+                                        'seller_sku' => $item['SellerSKU'] ?? null,
+                                        'title' => $item['Title'] ?? null,
+                                        'quantity_ordered' => $item['QuantityOrdered'] ?? null,
+                                        'item_price_amount' => $item['ItemPrice']['Amount'] ?? null,
+                                        'item_price_currency' => $item['ItemPrice']['CurrencyCode'] ?? null,
+                                        'raw_item' => json_encode($item),
+                                    ]
+                                );
+
+                                if (!$isMarketplaceFacilitator && $this->isMarketplaceFacilitatorItem($item)) {
+                                    $isMarketplaceFacilitator = true;
+                                }
                             }
-                        } catch (TooManyRequestsException $e) {
-                            $sleep = $this->retryAfterSeconds($e->getResponse());
-                            sleep($sleep);
+
+                            Order::query()
+                                ->where('amazon_order_id', $orderId)
+                                ->update(['is_marketplace_facilitator' => $isMarketplaceFacilitator]);
+                            $itemsFetched++;
                         }
                     }
 
                     if (($needsDetails || $addressMissing) && $addressesFetched < $addressLimit) {
-                        try {
-                            $addrResponse = $ordersApi->getOrderAddress($orderId);
-                            if ($addrResponse->status() < 400) {
-                                $addrData = $addrResponse->json();
-                                $addr = $addrData['payload']['ShippingAddress'] ?? [];
-                                OrderShipAddress::updateOrCreate(
-                                    ['order_id' => $orderId],
-                                    [
-                                        'country_code' => $addr['CountryCode'] ?? null,
-                                        'postal_code' => $addr['PostalCode'] ?? null,
-                                        'city' => $addr['City'] ?? null,
-                                        'region' => $addr['StateOrRegion'] ?? null,
-                                        'raw_address' => $addr,
-                                    ]
-                                );
-                                $addressesFetched++;
-                            }
-                        } catch (TooManyRequestsException $e) {
-                            $sleep = $this->retryAfterSeconds($e->getResponse());
-                            sleep($sleep);
+                        $addrResponse = $this->callSpApiWithRetries(
+                            fn () => $ordersApi->getOrderAddress($orderId),
+                            'orders.getOrderAddress',
+                            self::MAX_API_RETRY_ATTEMPTS
+                        );
+
+                        if ($addrResponse && $addrResponse->status() < 400) {
+                            $addrData = $addrResponse->json();
+                            $addr = $addrData['payload']['ShippingAddress'] ?? [];
+                            OrderShipAddress::updateOrCreate(
+                                ['order_id' => $orderId],
+                                [
+                                    'country_code' => $addr['CountryCode'] ?? null,
+                                    'postal_code' => $addr['PostalCode'] ?? null,
+                                    'city' => $addr['City'] ?? null,
+                                    'region' => $addr['StateOrRegion'] ?? null,
+                                    'raw_address' => $addr,
+                                ]
+                            );
+                            $addressesFetched++;
                         }
                     }
 
@@ -286,5 +311,133 @@ class OrderSyncService
         }
 
         return 10;
+    }
+
+    private function callSpApiWithRetries(callable $callback, string $operation, int $maxAttempts): ?Response
+    {
+        $lastResponse = null;
+
+        for ($attempt = 0; $attempt < max(1, $maxAttempts); $attempt++) {
+            try {
+                /** @var Response $response */
+                $response = $callback();
+                $lastResponse = $response;
+
+                if ($response->status() < 400) {
+                    return $response;
+                }
+
+                if ($response->status() !== 429 && $response->status() < 500) {
+                    Log::warning('SP-API non-retryable status', [
+                        'operation' => $operation,
+                        'attempt' => $attempt,
+                        'status' => $response->status(),
+                        'request_id' => $this->extractRequestId($response),
+                    ]);
+                    return $response;
+                }
+
+                $sleep = $this->withJitter($this->retryAfterSeconds($response), 0.25);
+                Log::warning('SP-API retrying response status', [
+                    'operation' => $operation,
+                    'attempt' => $attempt,
+                    'status' => $response->status(),
+                    'request_id' => $this->extractRequestId($response),
+                    'sleep_seconds' => $sleep,
+                ]);
+                sleep($sleep);
+            } catch (TooManyRequestsException $e) {
+                $response = $e->getResponse();
+                $lastResponse = $response;
+                $sleep = $this->withJitter($this->retryAfterSeconds($response), 0.25);
+                Log::warning('SP-API throttled exception', [
+                    'operation' => $operation,
+                    'attempt' => $attempt,
+                    'status' => $response?->status(),
+                    'request_id' => $this->extractRequestId($response),
+                    'sleep_seconds' => $sleep,
+                ]);
+                sleep($sleep);
+            } catch (\Throwable $e) {
+                if (method_exists($e, 'getResponse')) {
+                    $response = $e->getResponse();
+                    if ($response instanceof Response) {
+                        $lastResponse = $response;
+                        if ($response->status() === 429 || $response->status() >= 500) {
+                            $sleep = $this->withJitter($this->retryAfterSeconds($response), 0.25);
+                            Log::warning('SP-API exception retry', [
+                                'operation' => $operation,
+                                'attempt' => $attempt,
+                                'status' => $response->status(),
+                                'request_id' => $this->extractRequestId($response),
+                                'sleep_seconds' => $sleep,
+                                'error' => $e->getMessage(),
+                            ]);
+                            sleep($sleep);
+                            continue;
+                        }
+                    }
+                }
+
+                Log::error('SP-API exception without retry', [
+                    'operation' => $operation,
+                    'attempt' => $attempt,
+                    'error' => $e->getMessage(),
+                ]);
+                break;
+            }
+        }
+
+        return $lastResponse;
+    }
+
+    private function withJitter(int $seconds, float $ratio = 0.25): int
+    {
+        $seconds = max(1, $seconds);
+        $jitter = (int) ceil($seconds * max(0.0, $ratio));
+        if ($jitter <= 0) {
+            return $seconds;
+        }
+
+        try {
+            $offset = random_int(-$jitter, $jitter);
+        } catch (\Throwable) {
+            $offset = 0;
+        }
+
+        return max(1, $seconds + $offset);
+    }
+
+    private function extractRequestId(?Response $response): ?string
+    {
+        if (!$response) {
+            return null;
+        }
+
+        $requestId = (string) ($response->header('x-amzn-RequestId')
+            ?? $response->header('x-amzn-requestid')
+            ?? $response->header('x-amz-request-id')
+            ?? '');
+        $requestId = trim($requestId);
+        return $requestId !== '' ? $requestId : null;
+    }
+
+    private function isMarketplaceFacilitatorItem(array $item): bool
+    {
+        $taxCollection = $item['TaxCollection'] ?? null;
+        if (!is_array($taxCollection)) {
+            return false;
+        }
+
+        $model = strtolower(trim((string) ($taxCollection['Model'] ?? '')));
+        $responsibleParty = strtolower(trim((string) ($taxCollection['ResponsibleParty'] ?? '')));
+
+        if ($model === '' && $responsibleParty === '') {
+            return false;
+        }
+
+        return str_contains($model, 'marketplace')
+            || str_contains($responsibleParty, 'marketplace')
+            || str_contains($responsibleParty, 'amazon');
     }
 }
