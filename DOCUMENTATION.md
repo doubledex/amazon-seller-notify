@@ -75,6 +75,7 @@ Defined in `routes/console.php`:
 - `listings:queue-reports` daily at 03:30
 - `listings:poll-reports --limit=200` every ten minutes
 - `map:geocode-missing --limit=250` daily at 02:30
+- `map:geocode-missing-cities --limit=250 --older-than-days=14` daily at 02:35
 - `orders:sync --days=7 --max-pages=5 --items-limit=50 --address-limit=50` hourly
 - `orders:sync --days=30 --max-pages=20 --items-limit=300 --address-limit=300` daily at 03:50 (reconciliation for late status changes)
 - `sqs:process` every minute
@@ -149,6 +150,9 @@ Check logs:
 ### Geocoding
 - `php artisan map:geocode-missing --limit=250`
   - Why: backfill missing postal-code geocoding data.
+
+- `php artisan map:geocode-missing-cities --limit=250 --older-than-days=14`
+  - Why: persist city-level fallback geocodes for older stable orders when postal code is unavailable.
 
 ## Notes on Ads Async Reliability
 - Queue + poll flow is the primary path for long-running reports.

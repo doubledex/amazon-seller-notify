@@ -8,6 +8,7 @@ use DateTime;
 use Illuminate\Support\Facades\Log;
 use App\Services\MarketplaceService;
 use App\Services\RegionConfigService;
+use App\Models\CityGeo;
 use App\Models\PostalCodeGeo;
 use App\Models\OrderShipAddress;
 use App\Models\Order;
@@ -16,7 +17,6 @@ use App\Services\PostalGeocoder;
 use App\Services\OrderQueryService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Cache;
 use App\Jobs\SyncOrdersJob;
 
 class OrderController extends Controller
@@ -467,6 +467,51 @@ class OrderController extends Controller
             ->values()
             ->all();
 
+        $neededCityGroups = [];
+        foreach ($byPostal as $key => $entry) {
+            $city = trim((string) ($byPostalPlace[$key]['city'] ?? ''));
+            $region = trim((string) ($byPostalPlace[$key]['region'] ?? ''));
+            if ($city === '') {
+                continue;
+            }
+
+            $hash = CityGeo::lookupHash((string) $entry['country'], $city, $region);
+            $neededCityGroups[$hash] = [
+                'country' => (string) $entry['country'],
+                'city' => $city,
+                'region' => $region,
+                'hash' => $hash,
+            ];
+        }
+
+        foreach ($missingCityRows as $row) {
+            $country = trim((string) ($row->country ?? ''));
+            $city = trim((string) ($row->city ?? ''));
+            $region = trim((string) ($row->region ?? ''));
+            if ($country === '' || $city === '') {
+                continue;
+            }
+
+            $hash = CityGeo::lookupHash($country, $city, $region);
+            $neededCityGroups[$hash] = [
+                'country' => $country,
+                'city' => $city,
+                'region' => $region,
+                'hash' => $hash,
+            ];
+        }
+
+        $cityGeoMap = [];
+        if (!empty($neededCityGroups)) {
+            $cityRows = CityGeo::query()
+                ->whereIn('lookup_hash', array_keys($neededCityGroups))
+                ->get();
+
+            foreach ($cityRows as $row) {
+                $cityGeoMap[(string) $row->lookup_hash] = $row;
+            }
+        }
+
         $geoMap = [];
         foreach ($groups as $country => $postals) {
             $rows = PostalCodeGeo::query()
@@ -525,11 +570,32 @@ class OrderController extends Controller
             } else {
                 $city = $byPostalPlace[$key]['city'] ?? null;
                 $region = $byPostalPlace[$key]['region'] ?? null;
+                if ($city) {
+                    $lookupHash = CityGeo::lookupHash($entry['country'], (string) $city, (string) $region);
+                    $persistedCityGeo = $cityGeoMap[$lookupHash] ?? null;
+                    if ($persistedCityGeo) {
+                        $lat = (float) $persistedCityGeo->lat;
+                        $lng = (float) $persistedCityGeo->lng;
+                        if ($lat != 0.0 && $lng != 0.0 && abs($lat) <= 90 && abs($lng) <= 180) {
+                            $points[] = [
+                                'lat' => $lat,
+                                'lng' => $lng,
+                                'country' => $entry['country'],
+                                'postal' => '',
+                                'city' => $city,
+                                'region' => $region ?: null,
+                                'count' => $entry['count'],
+                                'orderIds' => array_values(array_filter($entry['orderIds'])),
+                                'label' => $city,
+                            ];
+                            $cityFallbackPins++;
+                            continue;
+                        }
+                    }
+                }
+
                 if ($geocoder && $city && $cityFallbackPins < self::GEO_MAX_PER_REQUEST) {
-                    $cacheKey = 'geo_city_' . strtolower($entry['country']) . '_' . strtolower($city) . '_' . strtolower((string) $region);
-                    $geoCity = Cache::remember($cacheKey, now()->addDays(1), function () use ($geocoder, $entry, $city, $region) {
-                        return $geocoder->geocodeCity($entry['country'], $city, $region);
-                    });
+                    $geoCity = $geocoder->geocodeCity($entry['country'], (string) $city, $region);
                     if ($geoCity) {
                         $lat = (float) $geoCity['lat'];
                         $lng = (float) $geoCity['lng'];
@@ -539,6 +605,19 @@ class OrderController extends Controller
                                 $sampleCities[] = trim($entry['country'] . ' ' . $city);
                             }
                         } else {
+                            $lookupHash = CityGeo::lookupHash($entry['country'], (string) $city, (string) $region);
+                            CityGeo::updateOrCreate(
+                                ['lookup_hash' => $lookupHash],
+                                [
+                                    'country_code' => CityGeo::normalizeCountry((string) $entry['country']),
+                                    'city' => CityGeo::normalizeCity((string) $city),
+                                    'region' => CityGeo::normalizeRegion((string) $region),
+                                    'lat' => $lat,
+                                    'lng' => $lng,
+                                    'source' => $geoCity['source'] ?? null,
+                                    'last_used_at' => now(),
+                                ]
+                            );
                             $points[] = [
                                 'lat' => $lat,
                                 'lng' => $lng,
@@ -582,10 +661,32 @@ class OrderController extends Controller
                     }
                 }
 
-                $cacheKey = 'geo_city_' . strtolower($country) . '_' . strtolower($city) . '_' . strtolower($region);
-                $geo = Cache::remember($cacheKey, now()->addDays(1), function () use ($geocoder, $country, $city, $region) {
-                    return $geocoder->geocodeCity($country, $city, $region);
-                });
+                $lookupHash = CityGeo::lookupHash($country, $city, $region);
+                $persistedCityGeo = $cityGeoMap[$lookupHash] ?? null;
+                if ($persistedCityGeo) {
+                    $geo = [
+                        'lat' => (float) $persistedCityGeo->lat,
+                        'lng' => (float) $persistedCityGeo->lng,
+                    ];
+                } elseif ($geocoder) {
+                    $geo = $geocoder->geocodeCity($country, $city, $region);
+                    if ($geo) {
+                        CityGeo::updateOrCreate(
+                            ['lookup_hash' => $lookupHash],
+                            [
+                                'country_code' => CityGeo::normalizeCountry($country),
+                                'city' => CityGeo::normalizeCity($city),
+                                'region' => CityGeo::normalizeRegion($region),
+                                'lat' => (float) $geo['lat'],
+                                'lng' => (float) $geo['lng'],
+                                'source' => $geo['source'] ?? null,
+                                'last_used_at' => now(),
+                            ]
+                        );
+                    }
+                } else {
+                    $geo = null;
+                }
 
                 if ($geo) {
                     $points[] = [
