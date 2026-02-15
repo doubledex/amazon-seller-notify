@@ -21,12 +21,28 @@ Minimum required for current scheduled flows:
   - `AMAZON_SP_API_APPLICATION_ID`
   - `AMAZON_SP_API_MARKETPLACE_IDS` (comma-separated)
   - `AMAZON_SP_API_ENDPOINT` (default `EU`)
+  - Legacy fallback supported: `AMAZON_SP_API_ENDPOINTS`
+  - Optional multi-region keys (for EU/NA/FE foundations):
+    - `AMAZON_SP_API_REGIONS`
+    - `AMAZON_SP_API_{EU|NA|FE}_ENDPOINT`
+    - `AMAZON_SP_API_{EU|NA|FE}_CLIENT_ID`
+    - `AMAZON_SP_API_{EU|NA|FE}_CLIENT_SECRET`
+    - `AMAZON_SP_API_{EU|NA|FE}_REFRESH_TOKEN`
+    - `AMAZON_SP_API_{EU|NA|FE}_APPLICATION_ID`
+    - `AMAZON_SP_API_{EU|NA|FE}_MARKETPLACE_IDS`
 
 - Amazon Ads API
   - `AMAZON_ADS_CLIENT_ID`
   - `AMAZON_ADS_CLIENT_SECRET`
   - `AMAZON_ADS_REFRESH_TOKEN`
   - `AMAZON_ADS_BASE_URL` (default `https://advertising-api-eu.amazon.com`)
+  - Optional multi-region keys (for EU/NA/FE foundations):
+    - `AMAZON_ADS_DEFAULT_REGION` (default `EU`)
+    - `AMAZON_ADS_REGIONS`
+    - `AMAZON_ADS_{EU|NA|FE}_CLIENT_ID`
+    - `AMAZON_ADS_{EU|NA|FE}_CLIENT_SECRET`
+    - `AMAZON_ADS_{EU|NA|FE}_REFRESH_TOKEN`
+    - `AMAZON_ADS_{EU|NA|FE}_BASE_URL`
 
 - AWS / SQS
   - `AWS_ACCESS_KEY_ID`
