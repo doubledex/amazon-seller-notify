@@ -456,6 +456,17 @@ class OrderController extends Controller
             $groups[$entry['country']][] = $entry['postal'];
         }
 
+        $topPostalGroups = collect($byPostal)
+            ->sortByDesc(fn (array $entry) => (int) ($entry['count'] ?? 0))
+            ->take(5)
+            ->map(fn (array $entry) => [
+                'country' => (string) ($entry['country'] ?? ''),
+                'postal' => (string) ($entry['postal'] ?? ''),
+                'count' => (int) ($entry['count'] ?? 0),
+            ])
+            ->values()
+            ->all();
+
         $geoMap = [];
         foreach ($groups as $country => $postals) {
             $rows = PostalCodeGeo::query()
@@ -611,6 +622,7 @@ class OrderController extends Controller
             'sampleCities' => $sampleCities,
             'totalOrders' => $totalOrders,
             'liveGeocoding' => $runLiveGeocoding,
+            'topPostalGroups' => $topPostalGroups,
         ]);
     }
 

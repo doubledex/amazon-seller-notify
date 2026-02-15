@@ -399,12 +399,17 @@
                             : `Missing postal on ${data.missingPostal || 0} orders`;
 
                         const cityPins = data.cityFallbackPins || 0;
+                        const topPostalGroups = Array.isArray(data.topPostalGroups) ? data.topPostalGroups : [];
+                        const topGroupsText = topPostalGroups.length
+                            ? ` | Top groups: ${topPostalGroups.map(g => `${g.country} ${g.postal} (${g.count})`).join(', ')}`
+                            : '';
                         const geocodeMode = data.liveGeocoding === false
                             ? 'Live geocode: off (wide date range)'
                             : 'Live geocode: on';
                         document.getElementById('map-meta').textContent =
                             `Orders: ${data.totalOrders || 0} | Postal groups: ${data.totalPostalGroups || 0} | Pins: ${points.length} | City pins: ${cityPins} | Invalid coords: ${invalidCoords} | ${missingText} | New geocodes: ${data.geocodedThisRequest || 0} | Geocode failed: ${data.geocodeFailed || 0}` +
                             (data.samplePostals && data.samplePostals.length ? ` | Samples: ${data.samplePostals.join(', ')}` : '') +
+                            topGroupsText +
                             ` | ${geocodeMode}`;
                     })
                     .catch(() => {
