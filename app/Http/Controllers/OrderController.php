@@ -641,71 +641,69 @@ class OrderController extends Controller
             }
         }
 
-        if ($geocoder) {
-            foreach ($missingCityRows as $row) {
-                if ($cityFallbackPins >= self::GEO_MAX_PER_REQUEST) {
-                    break;
-                }
-                $country = (string) ($row->country ?? '');
-                $city = (string) ($row->city ?? '');
-                $region = (string) ($row->region ?? '');
-                if ($country === '' || $city === '') {
-                    continue;
-                }
+        foreach ($missingCityRows as $row) {
+            if ($cityFallbackPins >= self::GEO_MAX_PER_REQUEST) {
+                break;
+            }
+            $country = (string) ($row->country ?? '');
+            $city = (string) ($row->city ?? '');
+            $region = (string) ($row->region ?? '');
+            if ($country === '' || $city === '') {
+                continue;
+            }
 
-                $orderIds = [];
-                if (!empty($row->order_ids)) {
-                    $orderIds = array_values(array_filter(explode('|', $row->order_ids)));
-                    if (count($orderIds) > 20) {
-                        $orderIds = array_slice($orderIds, 0, 20);
-                    }
+            $orderIds = [];
+            if (!empty($row->order_ids)) {
+                $orderIds = array_values(array_filter(explode('|', $row->order_ids)));
+                if (count($orderIds) > 20) {
+                    $orderIds = array_slice($orderIds, 0, 20);
                 }
+            }
 
-                $lookupHash = CityGeo::lookupHash($country, $city, $region);
-                $persistedCityGeo = $cityGeoMap[$lookupHash] ?? null;
-                if ($persistedCityGeo) {
-                    $geo = [
-                        'lat' => (float) $persistedCityGeo->lat,
-                        'lng' => (float) $persistedCityGeo->lng,
-                    ];
-                } elseif ($geocoder) {
-                    $geo = $geocoder->geocodeCity($country, $city, $region);
-                    if ($geo) {
-                        CityGeo::updateOrCreate(
-                            ['lookup_hash' => $lookupHash],
-                            [
-                                'country_code' => CityGeo::normalizeCountry($country),
-                                'city' => CityGeo::normalizeCity($city),
-                                'region' => CityGeo::normalizeRegion($region),
-                                'lat' => (float) $geo['lat'],
-                                'lng' => (float) $geo['lng'],
-                                'source' => $geo['source'] ?? null,
-                                'last_used_at' => now(),
-                            ]
-                        );
-                    }
-                } else {
-                    $geo = null;
-                }
-
+            $lookupHash = CityGeo::lookupHash($country, $city, $region);
+            $persistedCityGeo = $cityGeoMap[$lookupHash] ?? null;
+            if ($persistedCityGeo) {
+                $geo = [
+                    'lat' => (float) $persistedCityGeo->lat,
+                    'lng' => (float) $persistedCityGeo->lng,
+                ];
+            } elseif ($geocoder) {
+                $geo = $geocoder->geocodeCity($country, $city, $region);
                 if ($geo) {
-                    $points[] = [
-                        'lat' => (float) $geo['lat'],
-                        'lng' => (float) $geo['lng'],
-                        'country' => $country,
-                        'postal' => '',
-                        'city' => $city,
-                        'region' => $region ?: null,
-                        'count' => (int) $row->order_count,
-                        'orderIds' => $orderIds,
-                        'label' => $city,
-                    ];
-                    $cityFallbackPins++;
-                } else {
-                    $cityFallbackFailed++;
-                    if (count($sampleCities) < 5) {
-                        $sampleCities[] = trim($country . ' ' . $city);
-                    }
+                    CityGeo::updateOrCreate(
+                        ['lookup_hash' => $lookupHash],
+                        [
+                            'country_code' => CityGeo::normalizeCountry($country),
+                            'city' => CityGeo::normalizeCity($city),
+                            'region' => CityGeo::normalizeRegion($region),
+                            'lat' => (float) $geo['lat'],
+                            'lng' => (float) $geo['lng'],
+                            'source' => $geo['source'] ?? null,
+                            'last_used_at' => now(),
+                        ]
+                    );
+                }
+            } else {
+                $geo = null;
+            }
+
+            if ($geo) {
+                $points[] = [
+                    'lat' => (float) $geo['lat'],
+                    'lng' => (float) $geo['lng'],
+                    'country' => $country,
+                    'postal' => '',
+                    'city' => $city,
+                    'region' => $region ?: null,
+                    'count' => (int) $row->order_count,
+                    'orderIds' => $orderIds,
+                    'label' => $city,
+                ];
+                $cityFallbackPins++;
+            } else {
+                $cityFallbackFailed++;
+                if (count($sampleCities) < 5) {
+                    $sampleCities[] = trim($country . ' ' . $city);
                 }
             }
         }
