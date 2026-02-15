@@ -11,11 +11,20 @@ use Illuminate\Support\Facades\Log;
 
 class DailyRegionMetricsService
 {
-    private const REGIONS = ['UK', 'EU'];
+    private const REGIONS = ['UK', 'EU', 'NA'];
+
+    private const UK_COUNTRY_CODES = ['GB', 'UK'];
+
+    private const EU_COUNTRY_CODES = [
+        'AT', 'BE', 'DE', 'DK', 'ES', 'FI', 'FR', 'IE', 'IT', 'LU', 'NL', 'NO', 'PL', 'SE', 'CH', 'TR',
+    ];
+
+    private const NA_COUNTRY_CODES = ['US', 'CA', 'MX', 'BR'];
 
     private const LOCAL_CURRENCY = [
         'UK' => 'GBP',
         'EU' => 'EUR',
+        'NA' => 'USD',
     ];
 
     public function __construct(private readonly FxRateService $fxRateService)
@@ -171,15 +180,30 @@ class DailyRegionMetricsService
 
         $query->whereRaw("UPPER(COALESCE(orders.order_status, '')) NOT IN ('CANCELED', 'CANCELLED')");
 
-        if ($region === 'UK') {
-            $query->where('marketplaces.country_code', 'GB');
-        } else {
-            $query->where('marketplaces.country_code', '!=', 'GB');
-        }
+        $this->applyRegionCountryFilter($query, $region);
 
         return $query
             ->groupBy(DB::raw("COALESCE(NULLIF(orders.order_total_currency, ''), NULLIF(item_totals.item_currency, ''), 'GBP')"))
             ->get();
+    }
+
+    private function applyRegionCountryFilter($query, string $region): void
+    {
+        $countryColumn = DB::raw('UPPER(marketplaces.country_code)');
+
+        if ($region === 'UK') {
+            $query->whereIn($countryColumn, self::UK_COUNTRY_CODES);
+            return;
+        }
+
+        if ($region === 'EU') {
+            $query->whereIn($countryColumn, self::EU_COUNTRY_CODES);
+            return;
+        }
+
+        if ($region === 'NA') {
+            $query->whereIn($countryColumn, self::NA_COUNTRY_CODES);
+        }
     }
 
     private function convertRows(Collection $rows, string $toCurrency, string $date): float

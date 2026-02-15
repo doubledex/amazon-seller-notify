@@ -9,7 +9,7 @@ use Illuminate\Support\Carbon;
 class RefreshDailyRegionMetrics extends Command
 {
     protected $signature = 'metrics:refresh {--from=} {--to=} {--ad-spend-csv=}';
-    protected $description = 'Refresh UK/EU daily sales + ad spend metrics with GBP conversion and ACOS.';
+    protected $description = 'Refresh UK/EU/NA daily sales + ad spend metrics with GBP conversion and ACOS.';
 
     public function handle(DailyRegionMetricsService $service): int
     {
@@ -34,4 +34,3 @@ class RefreshDailyRegionMetrics extends Command
         return self::SUCCESS;
     }
 }
-

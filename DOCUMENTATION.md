@@ -111,7 +111,7 @@ Check logs:
 
 ### Metrics
 - `php artisan metrics:refresh --from=YYYY-MM-DD --to=YYYY-MM-DD`
-  - Why: recalculate daily UK/EU sales + ad spend + ACOS metrics.
+  - Why: recalculate daily UK/EU/NA sales + ad spend + ACOS metrics.
 
 ### Listings / Catalog
 - `php artisan listings:sync-europe`

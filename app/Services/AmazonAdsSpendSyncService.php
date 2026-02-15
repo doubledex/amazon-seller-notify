@@ -21,6 +21,8 @@ class AmazonAdsSpendSyncService
         'AT', 'BE', 'DE', 'DK', 'ES', 'FI', 'FR', 'IE', 'IT', 'LU', 'NL', 'NO', 'PL', 'SE', 'CH', 'TR',
     ];
 
+    private const NA_COUNTRY_CODES = ['US', 'CA', 'MX', 'BR'];
+
     public function __construct(private readonly FxRateService $fxRateService)
     {
     }
@@ -80,7 +82,7 @@ class AmazonAdsSpendSyncService
                         continue;
                     }
 
-                    $targetCurrency = $region === 'UK' ? 'GBP' : 'EUR';
+                    $targetCurrency = $this->targetCurrencyForRegion($region);
                     $converted = $this->fxRateService->convert($amount, $currency, $targetCurrency, $date);
                     if ($converted === null) {
                         Log::warning('Amazon Ads spend conversion failed', [
@@ -108,7 +110,7 @@ class AmazonAdsSpendSyncService
                         continue;
                     }
 
-                    $targetCurrency = $region === 'UK' ? 'GBP' : 'EUR';
+                    $targetCurrency = $this->targetCurrencyForRegion($region);
                     $converted = $this->fxRateService->convert($amount, $currency, $targetCurrency, $date);
                     if ($converted === null) {
                         continue;
@@ -783,7 +785,7 @@ class AmazonAdsSpendSyncService
     {
         $region = (string) $request->region;
         $currencyCode = strtoupper((string) $request->currency_code);
-        $targetCurrency = $region === 'UK' ? 'GBP' : 'EUR';
+        $targetCurrency = $this->targetCurrencyForRegion($region);
         if ($region === '' || $currencyCode === '') {
             return [0, []];
         }
@@ -897,7 +899,20 @@ class AmazonAdsSpendSyncService
             return 'UK';
         }
 
+        if (in_array($countryCode, self::NA_COUNTRY_CODES, true)) {
+            return 'NA';
+        }
+
         return in_array($countryCode, self::EU_COUNTRY_CODES, true) ? 'EU' : null;
+    }
+
+    private function targetCurrencyForRegion(string $region): string
+    {
+        return match (strtoupper(trim($region))) {
+            'UK' => 'GBP',
+            'NA' => 'USD',
+            default => 'EUR',
+        };
     }
 
     private function splitRange(Carbon $from, Carbon $to, int $maxDaysPerChunk): array
