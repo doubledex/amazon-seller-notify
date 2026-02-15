@@ -164,12 +164,13 @@ class SqsMessageProcessor
             && (isset($data['EventTime']) || isset($data['eventTime']))) {
             $notificationType = $data['NotificationType'] ?? $data['notificationType'];
             $eventTime = $data['EventTime'] ?? $data['eventTime'];
+            $normalizedEventTime = $this->normalizeEventTime($eventTime);
 
             DB::table('sqs_messages')
                 ->where('message_id', $messageId)
                 ->update([
                     'NotificationType' => $notificationType,
-                    'EventTime' => $eventTime,
+                    'EventTime' => $normalizedEventTime,
                 ]);
 
             Log::info("Updated message ID: {$messageId}");
@@ -177,5 +178,20 @@ class SqsMessageProcessor
         }
 
         return $result;
+    }
+
+    private function normalizeEventTime(mixed $eventTime): ?string
+    {
+        $raw = trim((string) $eventTime);
+        if ($raw === '') {
+            return null;
+        }
+
+        try {
+            return (new \DateTime($raw))->format('Y-m-d H:i:s');
+        } catch (\Exception $e) {
+            Log::warning("Unable to parse EventTime value: {$raw}");
+            return null;
+        }
     }
 }
