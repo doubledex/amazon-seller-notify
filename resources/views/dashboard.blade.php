@@ -13,6 +13,9 @@
                 </div>
             </div>
             <a href="{{ route('orders.index') }}" class="block mt-4 bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg p-6 text-gray-900 dark:text-gray-100">View Amazon Orders</a>
+            <a href="{{ route('asins.europe') }}" class="block mt-4 bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg p-6 text-gray-900 dark:text-gray-100">View ASINs by European Marketplace</a>
+            <a href="{{ route('metrics.index') }}" class="block mt-4 bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg p-6 text-gray-900 dark:text-gray-100">View Daily Sales & Ad Spend (UK/EU)</a>
+            <a href="{{ route('ads.reports') }}" class="block mt-4 bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg p-6 text-gray-900 dark:text-gray-100">View Amazon Ads Queued Reports</a>
             <a href="{{ route('sqs_messages.index') }}" class="block mt-4 bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg p-6 text-gray-900 dark:text-gray-100">View SQS Messages</a>
             <a href="{{ route('notifications.index') }}" class="block mt-4 bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg p-6 text-gray-900 dark:text-gray-100">View Notifications</a>
         </div>

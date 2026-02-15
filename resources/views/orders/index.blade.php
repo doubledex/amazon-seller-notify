@@ -423,6 +423,7 @@
                 <th>Order Status</th>
                 <th>Order ID</th>
                 <th>B2B</th>
+                <th>MF</th>
                 <th>Ship To</th>
                 <th>Network</th>
                 <th>Unshipped</th>
@@ -455,6 +456,15 @@
                             <span style="display:inline-block; padding:2px 6px; border-radius:10px; background:#0b2a4a; color:#fff; font-size:12px; font-weight:600;">B2B</span>
                         @else
                             <span style="color:#9aa3af;">–</span>
+                        @endif
+                    </td>
+                    <td style="text-align:center;">
+                        @if(isset($order['IsMarketplaceFacilitator']) && $order['IsMarketplaceFacilitator'] === true)
+                            <span style="display:inline-block; padding:2px 6px; border-radius:10px; background:#1f6b3b; color:#fff; font-size:12px; font-weight:600;">MF</span>
+                        @elseif(isset($order['IsMarketplaceFacilitator']) && $order['IsMarketplaceFacilitator'] === false)
+                            <span style="color:#9aa3af;">No</span>
+                        @else
+                            <span style="color:#9aa3af;">N/A</span>
                         @endif
                     </td>
                     <td>{{ $order['ShippingAddress']['City'] ?? 'N/A' }}</td>

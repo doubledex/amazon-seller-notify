@@ -102,7 +102,16 @@ class OrderController extends Controller
                 ->paginate($perPage)
                 ->appends($request->query());
 
-            $allOrders = $ordersPaginator->getCollection()->map(function (Order $order) {
+            $orderModels = $ordersPaginator->getCollection();
+            $fallbackOrderIds = $orderModels
+                ->filter(fn (Order $order) => $order->is_marketplace_facilitator === null)
+                ->pluck('amazon_order_id')
+                ->filter()
+                ->values()
+                ->all();
+            $mfFallbackMap = $this->buildMarketplaceFacilitatorMap($fallbackOrderIds);
+
+            $allOrders = $orderModels->map(function (Order $order) use ($mfFallbackMap) {
                 $raw = $order->raw_order;
                 if (is_string($raw)) {
                     $decoded = json_decode($raw, true);
@@ -122,6 +131,7 @@ class OrderController extends Controller
                         'SalesChannel' => $order->sales_channel,
                         'MarketplaceId' => $order->marketplace_id,
                         'IsBusinessOrder' => $order->is_business_order,
+                        'IsMarketplaceFacilitator' => $order->is_marketplace_facilitator ?? ($mfFallbackMap[$order->amazon_order_id] ?? null),
                         'ShippingAddress' => [
                             'City' => $order->shipping_city,
                             'CountryCode' => $order->shipping_country_code,
@@ -130,6 +140,8 @@ class OrderController extends Controller
                             'StateOrRegion' => $order->shipping_region,
                         ],
                     ];
+                } else {
+                    $raw['IsMarketplaceFacilitator'] = $order->is_marketplace_facilitator ?? ($mfFallbackMap[$order->amazon_order_id] ?? null);
                 }
                 return $raw;
             })->values()->all();
@@ -226,6 +238,7 @@ class OrderController extends Controller
                 if ($responseItems->status() < 400) {
                     $itemsData = $responseItems->json();
                     $itemsPayload = $itemsData['payload']['OrderItems'] ?? [];
+                    $isMarketplaceFacilitator = false;
                     foreach ($itemsPayload as $item) {
                         $itemId = $item['OrderItemId'] ?? null;
                         if (!$itemId) {
@@ -244,7 +257,15 @@ class OrderController extends Controller
                                 'raw_item' => $item,
                             ]
                         );
+
+                        if (!$isMarketplaceFacilitator && $this->isMarketplaceFacilitatorItem($item)) {
+                            $isMarketplaceFacilitator = true;
+                        }
                     }
+
+                    Order::query()
+                        ->where('amazon_order_id', $order_id)
+                        ->update(['is_marketplace_facilitator' => $isMarketplaceFacilitator]);
                 }
             }
 
@@ -833,5 +854,61 @@ class OrderController extends Controller
         } catch (\Exception $e) {
             return null;
         }
+    }
+
+    private function buildMarketplaceFacilitatorMap(array $orderIds): array
+    {
+        if (empty($orderIds)) {
+            return [];
+        }
+
+        $result = [];
+        $items = OrderItem::query()
+            ->whereIn('amazon_order_id', $orderIds)
+            ->get(['amazon_order_id', 'raw_item']);
+
+        foreach ($items as $item) {
+            $orderId = (string) $item->amazon_order_id;
+            if ($orderId === '' || !empty($result[$orderId])) {
+                continue;
+            }
+
+            $raw = $item->raw_item;
+            if (is_string($raw)) {
+                $decoded = json_decode($raw, true);
+                $raw = is_array($decoded) ? $decoded : [];
+            }
+
+            if (is_array($raw) && $this->isMarketplaceFacilitatorItem($raw)) {
+                $result[$orderId] = true;
+            }
+        }
+
+        foreach ($orderIds as $orderId) {
+            if (!array_key_exists($orderId, $result)) {
+                $result[$orderId] = false;
+            }
+        }
+
+        return $result;
+    }
+
+    private function isMarketplaceFacilitatorItem(array $item): bool
+    {
+        $taxCollection = $item['TaxCollection'] ?? null;
+        if (!is_array($taxCollection)) {
+            return false;
+        }
+
+        $model = strtolower(trim((string) ($taxCollection['Model'] ?? '')));
+        $responsibleParty = strtolower(trim((string) ($taxCollection['ResponsibleParty'] ?? '')));
+
+        if ($model === '' && $responsibleParty === '') {
+            return false;
+        }
+
+        return str_contains($model, 'marketplace')
+            || str_contains($responsibleParty, 'marketplace')
+            || str_contains($responsibleParty, 'amazon');
     }
 }

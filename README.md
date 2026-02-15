@@ -9,6 +9,8 @@
 
 ## Project Notes
 
+Operational runbook and command reference: see `DOCUMENTATION.md`.
+
 Amazon orders are synced via queued jobs (queue name: `orders`). Run a worker in dev:
 
 ```bash

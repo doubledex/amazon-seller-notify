@@ -26,9 +26,24 @@ class SqsMessageProcessor
         $this->queueUrl = (string) config('services.sqs.queue_url');
     }
 
-    public function processMessages(): void
+    public function processMessages(?callable $detailLogger = null): array
     {
+        $stats = [
+            'received' => 0,
+            'stored' => 0,
+            'duplicates_deleted' => 0,
+            'deleted' => 0,
+            'updated' => 0,
+            'invalid_json' => 0,
+            'errors' => 0,
+            'no_messages' => false,
+            'queue_before' => null,
+            'queue_after' => null,
+        ];
+
         try {
+            $stats['queue_before'] = $this->getQueueDepth();
+
             $result = $this->sqsClient->receiveMessage([
                 'QueueUrl' => $this->queueUrl,
                 'MaxNumberOfMessages' => 10,
@@ -37,13 +52,15 @@ class SqsMessageProcessor
 
             if (!isset($result['Messages'])) {
                 Log::info('No messages received from SQS queue.');
-                return;
+                $stats['no_messages'] = true;
+                return $stats;
             }
 
             foreach ($result['Messages'] as $message) {
                 $messageId = $message['MessageId'];
                 $receiptHandle = $message['ReceiptHandle'];
                 $body = $message['Body'];
+                $stats['received']++;
 
                 $existingMessage = SqsMessage::where('message_id', $messageId)->first();
                 if ($existingMessage) {
@@ -52,6 +69,11 @@ class SqsMessageProcessor
                         'ReceiptHandle' => $receiptHandle,
                     ]);
                     Log::info("Duplicate message found and deleted: {$messageId}");
+                    $stats['duplicates_deleted']++;
+                    $stats['deleted']++;
+                    if ($detailLogger) {
+                        $detailLogger("duplicate_deleted {$messageId}");
+                    }
                     continue;
                 }
 
@@ -64,29 +86,78 @@ class SqsMessageProcessor
                         'processed' => true,
                     ]);
                     Log::info("Message stored in database: {$messageId}");
+                    $stats['stored']++;
+                    if ($detailLogger) {
+                        $detailLogger("stored {$messageId}");
+                    }
 
-                    $this->handleMessage($messageId, $body);
+                    $handled = $this->handleMessage($messageId, $body);
+                    if ($handled['updated']) {
+                        $stats['updated']++;
+                    }
+                    if ($handled['invalid_json']) {
+                        $stats['invalid_json']++;
+                    }
 
                     $this->sqsClient->deleteMessage([
                         'QueueUrl' => $this->queueUrl,
                         'ReceiptHandle' => $receiptHandle,
                     ]);
+                    $stats['deleted']++;
                 } catch (\Exception $e) {
                     Log::error("Error processing or storing message: {$e->getMessage()}");
                     Log::error("Error details: {$e->getTraceAsString()}");
+                    $stats['errors']++;
+                    if ($detailLogger) {
+                        $detailLogger("error {$messageId}: {$e->getMessage()}");
+                    }
                 }
             }
+
+            $stats['queue_after'] = $this->getQueueDepth();
         } catch (\Exception $e) {
             Log::error("Error receiving messages from SQS: {$e->getMessage()}");
+            $stats['errors']++;
+            if ($detailLogger) {
+                $detailLogger("receive_error {$e->getMessage()}");
+            }
+        }
+
+        return $stats;
+    }
+
+    private function getQueueDepth(): ?array
+    {
+        try {
+            $result = $this->sqsClient->getQueueAttributes([
+                'QueueUrl' => $this->queueUrl,
+                'AttributeNames' => [
+                    'ApproximateNumberOfMessages',
+                    'ApproximateNumberOfMessagesNotVisible',
+                    'ApproximateNumberOfMessagesDelayed',
+                ],
+            ]);
+
+            $attrs = $result->get('Attributes') ?? [];
+            return [
+                'visible' => (int) ($attrs['ApproximateNumberOfMessages'] ?? 0),
+                'in_flight' => (int) ($attrs['ApproximateNumberOfMessagesNotVisible'] ?? 0),
+                'delayed' => (int) ($attrs['ApproximateNumberOfMessagesDelayed'] ?? 0),
+            ];
+        } catch (\Exception $e) {
+            Log::warning("Unable to fetch SQS queue attributes: {$e->getMessage()}");
+            return null;
         }
     }
 
-    private function handleMessage(string $messageId, string $body): void
+    private function handleMessage(string $messageId, string $body): array
     {
+        $result = ['updated' => false, 'invalid_json' => false];
         $data = json_decode($body, true);
         if ($data === null) {
             Log::warning("Message body is not valid JSON: {$body}");
-            return;
+            $result['invalid_json'] = true;
+            return $result;
         }
 
         if ((isset($data['NotificationType']) || isset($data['notificationType']))
@@ -102,6 +173,9 @@ class SqsMessageProcessor
                 ]);
 
             Log::info("Updated message ID: {$messageId}");
+            $result['updated'] = true;
         }
+
+        return $result;
     }
 }

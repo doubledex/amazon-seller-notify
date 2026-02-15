@@ -45,6 +45,13 @@ return [
 
     ],
 
+    'amazon_ads' => [
+        'client_id' => env('AMAZON_ADS_CLIENT_ID'),
+        'client_secret' => env('AMAZON_ADS_CLIENT_SECRET'),
+        'refresh_token' => env('AMAZON_ADS_REFRESH_TOKEN'),
+        'base_url' => env('AMAZON_ADS_BASE_URL', 'https://advertising-api-eu.amazon.com'),
+    ],
+
     'sqs' => [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),
