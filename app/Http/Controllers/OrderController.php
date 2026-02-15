@@ -25,7 +25,6 @@ class OrderController extends Controller
     private $marketplaceService;
     private $orderQueryService;
     private const ORDERS_MAX_RETRIES = 3;
-    private const GEO_MAX_PER_REQUEST = 25;
     private const LIVE_GEOCODE_MAX_RANGE_DAYS = 30;
 
     public function __construct()
@@ -535,7 +534,7 @@ class OrderController extends Controller
         foreach ($byPostal as $key => $entry) {
             $geo = $geoMap[$key] ?? null;
 
-            if (!$geo && $geocoder && $newGeocodes < self::GEO_MAX_PER_REQUEST) {
+            if (!$geo && $geocoder) {
                 $result = $geocoder->geocode($entry['country'], $entry['postal']);
                 if ($result) {
                     $geo = PostalCodeGeo::updateOrCreate(
@@ -594,7 +593,7 @@ class OrderController extends Controller
                     }
                 }
 
-                if ($geocoder && $city && $cityFallbackPins < self::GEO_MAX_PER_REQUEST) {
+                if ($geocoder && $city) {
                     $geoCity = $geocoder->geocodeCity($entry['country'], (string) $city, $region);
                     if ($geoCity) {
                         $lat = (float) $geoCity['lat'];
@@ -642,9 +641,6 @@ class OrderController extends Controller
         }
 
         foreach ($missingCityRows as $row) {
-            if ($cityFallbackPins >= self::GEO_MAX_PER_REQUEST) {
-                break;
-            }
             $country = (string) ($row->country ?? '');
             $city = (string) ($row->city ?? '');
             $region = (string) ($row->region ?? '');
