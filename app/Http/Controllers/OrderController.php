@@ -13,7 +13,6 @@ use App\Models\PostalCodeGeo;
 use App\Models\OrderShipAddress;
 use App\Models\Order;
 use App\Models\OrderItem;
-use App\Services\PostalGeocoder;
 use App\Services\OrderQueryService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
@@ -25,7 +24,6 @@ class OrderController extends Controller
     private $marketplaceService;
     private $orderQueryService;
     private const ORDERS_MAX_RETRIES = 3;
-    private const LIVE_GEOCODE_MAX_RANGE_DAYS = 30;
 
     public function __construct()
     {
@@ -356,7 +354,7 @@ class OrderController extends Controller
 
     public function mapData(Request $request)
     {
-        $runLiveGeocoding = $this->shouldRunLiveGeocoding($request);
+        $runLiveGeocoding = false;
 
         $marketplacesUi = $this->marketplaceService->getMarketplacesForUi($this->connector);
         $countries = [];
@@ -522,7 +520,7 @@ class OrderController extends Controller
             }
         }
 
-        $geocoder = $runLiveGeocoding ? new PostalGeocoder() : null;
+        $geocoder = null;
         $newGeocodes = 0;
         $geocodeFailed = 0;
         $samplePostals = [];
@@ -719,33 +717,6 @@ class OrderController extends Controller
             'liveGeocoding' => $runLiveGeocoding,
             'topPostalGroups' => $topPostalGroups,
         ]);
-    }
-
-    private function shouldRunLiveGeocoding(Request $request): bool
-    {
-        $createdAfterInput = trim((string) $request->input('created_after', ''));
-        $createdBeforeInput = trim((string) $request->input('created_before', ''));
-
-        if ($createdAfterInput === '' || $createdBeforeInput === '') {
-            return true;
-        }
-
-        $createdAfter = $this->orderQueryService->normalizeCreatedAfter($createdAfterInput);
-        $createdBefore = $this->orderQueryService->normalizeCreatedBefore($createdBeforeInput);
-
-        try {
-            $start = new DateTime($createdAfter);
-            $end = new DateTime($createdBefore);
-        } catch (\Exception $e) {
-            return true;
-        }
-
-        if ($end < $start) {
-            return true;
-        }
-
-        $seconds = $end->getTimestamp() - $start->getTimestamp();
-        return $seconds <= (self::LIVE_GEOCODE_MAX_RANGE_DAYS * 86400);
     }
 
     public function syncNow(Request $request)

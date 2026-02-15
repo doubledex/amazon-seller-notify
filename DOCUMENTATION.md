@@ -154,6 +154,9 @@ Check logs:
 - `php artisan map:geocode-missing-cities --limit=250 --older-than-days=14`
   - Why: persist city-level fallback geocodes for older stable orders when postal code is unavailable.
 
+- Map rendering (`/orders?view=map`) is DB-only for geocoding.
+  - Why: avoid slow/variable page loads and third-party geocoder calls during page requests.
+
 ## Notes on Ads Async Reliability
 - Queue + poll flow is the primary path for long-running reports.
 - Report state is persisted with retries and next-check scheduling.
