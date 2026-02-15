@@ -24,9 +24,10 @@ class MarketplaceListingsSyncService
         ?array $marketplaceIds = null,
         int $maxAttempts = 8,
         int $sleepSeconds = 3,
-        string $reportType = self::DEFAULT_REPORT_TYPE
+        string $reportType = self::DEFAULT_REPORT_TYPE,
+        ?string $region = null
     ): array {
-        $queueResult = $this->queueEuropeReports($marketplaceIds, $reportType);
+        $queueResult = $this->queueEuropeReports($marketplaceIds, $reportType, $region);
         $reportIds = $queueResult['report_ids'] ?? [];
         if (empty($reportIds)) {
             return ['synced' => 0, 'marketplaces' => $queueResult['marketplaces'] ?? []];
@@ -34,7 +35,7 @@ class MarketplaceListingsSyncService
 
         $iterations = max(1, $maxAttempts);
         for ($i = 0; $i < $iterations; $i++) {
-            $pollResult = $this->pollQueuedReports(200, $marketplaceIds, $reportType, $reportIds);
+            $pollResult = $this->pollQueuedReports(200, $marketplaceIds, $reportType, $reportIds, $region);
             if (($pollResult['outstanding'] ?? 0) <= 0) {
                 break;
             }
@@ -66,14 +67,18 @@ class MarketplaceListingsSyncService
         ];
     }
 
-    public function queueEuropeReports(?array $marketplaceIds = null, string $reportType = self::DEFAULT_REPORT_TYPE): array
+    public function queueEuropeReports(
+        ?array $marketplaceIds = null,
+        string $reportType = self::DEFAULT_REPORT_TYPE,
+        ?string $region = null
+    ): array
     {
         $marketplaceIds = $this->resolveMarketplaceIds($marketplaceIds);
         if (empty($marketplaceIds)) {
             return ['created' => 0, 'existing' => 0, 'failed' => 0, 'outstanding' => 0, 'report_ids' => [], 'marketplaces' => []];
         }
 
-        $connector = $this->makeConnector();
+        $connector = $this->makeConnector($region);
         $reportsApi = $connector->reportsV20210630();
 
         $created = 0;
@@ -164,9 +169,10 @@ class MarketplaceListingsSyncService
         int $limit = 100,
         ?array $marketplaceIds = null,
         string $reportType = self::DEFAULT_REPORT_TYPE,
-        ?array $reportIds = null
+        ?array $reportIds = null,
+        ?string $region = null
     ): array {
-        $connector = $this->makeConnector();
+        $connector = $this->makeConnector($region);
         $reportsApi = $connector->reportsV20210630();
 
         $query = SpApiReportRequest::query()
@@ -292,13 +298,15 @@ class MarketplaceListingsSyncService
             ->all();
     }
 
-    private function makeConnector(): SellingPartnerApi
+    private function makeConnector(?string $region = null): SellingPartnerApi
     {
+        $regionConfig = (new RegionConfigService())->spApiConfig($region);
+
         return SellingPartnerApi::seller(
-            clientId: (string) config('services.amazon_sp_api.client_id'),
-            clientSecret: (string) config('services.amazon_sp_api.client_secret'),
-            refreshToken: (string) config('services.amazon_sp_api.refresh_token'),
-            endpoint: Endpoint::tryFrom(strtoupper((string) config('services.amazon_sp_api.endpoint', 'EU'))) ?? Endpoint::EU,
+            clientId: (string) $regionConfig['client_id'],
+            clientSecret: (string) $regionConfig['client_secret'],
+            refreshToken: (string) $regionConfig['refresh_token'],
+            endpoint: Endpoint::tryFrom((string) $regionConfig['endpoint']) ?? Endpoint::EU,
         );
     }
 

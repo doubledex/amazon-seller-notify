@@ -8,6 +8,7 @@ use SellingPartnerApi\Enums\Endpoint;
 use DateTime;
 use Illuminate\Support\Facades\Log;
 use App\Services\MarketplaceService;
+use App\Services\RegionConfigService;
 use App\Models\PostalCodeGeo;
 use App\Models\OrderShipAddress;
 use App\Models\Order;
@@ -30,13 +31,13 @@ class OrderController extends Controller
 
     public function __construct()
     {
-        $endpointValue = strtoupper((string) config('services.amazon_sp_api.endpoint', 'EU'));
-        $endpoint = Endpoint::tryFrom($endpointValue) ?? Endpoint::EU;
+        $regionConfig = (new RegionConfigService())->spApiConfig();
+        $endpoint = Endpoint::tryFrom((string) $regionConfig['endpoint']) ?? Endpoint::EU;
 
         $this->connector = SellingPartnerApi::seller(
-            clientId: config('services.amazon_sp_api.client_id'),
-            clientSecret: config('services.amazon_sp_api.client_secret'),
-            refreshToken: config('services.amazon_sp_api.refresh_token'),
+            clientId: (string) $regionConfig['client_id'],
+            clientSecret: (string) $regionConfig['client_secret'],
+            refreshToken: (string) $regionConfig['refresh_token'],
             endpoint: $endpoint
         );
         $this->marketplaceService = new MarketplaceService();

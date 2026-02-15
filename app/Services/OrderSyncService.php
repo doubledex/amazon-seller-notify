@@ -23,20 +23,21 @@ class OrderSyncService
         ?string $endBefore,
         int $maxPages,
         int $itemsLimit,
-        int $addressLimit
+        int $addressLimit,
+        ?string $region = null
     ): array {
         $days = max(1, min($days, 30));
         $maxPages = max(1, min($maxPages, 20));
         $itemsLimit = max(0, min($itemsLimit, 500));
         $addressLimit = max(0, min($addressLimit, 500));
 
-        $endpointValue = strtoupper((string) config('services.amazon_sp_api.endpoint', 'EU'));
-        $endpoint = Endpoint::tryFrom($endpointValue) ?? Endpoint::EU;
+        $regionConfig = (new RegionConfigService())->spApiConfig($region);
+        $endpoint = Endpoint::tryFrom((string) $regionConfig['endpoint']) ?? Endpoint::EU;
 
         $connector = SellingPartnerApi::seller(
-            clientId: config('services.amazon_sp_api.client_id'),
-            clientSecret: config('services.amazon_sp_api.client_secret'),
-            refreshToken: config('services.amazon_sp_api.refresh_token'),
+            clientId: (string) $regionConfig['client_id'],
+            clientSecret: (string) $regionConfig['client_secret'],
+            refreshToken: (string) $regionConfig['refresh_token'],
             endpoint: $endpoint
         );
 

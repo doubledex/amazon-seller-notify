@@ -3,24 +3,25 @@
 namespace App\Console\Commands;
 
 use App\Services\MarketplaceService;
+use App\Services\RegionConfigService;
 use Illuminate\Console\Command;
 use SellingPartnerApi\Enums\Endpoint;
 use SellingPartnerApi\SellingPartnerApi;
 
 class SyncMarketplaces extends Command
 {
-    protected $signature = 'marketplaces:sync';
+    protected $signature = 'marketplaces:sync {--region= : Optional SP-API region (EU|NA|FE)}';
     protected $description = 'Sync Amazon marketplace participation data from SP-API.';
 
     public function handle(): int
     {
-        $endpointValue = strtoupper((string) config('services.amazon_sp_api.endpoint', 'EU'));
-        $endpoint = Endpoint::tryFrom($endpointValue) ?? Endpoint::EU;
+        $regionConfig = (new RegionConfigService())->spApiConfig((string) ($this->option('region') ?? ''));
+        $endpoint = Endpoint::tryFrom((string) $regionConfig['endpoint']) ?? Endpoint::EU;
 
         $connector = SellingPartnerApi::seller(
-            clientId: config('services.amazon_sp_api.client_id'),
-            clientSecret: config('services.amazon_sp_api.client_secret'),
-            refreshToken: config('services.amazon_sp_api.refresh_token'),
+            clientId: (string) $regionConfig['client_id'],
+            clientSecret: (string) $regionConfig['client_secret'],
+            refreshToken: (string) $regionConfig['refresh_token'],
             endpoint: $endpoint
         );
 
