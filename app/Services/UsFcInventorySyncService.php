@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\UsFcInventory;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use SellingPartnerApi\Seller\ReportsV20210630\Dto\CreateReportSpecification;
 use SellingPartnerApi\SellingPartnerApi;
@@ -112,10 +113,45 @@ class UsFcInventorySyncService
             ];
         }
 
-        $documentResponse = $reportsApi->getReportDocument($reportDocumentId, $reportType);
-        $document = $documentResponse->dto();
-        $downloaded = $document->download($reportType);
-        $rows = $this->normalizeDownloadedRows($downloaded);
+        $documentResponse = $reportsApi->getReportDocument($reportDocumentId);
+        $documentPayload = $documentResponse->json();
+        $documentUrl = trim((string) ($documentPayload['url'] ?? ''));
+        $compression = strtoupper(trim((string) ($documentPayload['compressionAlgorithm'] ?? '')));
+
+        if ($documentUrl === '') {
+            return [
+                'ok' => false,
+                'message' => 'Report document URL missing.',
+                'report_id' => $reportId,
+                'rows' => 0,
+            ];
+        }
+
+        $download = Http::timeout(120)->retry(2, 500)->get($documentUrl);
+        if (!$download->successful()) {
+            return [
+                'ok' => false,
+                'message' => 'Failed downloading report document.',
+                'report_id' => $reportId,
+                'rows' => 0,
+            ];
+        }
+
+        $raw = (string) $download->body();
+        if ($compression === 'GZIP') {
+            $decoded = @gzdecode($raw);
+            if ($decoded === false) {
+                return [
+                    'ok' => false,
+                    'message' => 'Failed to decode GZIP report document.',
+                    'report_id' => $reportId,
+                    'rows' => 0,
+                ];
+            }
+            $raw = $decoded;
+        }
+
+        $rows = $this->parseDelimitedText($raw);
 
         $upsertRows = [];
         $missingFcRows = 0;
@@ -198,22 +234,6 @@ class UsFcInventorySyncService
             refreshToken: (string) $config['refresh_token'],
             endpoint: $regionService->spApiEndpointEnum($region)
         );
-    }
-
-    private function normalizeDownloadedRows(mixed $downloaded): array
-    {
-        if (is_array($downloaded)) {
-            if (array_is_list($downloaded)) {
-                return array_values(array_filter($downloaded, fn ($row) => is_array($row)));
-            }
-            return [$downloaded];
-        }
-
-        if (is_string($downloaded)) {
-            return $this->parseDelimitedText($downloaded);
-        }
-
-        return [];
     }
 
     private function parseDelimitedText(string $text): array
