@@ -113,7 +113,7 @@ class UsFcInventorySyncService
             ];
         }
 
-        $documentResponse = $reportsApi->getReportDocument($reportDocumentId);
+        $documentResponse = $reportsApi->getReportDocument($reportDocumentId, $reportType);
         $documentPayload = $documentResponse->json();
         $documentUrl = trim((string) ($documentPayload['url'] ?? ''));
         $compression = strtoupper(trim((string) ($documentPayload['compressionAlgorithm'] ?? '')));
