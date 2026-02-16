@@ -78,9 +78,9 @@
                                     @php
                                         $allItems = collect($day['items']);
                                         $gbItems = $allItems->filter(fn ($i) => in_array(strtoupper((string) ($i['country'] ?? '')), ['GB', 'UK'], true))->values();
-                                        $usItems = $allItems->filter(fn ($i) => strtoupper((string) ($i['country'] ?? '')) === 'US')->values();
+                                        $naItems = $allItems->filter(fn ($i) => in_array(strtoupper((string) ($i['country'] ?? '')), ['US', 'CA', 'MX', 'BR'], true))->values();
                                         $euItems = $allItems->filter(fn ($i) => in_array(strtoupper((string) ($i['country'] ?? '')), ['AT','BE','CH','DE','DK','ES','FI','FR','IE','IT','LU','NL','NO','PL','SE'], true))->values();
-                                        $otherItems = $allItems->filter(fn ($i) => !in_array(strtoupper((string) ($i['country'] ?? '')), ['GB', 'UK', 'US', 'AT','BE','CH','DE','DK','ES','FI','FR','IE','IT','LU','NL','NO','PL','SE'], true))->values();
+                                        $otherItems = $allItems->filter(fn ($i) => !in_array(strtoupper((string) ($i['country'] ?? '')), ['GB', 'UK', 'US', 'CA', 'MX', 'BR', 'AT','BE','CH','DE','DK','ES','FI','FR','IE','IT','LU','NL','NO','PL','SE'], true))->values();
 
                                         $euSalesLocal = (float) $euItems->sum(fn ($i) => (float) ($i['sales_local'] ?? 0));
                                         $euAdLocal = (float) $euItems->sum(fn ($i) => (float) ($i['ad_local'] ?? 0));
@@ -115,7 +115,7 @@
                                             <td class="text-right">{{ $euAcos !== null ? number_format($euAcos, 2) . '%' : 'N/A' }}</td>
                                         </tr>
                                     @endif
-                                    @foreach($gbItems as $item)
+                                    @foreach($naItems as $item)
                                         <tr>
                                             <td class="text-left">{{ $item['country'] }}</td>
                                             <td class="text-right">{{ number_format((int) ($item['order_count'] ?? 0)) }}</td>
@@ -127,7 +127,7 @@
                                             <td class="text-right">{{ $item['acos_percent'] !== null ? number_format((float) $item['acos_percent'], 2) . '%' : 'N/A' }}</td>
                                         </tr>
                                     @endforeach
-                                    @foreach($usItems as $item)
+                                    @foreach($gbItems as $item)
                                         <tr>
                                             <td class="text-left">{{ $item['country'] }}</td>
                                             <td class="text-right">{{ number_format((int) ($item['order_count'] ?? 0)) }}</td>
@@ -151,7 +151,7 @@
                                             <td class="text-right">{{ $item['acos_percent'] !== null ? number_format((float) $item['acos_percent'], 2) . '%' : 'N/A' }}</td>
                                         </tr>
                                     @endforeach
-                                    @if($euItems->isEmpty() && $gbItems->isEmpty() && $usItems->isEmpty() && $otherItems->isEmpty())
+                                    @if($euItems->isEmpty() && $naItems->isEmpty() && $gbItems->isEmpty() && $otherItems->isEmpty())
                                         <tr>
                                             <td colspan="8">No marketplace data for this day.</td>
                                         </tr>
