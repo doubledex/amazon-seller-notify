@@ -10,7 +10,7 @@ use SellingPartnerApi\SellingPartnerApi;
 
 class UsFcInventorySyncService
 {
-    public const DEFAULT_REPORT_TYPE = 'GET_FBA_FULFILLMENT_CURRENT_INVENTORY_DATA';
+    public const DEFAULT_REPORT_TYPE = 'GET_LEDGER_SUMMARY_VIEW_DATA';
     public const DEFAULT_US_MARKETPLACE_ID = 'ATVPDKIKX0DER';
     private const CREATE_REPORT_MAX_RETRIES = 8;
     private const CREATE_REPORT_BASE_BACKOFF_SECONDS = 15;
@@ -33,7 +33,11 @@ class UsFcInventorySyncService
         for ($attempt = 0; $attempt < self::CREATE_REPORT_MAX_RETRIES; $attempt++) {
             try {
                 $createResponse = $reportsApi->createReport(
-                    new CreateReportSpecification($reportType, [$marketplaceId])
+                    new CreateReportSpecification(
+                        reportType: $reportType,
+                        marketplaceIds: [$marketplaceId],
+                        reportOptions: $this->reportOptionsForType($reportType),
+                    )
                 );
                 $reportId = trim((string) ($createResponse->json('reportId') ?? ''));
                 if ($reportId !== '') {
@@ -252,7 +256,18 @@ class UsFcInventorySyncService
 
         $fc = $this->pick($flat, ['fulfillment-center-id', 'fulfillment_center_id', 'fulfillment center id', 'fulfillmentcenterid']);
         if ($fc === '') {
-            $fc = $this->pick($flat, ['warehouse-id', 'warehouse_id', 'warehouse id', 'warehouseid', 'location-id', 'location_id', 'location id', 'locationid', 'fc']);
+            $fc = $this->pick($flat, [
+                'warehouse-id',
+                'warehouse_id',
+                'warehouse id',
+                'warehouseid',
+                'location-id',
+                'location_id',
+                'location id',
+                'locationid',
+                'location',
+                'fc',
+            ]);
         }
 
         $sku = $this->pick($flat, ['seller-sku', 'seller_sku', 'sku', 'merchant-sku', 'merchant_sku', 'merchant sku']);
@@ -293,6 +308,19 @@ class UsFcInventorySyncService
         }
 
         return '';
+    }
+
+    private function reportOptionsForType(string $reportType): ?array
+    {
+        $reportType = strtoupper(trim($reportType));
+
+        if ($reportType === 'GET_LEDGER_SUMMARY_VIEW_DATA') {
+            return [
+                'aggregateByLocation' => 'FC',
+            ];
+        }
+
+        return null;
     }
 
     private function isQuotaExceededError(\Throwable $e): bool

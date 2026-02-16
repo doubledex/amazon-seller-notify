@@ -10,7 +10,7 @@ class SyncUsFcInventory extends Command
     protected $signature = 'inventory:sync-us-fc
         {--region=NA}
         {--marketplace=ATVPDKIKX0DER}
-        {--report-type=GET_FBA_FULFILLMENT_CURRENT_INVENTORY_DATA}
+        {--report-type=GET_LEDGER_SUMMARY_VIEW_DATA}
         {--max-attempts=30}
         {--sleep-seconds=5}';
 
