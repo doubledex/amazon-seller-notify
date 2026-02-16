@@ -10,7 +10,7 @@ class SyncUsFcInventory extends Command
     protected $signature = 'inventory:sync-us-fc
         {--region=NA}
         {--marketplace=ATVPDKIKX0DER}
-        {--report-type=GET_AFN_INVENTORY_DATA}
+        {--report-type=GET_FBA_FULFILLMENT_CURRENT_INVENTORY_DATA}
         {--max-attempts=30}
         {--sleep-seconds=5}';
 
@@ -34,6 +34,20 @@ class SyncUsFcInventory extends Command
         $this->info((string) ($result['message'] ?? 'US FC inventory sync complete.'));
         $this->line('Report ID: ' . (string) ($result['report_id'] ?? 'n/a'));
         $this->line('Rows upserted: ' . (int) ($result['rows'] ?? 0));
+        $this->line('Rows parsed: ' . (int) ($result['rows_parsed'] ?? 0));
+        $this->line('Rows missing FC ID: ' . (int) ($result['rows_missing_fc'] ?? 0));
+        $this->line('Rows missing SKU/FNSKU: ' . (int) ($result['rows_missing_sku'] ?? 0));
+
+        $sampleKeys = $result['sample_row_keys'] ?? [];
+        if (is_array($sampleKeys) && !empty($sampleKeys)) {
+            $this->line('Sample row keys where FC ID was missing:');
+            foreach ($sampleKeys as $keys) {
+                if (!is_array($keys)) {
+                    continue;
+                }
+                $this->line(' - ' . implode(', ', array_map('strval', $keys)));
+            }
+        }
 
         return self::SUCCESS;
     }

@@ -10,7 +10,7 @@ use SellingPartnerApi\SellingPartnerApi;
 
 class UsFcInventorySyncService
 {
-    public const DEFAULT_REPORT_TYPE = 'GET_AFN_INVENTORY_DATA';
+    public const DEFAULT_REPORT_TYPE = 'GET_FBA_FULFILLMENT_CURRENT_INVENTORY_DATA';
     public const DEFAULT_US_MARKETPLACE_ID = 'ATVPDKIKX0DER';
 
     public function sync(
@@ -84,6 +84,9 @@ class UsFcInventorySyncService
         $rows = $this->normalizeDownloadedRows($downloaded);
 
         $upsertRows = [];
+        $missingFcRows = 0;
+        $missingSkuRows = 0;
+        $sampleKeys = [];
         $now = now();
         foreach ($rows as $row) {
             $normalized = $this->normalizeRow($row);
@@ -92,7 +95,16 @@ class UsFcInventorySyncService
             $fnsku = $normalized['fnsku'];
             $condition = $normalized['item_condition'];
 
-            if ($fc === '' || ($sku === '' && $fnsku === '')) {
+            if ($fc === '') {
+                $missingFcRows++;
+                if (count($sampleKeys) < 3) {
+                    $sampleKeys[] = array_keys($row);
+                }
+                continue;
+            }
+
+            if ($sku === '' && $fnsku === '') {
+                $missingSkuRows++;
                 continue;
             }
 
@@ -134,6 +146,10 @@ class UsFcInventorySyncService
             'message' => 'US FC inventory sync complete.',
             'report_id' => $reportId,
             'rows' => count($upsertRows),
+            'rows_parsed' => count($rows),
+            'rows_missing_fc' => $missingFcRows,
+            'rows_missing_sku' => $missingSkuRows,
+            'sample_row_keys' => $sampleKeys,
         ];
     }
 
@@ -205,11 +221,27 @@ class UsFcInventorySyncService
         }
 
         $fc = $this->pick($flat, ['fulfillment-center-id', 'fulfillment_center_id', 'fulfillment center id', 'fulfillmentcenterid']);
-        $sku = $this->pick($flat, ['seller-sku', 'seller_sku', 'sku']);
+        if ($fc === '') {
+            $fc = $this->pick($flat, ['warehouse-id', 'warehouse_id', 'warehouse id', 'warehouseid', 'location-id', 'location_id', 'location id', 'locationid', 'fc']);
+        }
+
+        $sku = $this->pick($flat, ['seller-sku', 'seller_sku', 'sku', 'merchant-sku', 'merchant_sku', 'merchant sku']);
         $asin = $this->pick($flat, ['asin']);
         $fnsku = $this->pick($flat, ['fnsku', 'fnsku']);
         $condition = $this->pick($flat, ['condition', 'item-condition', 'item_condition']);
-        $qtyRaw = $this->pick($flat, ['quantity', 'afn-fulfillable-quantity', 'afn_fulfillable_quantity', 'available', 'available_quantity']);
+        $qtyRaw = $this->pick($flat, [
+            'quantity',
+            'afn-fulfillable-quantity',
+            'afn_fulfillable_quantity',
+            'fulfillable-quantity',
+            'fulfillable_quantity',
+            'total-quantity',
+            'total_quantity',
+            'available',
+            'available_quantity',
+            'sellable-quantity',
+            'sellable_quantity',
+        ]);
         $qty = is_numeric($qtyRaw) ? (int) round((float) $qtyRaw) : 0;
 
         return [
