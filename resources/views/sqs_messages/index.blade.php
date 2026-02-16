@@ -67,6 +67,8 @@
                     <a href="{{ route('sqs_messages.show', $message->id) }}">View</a>
                     @if($hasReportDocument)
                         |
+                        <a href="{{ route('sqs_messages.report_download', ['id' => $message->id, 'format' => 'excel']) }}">Excel</a>
+                        |
                         <a href="{{ route('sqs_messages.report_download', ['id' => $message->id, 'format' => 'csv']) }}">CSV</a>
                         |
                         <a href="{{ route('sqs_messages.report_download', ['id' => $message->id, 'format' => 'xml']) }}">XML</a>

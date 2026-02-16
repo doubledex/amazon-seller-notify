@@ -62,8 +62,11 @@ class SqsMessagesController extends Controller
         $message = SqsMessage::findOrFail($id);
         $report = $this->extractReportDocumentData($message);
         $format = strtolower(trim((string) request('format', 'raw')));
-        if (!in_array($format, ['raw', 'csv', 'xml'], true)) {
+        if (!in_array($format, ['raw', 'csv', 'xml', 'excel', 'xls'], true)) {
             $format = 'raw';
+        }
+        if ($format === 'xls') {
+            $format = 'excel';
         }
 
         if ($report === null) {
@@ -125,6 +128,16 @@ class SqsMessagesController extends Controller
 
                     return response($csv, 200, [
                         'Content-Type' => 'text/csv; charset=UTF-8',
+                        'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                    ]);
+                }
+
+                if ($format === 'excel') {
+                    $excelHtml = $this->rowsToExcelHtml($rows, $reportType);
+                    $filename = $this->buildDownloadFileName($reportType, $reportDocumentId, 'xls');
+
+                    return response($excelHtml, 200, [
+                        'Content-Type' => 'application/vnd.ms-excel; charset=UTF-8',
                         'Content-Disposition' => 'attachment; filename="' . $filename . '"',
                     ]);
                 }
@@ -314,6 +327,37 @@ class SqsMessagesController extends Controller
         }
 
         return (string) $xml->asXML();
+    }
+
+    private function rowsToExcelHtml(array $rows, string $reportType): string
+    {
+        $headers = [];
+        foreach ($rows as $row) {
+            foreach (array_keys($row) as $key) {
+                $headers[$key] = true;
+            }
+        }
+        $headers = array_keys($headers);
+
+        $title = htmlspecialchars($reportType, ENT_QUOTES, 'UTF-8');
+        $html = '<html><head><meta charset="UTF-8"><title>' . $title . '</title></head><body>';
+        $html .= '<table border="1"><thead><tr>';
+        foreach ($headers as $header) {
+            $html .= '<th>' . htmlspecialchars((string) $header, ENT_QUOTES, 'UTF-8') . '</th>';
+        }
+        $html .= '</tr></thead><tbody>';
+
+        foreach ($rows as $row) {
+            $html .= '<tr>';
+            foreach ($headers as $header) {
+                $value = (string) ($row[$header] ?? '');
+                $html .= '<td>' . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . '</td>';
+            }
+            $html .= '</tr>';
+        }
+
+        $html .= '</tbody></table></body></html>';
+        return $html;
     }
 
     private function flattenArray(array $input, string $prefix = ''): array
