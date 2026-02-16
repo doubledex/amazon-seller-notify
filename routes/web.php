@@ -7,6 +7,7 @@ use App\Http\Controllers\SqsMessagesController;
 use App\Http\Controllers\AsinController;
 use App\Http\Controllers\MetricsController;
 use App\Http\Controllers\AdsReportController;
+use App\Http\Controllers\DashboardController;
 
 use Illuminate\Support\Facades\Route;
 
@@ -14,9 +15,9 @@ Route::get('/', function () {
     return view('welcome');
 });
 
-Route::get('/dashboard', function () {
-    return view('dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
+Route::get('/dashboard', [DashboardController::class, 'index'])
+    ->middleware(['auth', 'verified'])
+    ->name('dashboard');
 
 
 Route::middleware('auth')->group(function () {
