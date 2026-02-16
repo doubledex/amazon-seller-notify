@@ -347,6 +347,7 @@ class UsFcInventorySyncService
                 'location id',
                 'locationid',
                 'location',
+                'store',
                 'fc',
             ]);
         }
