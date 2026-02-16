@@ -67,7 +67,11 @@
                     <a href="{{ route('sqs_messages.show', $message->id) }}">View</a>
                     @if($hasReportDocument)
                         |
-                        <a href="{{ route('sqs_messages.report_download', $message->id) }}">Download report</a>
+                        <a href="{{ route('sqs_messages.report_download', ['id' => $message->id, 'format' => 'csv']) }}">CSV</a>
+                        |
+                        <a href="{{ route('sqs_messages.report_download', ['id' => $message->id, 'format' => 'xml']) }}">XML</a>
+                        |
+                        <a href="{{ route('sqs_messages.report_download', ['id' => $message->id, 'format' => 'raw']) }}">Raw</a>
                     @endif
                     <form action="{{ route('sqs_messages.flag', $message->id) }}" method="POST" style="display: inline;">
                         @csrf

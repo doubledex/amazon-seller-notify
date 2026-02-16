@@ -129,7 +129,13 @@
         @if(!empty($messageBody->payload->reportProcessingFinishedNotification->reportDocumentId) && !empty($messageBody->payload->reportProcessingFinishedNotification->reportType))
             <tr>
                 <td>Download:</td>
-                <td><a href="{{ route('sqs_messages.report_download', $message->id) }}">Download report document</a></td>
+                <td>
+                    <a href="{{ route('sqs_messages.report_download', ['id' => $message->id, 'format' => 'csv']) }}">CSV</a>
+                    |
+                    <a href="{{ route('sqs_messages.report_download', ['id' => $message->id, 'format' => 'xml']) }}">XML</a>
+                    |
+                    <a href="{{ route('sqs_messages.report_download', ['id' => $message->id, 'format' => 'raw']) }}">Raw</a>
+                </td>
             </tr>
         @endif
     </table>

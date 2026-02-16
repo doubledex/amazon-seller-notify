@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\SqsMessage;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str; // Add this line
 use SellingPartnerApi\SellingPartnerApi;
 use App\Services\RegionConfigService;
 use App\Services\MarketplaceService;
@@ -62,6 +61,10 @@ class SqsMessagesController extends Controller
     {
         $message = SqsMessage::findOrFail($id);
         $report = $this->extractReportDocumentData($message);
+        $format = strtolower(trim((string) request('format', 'raw')));
+        if (!in_array($format, ['raw', 'csv', 'xml'], true)) {
+            $format = 'raw';
+        }
 
         if ($report === null) {
             return redirect()
@@ -102,18 +105,43 @@ class SqsMessagesController extends Controller
                     continue;
                 }
 
-                $url = trim((string) ($response->json('url') ?? ''));
-                if ($url === '') {
-                    $lastError = 'Report document URL missing in SP-API response.';
-                    continue;
+                if ($format === 'raw') {
+                    $url = trim((string) ($response->json('url') ?? ''));
+                    if ($url === '') {
+                        $lastError = 'Report document URL missing in SP-API response.';
+                        continue;
+                    }
+
+                    return redirect()->away($url);
                 }
 
-                return redirect()->away($url);
+                $document = $response->dto();
+                $downloaded = $document->download($reportType);
+                $rows = $this->normalizeDownloadedReportRows($downloaded);
+
+                if ($format === 'csv') {
+                    $csv = $this->rowsToCsv($rows);
+                    $filename = $this->buildDownloadFileName($reportType, $reportDocumentId, 'csv');
+
+                    return response($csv, 200, [
+                        'Content-Type' => 'text/csv; charset=UTF-8',
+                        'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                    ]);
+                }
+
+                $xml = $this->rowsToXml($rows, $reportType, $reportDocumentId);
+                $filename = $this->buildDownloadFileName($reportType, $reportDocumentId, 'xml');
+
+                return response($xml, 200, [
+                    'Content-Type' => 'application/xml; charset=UTF-8',
+                    'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                ]);
             } catch (\Throwable $e) {
                 $lastError = $e->getMessage();
                 Log::warning('SQS report document download attempt failed', [
                     'message_id' => $message->id,
                     'region' => $region,
+                    'format' => $format,
                     'report_document_id' => $reportDocumentId,
                     'error' => $e->getMessage(),
                 ]);
@@ -180,5 +208,138 @@ class SqsMessagesController extends Controller
         }
 
         return [$documentId, $reportType];
+    }
+
+    private function normalizeDownloadedReportRows(mixed $downloaded): array
+    {
+        if (is_array($downloaded)) {
+            $isList = array_is_list($downloaded);
+            if ($isList) {
+                $rows = [];
+                foreach ($downloaded as $row) {
+                    if (is_array($row)) {
+                        $rows[] = $this->flattenArray($row);
+                    }
+                }
+                return $rows;
+            }
+
+            return [$this->flattenArray($downloaded)];
+        }
+
+        if (is_string($downloaded)) {
+            return $this->parseDelimitedStringRows($downloaded);
+        }
+
+        return [];
+    }
+
+    private function parseDelimitedStringRows(string $content): array
+    {
+        $lines = preg_split('/\r\n|\n|\r/', trim($content));
+        if (!$lines || count($lines) < 1) {
+            return [];
+        }
+
+        $first = $lines[0];
+        $delimiter = str_contains($first, "\t") ? "\t" : ',';
+        $headers = str_getcsv($first, $delimiter);
+        $headers = array_map(fn ($h) => trim((string) $h), $headers);
+
+        $rows = [];
+        for ($i = 1; $i < count($lines); $i++) {
+            $line = trim((string) $lines[$i]);
+            if ($line === '') {
+                continue;
+            }
+
+            $values = str_getcsv($line, $delimiter);
+            $row = [];
+            foreach ($headers as $index => $header) {
+                if ($header === '') {
+                    $header = 'col_' . ($index + 1);
+                }
+                $row[$header] = (string) ($values[$index] ?? '');
+            }
+            $rows[] = $row;
+        }
+
+        return $rows;
+    }
+
+    private function rowsToCsv(array $rows): string
+    {
+        if (empty($rows)) {
+            return '';
+        }
+
+        $headers = [];
+        foreach ($rows as $row) {
+            foreach (array_keys($row) as $key) {
+                $headers[$key] = true;
+            }
+        }
+        $headers = array_keys($headers);
+
+        $stream = fopen('php://temp', 'r+');
+        fputcsv($stream, $headers);
+        foreach ($rows as $row) {
+            $line = [];
+            foreach ($headers as $header) {
+                $line[] = (string) ($row[$header] ?? '');
+            }
+            fputcsv($stream, $line);
+        }
+
+        rewind($stream);
+        $csv = stream_get_contents($stream);
+        fclose($stream);
+
+        return (string) $csv;
+    }
+
+    private function rowsToXml(array $rows, string $reportType, string $reportDocumentId): string
+    {
+        $xml = new \SimpleXMLElement('<?xml version="1.0" encoding="UTF-8"?><report/>');
+        $xml->addAttribute('type', $reportType);
+        $xml->addAttribute('document_id', $reportDocumentId);
+
+        foreach ($rows as $row) {
+            $rowNode = $xml->addChild('row');
+            foreach ($row as $key => $value) {
+                $field = $rowNode->addChild('field');
+                $field->addAttribute('name', (string) $key);
+                $field[0] = htmlspecialchars((string) $value, ENT_QUOTES | ENT_XML1, 'UTF-8');
+            }
+        }
+
+        return (string) $xml->asXML();
+    }
+
+    private function flattenArray(array $input, string $prefix = ''): array
+    {
+        $result = [];
+
+        foreach ($input as $key => $value) {
+            $key = (string) $key;
+            $newKey = $prefix === '' ? $key : $prefix . '.' . $key;
+
+            if (is_array($value)) {
+                $result = array_merge($result, $this->flattenArray($value, $newKey));
+            } else {
+                $result[$newKey] = is_scalar($value) || $value === null
+                    ? (string) ($value ?? '')
+                    : json_encode($value);
+            }
+        }
+
+        return $result;
+    }
+
+    private function buildDownloadFileName(string $reportType, string $reportDocumentId, string $extension): string
+    {
+        $safeType = preg_replace('/[^A-Za-z0-9_\-]/', '_', $reportType);
+        $safeDoc = preg_replace('/[^A-Za-z0-9_\-\.]/', '_', $reportDocumentId);
+        return "{$safeType}_{$safeDoc}.{$extension}";
     }
 }
