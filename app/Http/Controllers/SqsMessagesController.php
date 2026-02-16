@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\SqsMessage;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str; // Add this line
+use SellingPartnerApi\SellingPartnerApi;
+use App\Services\RegionConfigService;
 use App\Services\MarketplaceService;
 use Illuminate\Support\Facades\Log;
 use App\Services\SqsMessageProcessor;
@@ -56,6 +58,73 @@ class SqsMessagesController extends Controller
         }
     }
 
+    public function downloadReportDocument(int $id)
+    {
+        $message = SqsMessage::findOrFail($id);
+        $report = $this->extractReportDocumentData($message);
+
+        if ($report === null) {
+            return redirect()
+                ->route('sqs_messages.index')
+                ->with('error', 'No report document is attached to this message.');
+        }
+
+        [$reportDocumentId, $reportType] = $report;
+
+        $regionService = new RegionConfigService();
+        $regions = $regionService->spApiRegions();
+
+        $lastError = null;
+        foreach ($regions as $region) {
+            try {
+                $config = $regionService->spApiConfig($region);
+                if (
+                    trim((string) ($config['client_id'] ?? '')) === '' ||
+                    trim((string) ($config['client_secret'] ?? '')) === '' ||
+                    trim((string) ($config['refresh_token'] ?? '')) === ''
+                ) {
+                    continue;
+                }
+
+                $connector = SellingPartnerApi::seller(
+                    clientId: (string) $config['client_id'],
+                    clientSecret: (string) $config['client_secret'],
+                    refreshToken: (string) $config['refresh_token'],
+                    endpoint: $regionService->spApiEndpointEnum($region)
+                );
+
+                $response = $connector
+                    ->reportsV20210630()
+                    ->getReportDocument($reportDocumentId, $reportType);
+
+                if ($response->status() >= 400) {
+                    $lastError = "HTTP {$response->status()}";
+                    continue;
+                }
+
+                $url = trim((string) ($response->json('url') ?? ''));
+                if ($url === '') {
+                    $lastError = 'Report document URL missing in SP-API response.';
+                    continue;
+                }
+
+                return redirect()->away($url);
+            } catch (\Throwable $e) {
+                $lastError = $e->getMessage();
+                Log::warning('SQS report document download attempt failed', [
+                    'message_id' => $message->id,
+                    'region' => $region,
+                    'report_document_id' => $reportDocumentId,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return redirect()
+            ->route('sqs_messages.index')
+            ->with('error', 'Unable to fetch report document URL. ' . ($lastError ? "Last error: {$lastError}" : ''));
+    }
+
     private function formatFetchStatsMessage(array $stats): string
     {
         if (!empty($stats['no_messages'])) {
@@ -84,5 +153,32 @@ class SqsMessagesController extends Controller
         }
 
         return implode(' ', $parts);
+    }
+
+    private function extractReportDocumentData(SqsMessage $message): ?array
+    {
+        $body = json_decode((string) $message->body, true);
+        if (!is_array($body)) {
+            return null;
+        }
+
+        $rootPayload = isset($body['payload']) && is_array($body['payload'])
+            ? $body['payload']
+            : (isset($body['Payload']) && is_array($body['Payload']) ? $body['Payload'] : []);
+
+        $reportNode = isset($rootPayload['reportProcessingFinishedNotification']) && is_array($rootPayload['reportProcessingFinishedNotification'])
+            ? $rootPayload['reportProcessingFinishedNotification']
+            : (isset($rootPayload['ReportProcessingFinishedNotification']) && is_array($rootPayload['ReportProcessingFinishedNotification'])
+                ? $rootPayload['ReportProcessingFinishedNotification']
+                : []);
+
+        $documentId = trim((string) ($reportNode['reportDocumentId'] ?? $reportNode['ReportDocumentId'] ?? ''));
+        $reportType = trim((string) ($reportNode['reportType'] ?? $reportNode['ReportType'] ?? ''));
+
+        if ($documentId === '' || $reportType === '') {
+            return null;
+        }
+
+        return [$documentId, $reportType];
     }
 }

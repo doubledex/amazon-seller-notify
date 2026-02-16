@@ -33,6 +33,7 @@ Route::middleware('auth')->group(function () {
 
 
     Route::get('/sqs-messages', [SqsMessagesController::class, 'index'])->name('sqs_messages.index');
+    Route::get('/sqs-messages/{id}/report-download', [SqsMessagesController::class, 'downloadReportDocument'])->name('sqs_messages.report_download');
     Route::get('/sqs-messages/{id}', [SqsMessagesController::class, 'show'])->name('sqs_messages.show');
     Route::post('/sqs-messages/{id}/flag', [SqsMessagesController::class, 'flag'])->name('sqs_messages.flag');
     Route::post('/sqs-messages/fetch-latest', [SqsMessagesController::class, 'fetchLatest'])->name('sqs_messages.fetch');

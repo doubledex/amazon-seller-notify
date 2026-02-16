@@ -126,6 +126,12 @@
             <td>reportDocumentId:</td>
             <td>{{ $messageBody->payload->reportProcessingFinishedNotification->reportDocumentId ?? 'n/a' }}</td>
         </tr>
+        @if(!empty($messageBody->payload->reportProcessingFinishedNotification->reportDocumentId) && !empty($messageBody->payload->reportProcessingFinishedNotification->reportType))
+            <tr>
+                <td>Download:</td>
+                <td><a href="{{ route('sqs_messages.report_download', $message->id) }}">Download report document</a></td>
+            </tr>
+        @endif
     </table>
 @endif
 
