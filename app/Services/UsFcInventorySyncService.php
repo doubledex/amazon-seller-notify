@@ -12,6 +12,8 @@ class UsFcInventorySyncService
 {
     public const DEFAULT_REPORT_TYPE = 'GET_FBA_FULFILLMENT_CURRENT_INVENTORY_DATA';
     public const DEFAULT_US_MARKETPLACE_ID = 'ATVPDKIKX0DER';
+    private const CREATE_REPORT_MAX_RETRIES = 8;
+    private const CREATE_REPORT_BASE_BACKOFF_SECONDS = 15;
 
     public function sync(
         string $region = 'NA',
@@ -26,14 +28,42 @@ class UsFcInventorySyncService
         $connector = $this->makeConnector($region);
         $reportsApi = $connector->reportsV20210630();
 
-        $createResponse = $reportsApi->createReport(
-            new CreateReportSpecification($reportType, [$marketplaceId])
-        );
-        $reportId = trim((string) ($createResponse->json('reportId') ?? ''));
+        $reportId = '';
+        $lastCreateError = null;
+        for ($attempt = 0; $attempt < self::CREATE_REPORT_MAX_RETRIES; $attempt++) {
+            try {
+                $createResponse = $reportsApi->createReport(
+                    new CreateReportSpecification($reportType, [$marketplaceId])
+                );
+                $reportId = trim((string) ($createResponse->json('reportId') ?? ''));
+                if ($reportId !== '') {
+                    break;
+                }
+
+                $lastCreateError = 'No reportId returned from createReport.';
+            } catch (\Throwable $e) {
+                $lastCreateError = $e->getMessage();
+                if (!$this->isQuotaExceededError($e)) {
+                    break;
+                }
+
+                $delay = $this->retryDelaySeconds($attempt);
+                Log::warning('US FC inventory createReport quota retry', [
+                    'attempt' => $attempt,
+                    'sleep_seconds' => $delay,
+                    'report_type' => $reportType,
+                    'marketplace_id' => $marketplaceId,
+                    'error' => $e->getMessage(),
+                ]);
+                sleep($delay);
+                continue;
+            }
+        }
+
         if ($reportId === '') {
             return [
                 'ok' => false,
-                'message' => 'No reportId returned when creating inventory report.',
+                'message' => 'Unable to create inventory report. ' . ($lastCreateError ? 'Last error: ' . $lastCreateError : ''),
                 'rows' => 0,
             ];
         }
@@ -263,5 +293,20 @@ class UsFcInventorySyncService
         }
 
         return '';
+    }
+
+    private function isQuotaExceededError(\Throwable $e): bool
+    {
+        $msg = strtoupper($e->getMessage());
+        return str_contains($msg, '429')
+            || str_contains($msg, 'QUOTAEXCEEDED')
+            || str_contains($msg, 'TOO MANY REQUESTS');
+    }
+
+    private function retryDelaySeconds(int $attempt): int
+    {
+        $exp = self::CREATE_REPORT_BASE_BACKOFF_SECONDS * (2 ** $attempt);
+        $cap = min(300, $exp);
+        return max(1, $cap + random_int(0, 7));
     }
 }
