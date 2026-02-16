@@ -8,6 +8,7 @@ use App\Http\Controllers\AsinController;
 use App\Http\Controllers\MetricsController;
 use App\Http\Controllers\AdsReportController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\UsFcInventoryController;
 
 use Illuminate\Support\Facades\Route;
 
@@ -49,6 +50,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/metrics/daily', [MetricsController::class, 'index'])->name('metrics.index');
     Route::get('/ads/reports', [AdsReportController::class, 'index'])->name('ads.reports');
     Route::post('/ads/reports/poll-now', [AdsReportController::class, 'pollNow'])->name('ads.reports.poll');
+    Route::get('/inventory/us-fc', [UsFcInventoryController::class, 'index'])->name('inventory.us_fc');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
