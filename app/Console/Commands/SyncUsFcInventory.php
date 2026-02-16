@@ -33,6 +33,14 @@ class SyncUsFcInventory extends Command
 
         $this->info((string) ($result['message'] ?? 'US FC inventory sync complete.'));
         $this->line('Report ID: ' . (string) ($result['report_id'] ?? 'n/a'));
+        if (!empty($result['report_type_used'])) {
+            $this->line('Report type used: ' . (string) $result['report_type_used']);
+        } elseif (!empty($result['report_type'])) {
+            $this->line('Report type: ' . (string) $result['report_type']);
+        }
+        if (!empty($result['attempted_report_types']) && is_array($result['attempted_report_types'])) {
+            $this->line('Report types attempted: ' . implode(', ', array_map('strval', $result['attempted_report_types'])));
+        }
         $this->line('Rows upserted: ' . (int) ($result['rows'] ?? 0));
         $this->line('Rows parsed: ' . (int) ($result['rows_parsed'] ?? 0));
         $this->line('Rows missing FC ID: ' . (int) ($result['rows_missing_fc'] ?? 0));

@@ -13,6 +13,11 @@ class UsFcInventorySyncService
 {
     public const DEFAULT_REPORT_TYPE = 'GET_LEDGER_SUMMARY_VIEW_DATA';
     public const DEFAULT_US_MARKETPLACE_ID = 'ATVPDKIKX0DER';
+    private const FALLBACK_REPORT_TYPES = [
+        'GET_LEDGER_SUMMARY_VIEW_DATA',
+        'GET_AFN_INVENTORY_DATA',
+        'GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA',
+    ];
     private const CREATE_REPORT_MAX_RETRIES = 8;
     private const CREATE_REPORT_BASE_BACKOFF_SECONDS = 15;
 
@@ -28,7 +33,49 @@ class UsFcInventorySyncService
 
         $connector = $this->makeConnector($region);
         $reportsApi = $connector->reportsV20210630();
+        $reportTypes = $this->resolveReportTypes($reportType);
 
+        $attempted = [];
+        $last = null;
+        foreach ($reportTypes as $candidateType) {
+            $result = $this->syncSingleReportType(
+                $reportsApi,
+                $marketplaceId,
+                $candidateType,
+                $maxAttempts,
+                $sleepSeconds
+            );
+            $result['attempted_report_types'] = array_values(array_unique([...$attempted, $candidateType]));
+            $last = $result;
+            $attempted[] = $candidateType;
+
+            if (($result['ok'] ?? false) && (int) ($result['rows_parsed'] ?? 0) > 0) {
+                $result['report_type_used'] = $candidateType;
+                return $result;
+            }
+        }
+
+        if (is_array($last)) {
+            $last['attempted_report_types'] = array_values(array_unique($attempted));
+            $last['message'] = 'No inventory rows returned from any report type attempted.';
+            return $last;
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'US FC inventory sync failed before any report attempt.',
+            'rows' => 0,
+            'attempted_report_types' => array_values(array_unique($attempted)),
+        ];
+    }
+
+    private function syncSingleReportType(
+        object $reportsApi,
+        string $marketplaceId,
+        string $reportType,
+        int $maxAttempts,
+        int $sleepSeconds
+    ): array {
         $reportId = '';
         $lastCreateError = null;
         for ($attempt = 0; $attempt < self::CREATE_REPORT_MAX_RETRIES; $attempt++) {
@@ -70,6 +117,7 @@ class UsFcInventorySyncService
                 'ok' => false,
                 'message' => 'Unable to create inventory report. ' . ($lastCreateError ? 'Last error: ' . $lastCreateError : ''),
                 'rows' => 0,
+                'report_type' => $reportType,
             ];
         }
 
@@ -96,9 +144,16 @@ class UsFcInventorySyncService
 
             if (in_array($status, ['DONE_NO_DATA', 'CANCELLED', 'FATAL'], true)) {
                 return [
-                    'ok' => false,
+                    'ok' => true,
                     'message' => "Inventory report ended with status {$status}.",
                     'rows' => 0,
+                    'rows_parsed' => 0,
+                    'rows_missing_fc' => 0,
+                    'rows_missing_sku' => 0,
+                    'sample_row_keys' => [],
+                    'report_id' => $reportId,
+                    'report_type' => $reportType,
+                    'report_date' => $reportDate,
                 ];
             }
 
@@ -110,6 +165,8 @@ class UsFcInventorySyncService
                 'ok' => false,
                 'message' => "Inventory report not ready. Last status {$status}.",
                 'rows' => 0,
+                'report_id' => $reportId,
+                'report_type' => $reportType,
             ];
         }
 
@@ -124,6 +181,7 @@ class UsFcInventorySyncService
                 'message' => 'Report document URL missing.',
                 'report_id' => $reportId,
                 'rows' => 0,
+                'report_type' => $reportType,
             ];
         }
 
@@ -134,6 +192,7 @@ class UsFcInventorySyncService
                 'message' => 'Failed downloading report document.',
                 'report_id' => $reportId,
                 'rows' => 0,
+                'report_type' => $reportType,
             ];
         }
 
@@ -146,13 +205,13 @@ class UsFcInventorySyncService
                     'message' => 'Failed to decode GZIP report document.',
                     'report_id' => $reportId,
                     'rows' => 0,
+                    'report_type' => $reportType,
                 ];
             }
             $raw = $decoded;
         }
 
         $rows = $this->parseDelimitedText($raw);
-
         $upsertRows = [];
         $missingFcRows = 0;
         $missingSkuRows = 0;
@@ -220,6 +279,8 @@ class UsFcInventorySyncService
             'rows_missing_fc' => $missingFcRows,
             'rows_missing_sku' => $missingSkuRows,
             'sample_row_keys' => $sampleKeys,
+            'report_type' => $reportType,
+            'report_date' => $reportDate,
         ];
     }
 
@@ -328,6 +389,21 @@ class UsFcInventorySyncService
         }
 
         return '';
+    }
+
+    private function resolveReportTypes(string $reportType): array
+    {
+        $requested = strtoupper(trim($reportType));
+
+        if ($requested === '' || $requested === 'AUTO') {
+            return self::FALLBACK_REPORT_TYPES;
+        }
+
+        if ($requested === self::DEFAULT_REPORT_TYPE) {
+            return array_values(array_unique([$requested, ...self::FALLBACK_REPORT_TYPES]));
+        }
+
+        return [$requested];
     }
 
     private function reportOptionsForType(string $reportType): ?array
