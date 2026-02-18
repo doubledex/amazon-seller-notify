@@ -24,12 +24,15 @@ class UsFcInventorySyncService
         string $marketplaceId = self::DEFAULT_US_MARKETPLACE_ID,
         string $reportType = self::DEFAULT_REPORT_TYPE,
         int $maxAttempts = 30,
-        int $sleepSeconds = 5
+        int $sleepSeconds = 5,
+        ?string $startDate = null,
+        ?string $endDate = null
     ): array {
         // Force ledger summary report aggregated by FC.
         $reportType = self::DEFAULT_REPORT_TYPE;
         $maxAttempts = max(1, min($maxAttempts, 120));
         $sleepSeconds = max(1, min($sleepSeconds, 20));
+        [$dataStartTime, $dataEndTime] = $this->resolveReportWindow($startDate, $endDate);
 
         $connector = $this->makeConnector($region);
         $reportsApi = $connector->reportsV20210630();
@@ -43,7 +46,9 @@ class UsFcInventorySyncService
                 $marketplaceId,
                 $candidateType,
                 $maxAttempts,
-                $sleepSeconds
+                $sleepSeconds,
+                $dataStartTime,
+                $dataEndTime
             );
             $result['attempted_report_types'] = array_values(array_unique([...$attempted, $candidateType]));
             $last = $result;
@@ -74,7 +79,9 @@ class UsFcInventorySyncService
         string $marketplaceId,
         string $reportType,
         int $maxAttempts,
-        int $sleepSeconds
+        int $sleepSeconds,
+        ?\DateTimeInterface $dataStartTime = null,
+        ?\DateTimeInterface $dataEndTime = null
     ): array {
         $reportId = '';
         $lastCreateError = null;
@@ -85,6 +92,8 @@ class UsFcInventorySyncService
                         reportType: $reportType,
                         marketplaceIds: [$marketplaceId],
                         reportOptions: $this->reportOptionsForType($reportType),
+                        dataStartTime: $dataStartTime,
+                        dataEndTime: $dataEndTime,
                     )
                 );
                 $reportId = trim((string) ($createResponse->json('reportId') ?? ''));
@@ -418,6 +427,38 @@ class UsFcInventorySyncService
         }
 
         return null;
+    }
+
+    private function resolveReportWindow(?string $startDate, ?string $endDate): array
+    {
+        $startDate = trim((string) $startDate);
+        $endDate = trim((string) $endDate);
+
+        if ($startDate === '' && $endDate === '') {
+            return [null, null];
+        }
+
+        $tz = config('app.timezone', 'UTC');
+        $start = null;
+        $end = null;
+
+        if ($startDate !== '') {
+            try {
+                $start = Carbon::parse($startDate, $tz)->startOfDay();
+            } catch (\Throwable) {
+                $start = null;
+            }
+        }
+
+        if ($endDate !== '') {
+            try {
+                $end = Carbon::parse($endDate, $tz)->endOfDay();
+            } catch (\Throwable) {
+                $end = null;
+            }
+        }
+
+        return [$start, $end];
     }
 
     private function isQuotaExceededError(\Throwable $e): bool

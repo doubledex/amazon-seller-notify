@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Services\UsFcInventorySyncService;
+use Illuminate\Support\Carbon;
 use Illuminate\Console\Command;
 
 class SyncUsFcInventory extends Command
@@ -12,18 +13,32 @@ class SyncUsFcInventory extends Command
         {--marketplace=ATVPDKIKX0DER}
         {--report-type=GET_LEDGER_SUMMARY_VIEW_DATA}
         {--max-attempts=30}
-        {--sleep-seconds=5}';
+        {--sleep-seconds=5}
+        {--yesterday : Use yesterday in app timezone}
+        {--start-date= : Start date (YYYY-MM-DD)}
+        {--end-date= : End date (YYYY-MM-DD)}';
 
     protected $description = 'Sync US FBA inventory by fulfillment center from SP-API report data.';
 
     public function handle(UsFcInventorySyncService $service): int
     {
+        $startDate = (string) ($this->option('start-date') ?? '');
+        $endDate = (string) ($this->option('end-date') ?? '');
+        if ((bool) $this->option('yesterday')) {
+            $tz = config('app.timezone', 'UTC');
+            $yesterday = Carbon::yesterday($tz)->toDateString();
+            $startDate = $yesterday;
+            $endDate = $yesterday;
+        }
+
         $result = $service->sync(
             (string) $this->option('region'),
             (string) $this->option('marketplace'),
             (string) $this->option('report-type'),
             (int) $this->option('max-attempts'),
             (int) $this->option('sleep-seconds'),
+            $startDate !== '' ? $startDate : null,
+            $endDate !== '' ? $endDate : null,
         );
 
         if (!($result['ok'] ?? false)) {
