@@ -15,8 +15,6 @@ class UsFcInventorySyncService
     public const DEFAULT_US_MARKETPLACE_ID = 'ATVPDKIKX0DER';
     private const FALLBACK_REPORT_TYPES = [
         'GET_LEDGER_SUMMARY_VIEW_DATA',
-        'GET_AFN_INVENTORY_DATA',
-        'GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA',
     ];
     private const CREATE_REPORT_MAX_RETRIES = 8;
     private const CREATE_REPORT_BASE_BACKOFF_SECONDS = 15;
@@ -28,6 +26,8 @@ class UsFcInventorySyncService
         int $maxAttempts = 30,
         int $sleepSeconds = 5
     ): array {
+        // Force ledger summary report aggregated by FC.
+        $reportType = self::DEFAULT_REPORT_TYPE;
         $maxAttempts = max(1, min($maxAttempts, 120));
         $sleepSeconds = max(1, min($sleepSeconds, 20));
 
