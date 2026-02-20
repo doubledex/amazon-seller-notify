@@ -458,28 +458,19 @@ class MetricsController extends Controller
             }
 
             $cacheKey = 'pending_price:' . sha1($marketplaceId . '|' . $asin . '|' . ($isBusinessOrder ? '1' : '0'));
-            $price = Cache::remember($cacheKey, now()->addMinutes(30), function () use ($connectors, $region, $marketplaceId, $asin, $isBusinessOrder) {
-                try {
-                    $pricingApi = $connectors[$region]->productPricingV0();
-                    $customerType = $isBusinessOrder ? 'Business' : 'Consumer';
-                    $response = $pricingApi->getItemOffers($asin, $marketplaceId, 'New', $customerType);
-                    if ($response->status() >= 400) {
-                        return null;
-                    }
-
-                    $json = $response->json();
-                    return $this->extractPriceFromItemOffersPayload(is_array($json) ? $json : []);
-                } catch (\Throwable $e) {
-                    Log::warning('Pending item price fetch failed', [
-                        'asin' => $asin,
-                        'marketplace_id' => $marketplaceId,
-                        'region' => $region,
-                        'is_business_order' => $isBusinessOrder,
-                        'error' => $e->getMessage(),
-                    ]);
-                    return null;
+            $price = Cache::get($cacheKey);
+            if (!is_array($price)) {
+                $price = $this->fetchSinglePendingApiPrice(
+                    $connectors[$region],
+                    $marketplaceId,
+                    $asin,
+                    $isBusinessOrder,
+                    $region
+                );
+                if (is_array($price)) {
+                    Cache::put($cacheKey, $price, now()->addMinutes(30));
                 }
-            });
+            }
 
             if (!is_array($price)) {
                 continue;
@@ -492,6 +483,80 @@ class MetricsController extends Controller
         }
 
         return $lookup;
+    }
+
+    private function fetchSinglePendingApiPrice(
+        SellingPartnerApi $connector,
+        string $marketplaceId,
+        string $asin,
+        bool $isBusinessOrder,
+        string $region
+    ): ?array {
+        $pricingApi = $connector->productPricingV0();
+        $customerType = $isBusinessOrder ? 'Business' : 'Consumer';
+        $maxAttempts = 4;
+        $lastStatus = null;
+
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                $response = $pricingApi->getItemOffers($asin, $marketplaceId, 'New', $customerType);
+                $lastStatus = $response->status();
+
+                if ($lastStatus === 429 && $attempt < $maxAttempts) {
+                    sleep($this->resolveRetryDelaySeconds($response, $attempt));
+                    continue;
+                }
+
+                if ($lastStatus >= 400) {
+                    Log::warning('Pending item price fetch non-200', [
+                        'asin' => $asin,
+                        'marketplace_id' => $marketplaceId,
+                        'region' => $region,
+                        'is_business_order' => $isBusinessOrder,
+                        'customer_type' => $customerType,
+                        'status' => $lastStatus,
+                        'attempt' => $attempt,
+                    ]);
+                    return null;
+                }
+
+                $json = $response->json();
+                $price = $this->extractPriceFromItemOffersPayload(is_array($json) ? $json : []);
+                if ($price !== null) {
+                    return $price;
+                }
+
+                Log::warning('Pending item price missing in payload', [
+                    'asin' => $asin,
+                    'marketplace_id' => $marketplaceId,
+                    'region' => $region,
+                    'is_business_order' => $isBusinessOrder,
+                    'customer_type' => $customerType,
+                    'status' => $lastStatus,
+                    'attempt' => $attempt,
+                ]);
+                return null;
+            } catch (\Throwable $e) {
+                if (str_contains($e->getMessage(), '429') && $attempt < $maxAttempts) {
+                    sleep(min(10, 1 + ($attempt * 2)));
+                    continue;
+                }
+
+                Log::warning('Pending item price fetch failed', [
+                    'asin' => $asin,
+                    'marketplace_id' => $marketplaceId,
+                    'region' => $region,
+                    'is_business_order' => $isBusinessOrder,
+                    'customer_type' => $customerType,
+                    'status' => $lastStatus,
+                    'attempt' => $attempt,
+                    'error' => $e->getMessage(),
+                ]);
+                return null;
+            }
+        }
+
+        return null;
     }
 
     private function extractPriceFromItemOffersPayload(array $json): ?array
@@ -534,6 +599,20 @@ class MetricsController extends Controller
 
         $genericKey = $marketplaceId . '|*|' . $asin;
         return $lookup[$genericKey] ?? null;
+    }
+
+    private function resolveRetryDelaySeconds($response, int $attempt): int
+    {
+        try {
+            $retryAfter = $response->header('Retry-After');
+            if (is_numeric($retryAfter)) {
+                return max(1, min(30, (int) $retryAfter));
+            }
+        } catch (\Throwable) {
+            // ignore
+        }
+
+        return min(10, 1 + ($attempt * 2));
     }
 
     private function regionForCountry(string $countryCode): ?string
