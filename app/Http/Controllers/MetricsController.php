@@ -78,7 +78,7 @@ class MetricsController extends Controller
             ->groupByRaw("DATE(orders.purchase_date), marketplaces.country_code")
             ->get();
 
-        $historyFrom = Carbon::parse($from)->subDays(120)->toDateString();
+        $historyFrom = Carbon::parse($from)->subDays(180)->toDateString();
         $pricedAsinRows = DB::table('order_items')
             ->join('orders', 'orders.amazon_order_id', '=', 'order_items.amazon_order_id')
             ->selectRaw("
@@ -94,6 +94,7 @@ class MetricsController extends Controller
             ->whereRaw("UPPER(COALESCE(orders.order_status, '')) NOT IN ('CANCELED', 'CANCELLED')")
             ->whereRaw("COALESCE(order_items.item_price_amount, 0) > 0")
             ->whereRaw("TRIM(COALESCE(order_items.asin, '')) <> ''")
+            ->whereRaw("TRIM(COALESCE(orders.marketplace_id, '')) <> ''")
             ->orderByDesc('orders.purchase_date')
             ->get();
 
@@ -118,6 +119,7 @@ class MetricsController extends Controller
             ->whereRaw("COALESCE(orders.order_total_amount, 0) <= 0")
             ->whereRaw("COALESCE(item_totals.item_total, 0) <= 0")
             ->whereRaw("TRIM(COALESCE(order_items.asin, '')) <> ''")
+            ->whereRaw("TRIM(COALESCE(orders.marketplace_id, '')) <> ''")
             ->groupByRaw("
                 DATE(orders.purchase_date),
                 marketplaces.country_code,
@@ -127,6 +129,7 @@ class MetricsController extends Controller
                 UPPER(COALESCE(NULLIF(order_items.item_price_currency, ''), NULLIF(orders.order_total_currency, ''), ''))
             ")
             ->get();
+
 
         $unitRows = DB::table('orders')
             ->join('marketplaces', 'marketplaces.id', '=', 'orders.marketplace_id')
@@ -335,6 +338,7 @@ class MetricsController extends Controller
             $breakdown[$key]['pending_sales_data'] = true;
         }
 
+
         foreach ($adRows as $row) {
             $date = (string) $row->metric_date;
             $country = $this->normalizeMarketplaceCode((string) $row->country_code);
@@ -480,4 +484,5 @@ class MetricsController extends Controller
         $genericKey = $marketplaceId . '|*|' . $asin;
         return $lookup[$genericKey] ?? null;
     }
+
 }
