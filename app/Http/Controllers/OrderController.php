@@ -338,9 +338,12 @@ class OrderController extends Controller
     {
         try {
             $marketplaces = $this->marketplaceService->getMarketplacesForUi($this->connector);
+            $marketplaces = $this->mergeConfiguredMarketplaces($marketplaces);
+            $marketplacesByRegion = $this->groupMarketplacesByRegion($marketplaces);
 
             return view('marketplaces', [
                 'marketplaces' => $marketplaces,
+                'marketplacesByRegion' => $marketplacesByRegion,
                 'raw' => [],
             ]);
             
@@ -989,5 +992,133 @@ class OrderController extends Controller
         return str_contains($model, 'marketplace')
             || str_contains($responsibleParty, 'marketplace')
             || str_contains($responsibleParty, 'amazon');
+    }
+
+    private function mergeConfiguredMarketplaces(array $marketplaces): array
+    {
+        $regionService = new RegionConfigService();
+        $regions = $regionService->spApiRegions();
+        $configuredRegionByMarketplaceId = [];
+
+        foreach ($marketplaces as $marketplaceId => $marketplace) {
+            $marketplace['source'] = 'api';
+            $marketplaces[$marketplaceId] = $marketplace;
+        }
+
+        foreach ($regions as $region) {
+            $config = $regionService->spApiConfig($region);
+            $configuredIds = $config['marketplace_ids'] ?? [];
+
+            foreach ($configuredIds as $marketplaceId) {
+                $marketplaceId = trim((string) $marketplaceId);
+                if ($marketplaceId === '') {
+                    continue;
+                }
+                $configuredRegionByMarketplaceId[$marketplaceId] = strtoupper($region);
+
+                if (isset($marketplaces[$marketplaceId])) {
+                    continue;
+                }
+
+                [$countryCode, $name] = $this->configuredMarketplaceMeta($marketplaceId, $region);
+
+                $marketplaces[$marketplaceId] = [
+                    'id' => $marketplaceId,
+                    'name' => $name,
+                    'countryCode' => $countryCode,
+                    'country' => $countryCode,
+                    'defaultCurrency' => '',
+                    'defaultLanguage' => '',
+                    'flag' => '',
+                    'region' => strtoupper($region),
+                    'source' => 'fallback',
+                ];
+            }
+        }
+
+        foreach ($marketplaces as $marketplaceId => $marketplace) {
+            $region = $configuredRegionByMarketplaceId[$marketplaceId]
+                ?? $this->inferRegionFromCountryCode((string) ($marketplace['countryCode'] ?? ''));
+            $marketplace['region'] = $region;
+            if (!isset($marketplace['source']) || trim((string) $marketplace['source']) === '') {
+                $marketplace['source'] = 'api';
+            }
+            $marketplaces[$marketplaceId] = $marketplace;
+        }
+
+        ksort($marketplaces);
+        return $marketplaces;
+    }
+
+    private function configuredMarketplaceMeta(string $marketplaceId, string $region): array
+    {
+        $known = [
+            'ATVPDKIKX0DER' => ['US', 'Amazon.com'],
+            'A2EUQ1WTGCTBG2' => ['CA', 'Amazon.ca'],
+            'A1AM78C64UM0Y8' => ['MX', 'Amazon.com.mx'],
+            'A2Q3Y263D00KWC' => ['BR', 'Amazon.com.br'],
+        ];
+
+        if (isset($known[$marketplaceId])) {
+            return $known[$marketplaceId];
+        }
+
+        $fallbackCountry = match (strtoupper($region)) {
+            'NA' => 'NA',
+            'FE' => 'FE',
+            default => 'EU',
+        };
+
+        return [$fallbackCountry, "Configured {$region} marketplace"];
+    }
+
+    private function groupMarketplacesByRegion(array $marketplaces): array
+    {
+        $grouped = [
+            'EU' => [],
+            'NA' => [],
+            'FE' => [],
+            'OTHER' => [],
+        ];
+
+        foreach ($marketplaces as $marketplace) {
+            $region = strtoupper(trim((string) ($marketplace['region'] ?? 'OTHER')));
+            if (!isset($grouped[$region])) {
+                $region = 'OTHER';
+            }
+            $grouped[$region][] = $marketplace;
+        }
+
+        foreach ($grouped as $region => $rows) {
+            usort($rows, static function (array $a, array $b): int {
+                $countryA = strtoupper(trim((string) ($a['countryCode'] ?? '')));
+                $countryB = strtoupper(trim((string) ($b['countryCode'] ?? '')));
+                if ($countryA !== $countryB) {
+                    return $countryA <=> $countryB;
+                }
+
+                $idA = strtoupper(trim((string) ($a['id'] ?? '')));
+                $idB = strtoupper(trim((string) ($b['id'] ?? '')));
+                return $idA <=> $idB;
+            });
+            $grouped[$region] = $rows;
+        }
+
+        return array_filter($grouped, static fn (array $rows) => !empty($rows));
+    }
+
+    private function inferRegionFromCountryCode(string $countryCode): string
+    {
+        $countryCode = strtoupper(trim($countryCode));
+        if (in_array($countryCode, ['US', 'CA', 'MX', 'BR'], true)) {
+            return 'NA';
+        }
+        if (in_array($countryCode, ['JP', 'AU', 'SG', 'IN', 'TR', 'AE', 'SA', 'EG', 'ZA'], true)) {
+            return 'FE';
+        }
+        if ($countryCode === '') {
+            return 'OTHER';
+        }
+        return 'EU';
     }
 }
