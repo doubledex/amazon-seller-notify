@@ -144,18 +144,33 @@ class OrderController extends Controller
                 return $raw;
             })->values()->all();
             $postalGeoMap = $this->buildPostalGeoMapForOrders($allOrders);
+            $cityGeoMap = $this->buildCityGeoMapForOrders($allOrders);
 
-            $allOrders = array_map(function (array $order) use ($postalGeoMap) {
+            $allOrders = array_map(function (array $order) use ($postalGeoMap, $cityGeoMap) {
                 $ship = $order['ShippingAddress'] ?? [];
                 $country = strtoupper(trim((string) ($ship['CountryCode'] ?? '')));
                 $postal = strtoupper(trim((string) ($ship['PostalCode'] ?? '')));
                 $key = $country !== '' && $postal !== '' ? "{$country}|{$postal}" : '';
                 $geo = $key !== '' ? ($postalGeoMap[$key] ?? null) : null;
+                $source = $geo ? 'postal' : null;
+
+                if ($geo === null) {
+                    $city = trim((string) ($ship['City'] ?? ''));
+                    $region = trim((string) ($ship['StateOrRegion'] ?? ''));
+                    if ($country !== '' && $city !== '') {
+                        $cityKey = CityGeo::lookupHash($country, $city, $region);
+                        $geo = $cityGeoMap[$cityKey] ?? null;
+                        if ($geo !== null) {
+                            $source = 'city';
+                        }
+                    }
+                }
 
                 $order['Geocode'] = [
                     'exists' => $geo !== null,
                     'lat' => $geo['lat'] ?? null,
                     'lng' => $geo['lng'] ?? null,
+                    'source' => $source,
                 ];
 
                 return $order;
@@ -1052,6 +1067,45 @@ class OrderController extends Controller
                 continue;
             }
             $map[$key] = [
+                'lat' => $row->lat,
+                'lng' => $row->lng,
+            ];
+        }
+
+        return $map;
+    }
+
+    private function buildCityGeoMapForOrders(array $orders): array
+    {
+        $needed = [];
+        foreach ($orders as $order) {
+            $ship = is_array($order['ShippingAddress'] ?? null) ? $order['ShippingAddress'] : [];
+            $country = strtoupper(trim((string) ($ship['CountryCode'] ?? '')));
+            $city = trim((string) ($ship['City'] ?? ''));
+            $region = trim((string) ($ship['StateOrRegion'] ?? ''));
+            if ($country === '' || $city === '') {
+                continue;
+            }
+
+            $hash = CityGeo::lookupHash($country, $city, $region);
+            $needed[$hash] = true;
+        }
+
+        if (empty($needed)) {
+            return [];
+        }
+
+        $rows = CityGeo::query()
+            ->whereIn('lookup_hash', array_keys($needed))
+            ->get(['lookup_hash', 'lat', 'lng']);
+
+        $map = [];
+        foreach ($rows as $row) {
+            $hash = (string) ($row->lookup_hash ?? '');
+            if ($hash === '' || !isset($needed[$hash])) {
+                continue;
+            }
+            $map[$hash] = [
                 'lat' => $row->lat,
                 'lng' => $row->lng,
             ];

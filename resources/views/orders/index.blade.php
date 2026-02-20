@@ -485,7 +485,7 @@
                         @endphp
                         @if(!empty($geo['exists']))
                             <span
-                                title="Geocode found ({{ $geo['lat'] }}, {{ $geo['lng'] }})"
+                                title="Geocode found via {{ $geo['source'] ?? 'lookup' }} ({{ $geo['lat'] }}, {{ $geo['lng'] }})"
                                 style="display:inline-block; color:#0f9d58; font-size:16px; line-height:1;"
                             >●</span>
                         @else
