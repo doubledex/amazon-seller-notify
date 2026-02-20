@@ -181,13 +181,17 @@ class OrderController extends Controller
             $oldestDate = Order::query()->min('purchase_date');
             $newestDate = Order::query()->max('purchase_date');
 
-            $reportCreatedDate = (new DateTime($createdBefore))->format('Y-m-d');
-            $reportCreatedTime = (new DateTime($createdBefore))->format('H:i:s');
+            $lastOrderSyncRun = null;
+            if (Schema::hasTable('order_sync_runs')) {
+                $lastOrderSyncRun = DB::table('order_sync_runs')
+                    ->select(['started_at', 'finished_at', 'status', 'region', 'source'])
+                    ->orderByDesc('id')
+                    ->first();
+            }
 
             return view('orders.index', [
                 'orders' => array_values($allOrders), // Re-index array after filter
-                'reportCreatedDate' => $reportCreatedDate,
-                'reportCreatedTime' => $reportCreatedTime,
+                'lastOrderSyncRun' => $lastOrderSyncRun,
                 'ordersPaginator' => $ordersPaginator,
                 'perPage' => $perPage,
                 'responseHeaders' => $responseHeaders, // Pass the headers

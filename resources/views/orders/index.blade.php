@@ -267,7 +267,18 @@
     </div>
 
     <div class="mb-3 flex items-center justify-between gap-3">
-        <p>Report created: {{ $reportCreatedDate }} at {{ $reportCreatedTime }}</p>
+        <p>
+            Last sync run:
+            @if(!empty($lastOrderSyncRun))
+                @php
+                    $syncTime = $lastOrderSyncRun->finished_at ?: $lastOrderSyncRun->started_at;
+                @endphp
+                {{ \Illuminate\Support\Carbon::parse($syncTime)->timezone(config('app.timezone'))->format('Y-m-d H:i:s') }}
+                ({{ strtoupper((string) ($lastOrderSyncRun->status ?? 'unknown')) }}, {{ strtoupper((string) ($lastOrderSyncRun->region ?? 'n/a')) }})
+            @else
+                Never
+            @endif
+        </p>
         <div class="flex items-center gap-2">
             @php $baseQuery = request()->except('view'); @endphp
             <a
@@ -302,15 +313,6 @@
     <div class="mb-3 text-sm text-gray-600">
         @if(session('sync_status'))
             {{ session('sync_status') }}
-        @endif
-        @if(session('orders_last_sync_request'))
-            @php $lastSyncRequest = session('orders_last_sync_request'); @endphp
-            <div class="mt-1 text-xs text-gray-500">
-                Last sync request: {{ $lastSyncRequest['created_after'] ?? 'n/a' }} → {{ $lastSyncRequest['created_before'] ?? 'n/a' }}
-                @if(!empty($lastSyncRequest['end_before']))
-                    | end_before: {{ $lastSyncRequest['end_before'] }}
-                @endif
-            </div>
         @endif
     </div>
 @if (request('view', 'table') === 'map')

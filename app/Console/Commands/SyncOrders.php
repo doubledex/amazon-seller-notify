@@ -19,7 +19,8 @@ class SyncOrders extends Command
             (int) $this->option('max-pages'),
             (int) $this->option('items-limit'),
             (int) $this->option('address-limit'),
-            $this->option('region') ? (string) $this->option('region') : null
+            $this->option('region') ? (string) $this->option('region') : null,
+            'artisan'
         );
 
         if (!$result['ok']) {

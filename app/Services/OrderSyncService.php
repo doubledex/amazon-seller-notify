@@ -4,8 +4,10 @@ namespace App\Services;
 
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\OrderSyncRun;
 use App\Models\OrderShipAddress;
 use App\Models\PostalCodeGeo;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use SellingPartnerApi\SellingPartnerApi;
 use Saloon\Exceptions\Request\Statuses\TooManyRequestsException;
@@ -23,7 +25,8 @@ class OrderSyncService
         int $maxPages,
         int $itemsLimit,
         int $addressLimit,
-        ?string $region = null
+        ?string $region = null,
+        ?string $source = null
     ): array {
         $days = max(1, min($days, 30));
         $maxPages = max(1, min($maxPages, 20));
@@ -32,7 +35,7 @@ class OrderSyncService
 
         $region = strtoupper(trim((string) $region));
         if ($region !== '') {
-            return $this->syncSingleRegion($days, $endBefore, $maxPages, $itemsLimit, $addressLimit, $region);
+            return $this->syncSingleRegion($days, $endBefore, $maxPages, $itemsLimit, $addressLimit, $region, $source);
         }
 
         $regionService = new RegionConfigService();
@@ -44,7 +47,7 @@ class OrderSyncService
         $results = [];
         $failed = [];
         foreach ($regions as $configuredRegion) {
-            $result = $this->syncSingleRegion($days, $endBefore, $maxPages, $itemsLimit, $addressLimit, $configuredRegion);
+            $result = $this->syncSingleRegion($days, $endBefore, $maxPages, $itemsLimit, $addressLimit, $configuredRegion, $source);
             $results[] = $result;
             if (!$result['ok']) {
                 $failed[] = $configuredRegion;
@@ -73,7 +76,8 @@ class OrderSyncService
         int $maxPages,
         int $itemsLimit,
         int $addressLimit,
-        string $region
+        string $region,
+        ?string $source = null
     ): array {
         $regionService = new RegionConfigService();
         $regionConfig = $regionService->spApiConfig($region);
@@ -86,18 +90,14 @@ class OrderSyncService
             endpoint: $endpoint
         );
 
+        $createdBefore = $this->normalizeEndBefore($endBefore);
+        $createdAfter = (new \DateTime($createdBefore))->modify("-{$days} days")->format('Y-m-d\TH:i:s\Z');
+
+        $run = $this->startSyncRun($region, $days, $maxPages, $itemsLimit, $addressLimit, $createdAfter, $createdBefore, $source);
+
         $ordersApi = $connector->ordersV0();
         $marketplaceService = new MarketplaceService();
         $marketplaceIds = $marketplaceService->getMarketplaceIds($connector);
-        if (empty($marketplaceIds)) {
-            return [
-                'ok' => false,
-                'message' => "[{$region}] No marketplace IDs configured.",
-            ];
-        }
-
-        $createdBefore = $this->normalizeEndBefore($endBefore);
-        $createdAfter = (new \DateTime($createdBefore))->modify("-{$days} days")->format('Y-m-d\TH:i:s\Z');
 
         $nextToken = null;
         $page = 0;
@@ -105,6 +105,15 @@ class OrderSyncService
         $itemsFetched = 0;
         $addressesFetched = 0;
         $geocoded = 0;
+
+        if (empty($marketplaceIds)) {
+            $result = [
+                'ok' => false,
+                'message' => "[{$region}] No marketplace IDs configured.",
+            ];
+            $this->finishSyncRun($run, $result['ok'], $result['message'], $totalOrders, $itemsFetched, $addressesFetched, $geocoded);
+            return $result;
+        }
 
         do {
             $page++;
@@ -117,10 +126,12 @@ class OrderSyncService
             );
 
             if (!$response) {
-                return [
+                $result = [
                     'ok' => false,
                     'message' => "[{$region}] Orders API error after retries.",
                 ];
+                $this->finishSyncRun($run, $result['ok'], $result['message'], $totalOrders, $itemsFetched, $addressesFetched, $geocoded);
+                return $result;
             }
 
             if ($response->status() >= 400) {
@@ -129,10 +140,12 @@ class OrderSyncService
                     'request_id' => $this->extractRequestId($response),
                     'body' => $response->body(),
                 ]);
-                return [
+                $result = [
                     'ok' => false,
                     'message' => "[{$region}] Orders API error: " . $response->status(),
                 ];
+                $this->finishSyncRun($run, $result['ok'], $result['message'], $totalOrders, $itemsFetched, $addressesFetched, $geocoded);
+                return $result;
             }
 
             $data = $response->json();
@@ -316,10 +329,12 @@ class OrderSyncService
 
         } while ($nextToken && $page < $maxPages);
 
-        return [
+        $result = [
             'ok' => true,
             'message' => "[{$region}] Synced orders: {$totalOrders}, items fetched: {$itemsFetched}, addresses fetched: {$addressesFetched}, geocoded: {$geocoded}",
         ];
+        $this->finishSyncRun($run, $result['ok'], $result['message'], $totalOrders, $itemsFetched, $addressesFetched, $geocoded);
+        return $result;
     }
 
     private function normalizeEndBefore($value): string
@@ -338,6 +353,78 @@ class OrderSyncService
         } catch (\Exception $e) {
             return now()->subMinutes(2)->format('Y-m-d\TH:i:s\Z');
         }
+    }
+
+    private function startSyncRun(
+        string $region,
+        int $days,
+        int $maxPages,
+        int $itemsLimit,
+        int $addressLimit,
+        string $createdAfter,
+        string $createdBefore,
+        ?string $source = null
+    ): OrderSyncRun {
+        return OrderSyncRun::create([
+            'source' => $this->normalizeSource($source),
+            'region' => strtoupper(trim($region)),
+            'days' => $days,
+            'max_pages' => $maxPages,
+            'items_limit' => $itemsLimit,
+            'address_limit' => $addressLimit,
+            'created_after_at' => $this->parseSyncTime($createdAfter),
+            'created_before_at' => $this->parseSyncTime($createdBefore),
+            'started_at' => now(),
+            'status' => 'running',
+        ]);
+    }
+
+    private function finishSyncRun(
+        ?OrderSyncRun $run,
+        bool $ok,
+        string $message,
+        int $ordersSynced,
+        int $itemsFetched,
+        int $addressesFetched,
+        int $geocoded
+    ): void {
+        if ($run === null) {
+            return;
+        }
+
+        $run->update([
+            'finished_at' => now(),
+            'status' => $ok ? 'success' : 'failed',
+            'message' => $message,
+            'orders_synced' => max(0, $ordersSynced),
+            'items_fetched' => max(0, $itemsFetched),
+            'addresses_fetched' => max(0, $addressesFetched),
+            'geocoded' => max(0, $geocoded),
+        ]);
+    }
+
+    private function parseSyncTime(string $value): ?Carbon
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($value);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function normalizeSource(?string $source): string
+    {
+        $source = strtolower(trim((string) $source));
+        if ($source !== '') {
+            return substr($source, 0, 32);
+        }
+
+        return app()->runningInConsole() ? 'console' : 'web';
     }
 
     private function retryAfterSeconds(?Response $response): int
