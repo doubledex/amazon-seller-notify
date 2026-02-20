@@ -16,6 +16,7 @@ use App\Models\OrderItem;
 use App\Services\OrderQueryService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use App\Jobs\SyncOrdersJob;
 
 class OrderController extends Controller
@@ -1077,6 +1078,10 @@ class OrderController extends Controller
 
     private function buildCityGeoMapForOrders(array $orders): array
     {
+        if (!Schema::hasTable('city_geos')) {
+            return [];
+        }
+
         $needed = [];
         foreach ($orders as $order) {
             $ship = is_array($order['ShippingAddress'] ?? null) ? $order['ShippingAddress'] : [];
