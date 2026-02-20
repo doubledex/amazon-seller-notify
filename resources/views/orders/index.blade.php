@@ -420,6 +420,10 @@
         </script>
     @else
         @if (count($orders) > 0)
+        <div class="mb-2 text-sm" style="display:flex; gap:16px; align-items:center;">
+            <span><span style="color:#0f9d58; font-size:16px; line-height:1;">●</span> Geocode exists</span>
+            <span><span style="color:#9aa3af; font-size:16px; line-height:1;">○</span> Geocode missing</span>
+        </div>
         <div class="overflow-x-auto">
         <table class="w-full border-collapse" border="1" cellpadding="5" cellspacing="0">
             <thead>
@@ -431,6 +435,7 @@
                 <th>MF</th>
                 <th>Ship To</th>
                 <th>Network</th>
+                <th>Geo</th>
                 <th>Unshipped</th>
                 <th>Shipped</th>
                 <th>Method</th>
@@ -474,6 +479,22 @@
                     </td>
                     <td>{{ $order['ShippingAddress']['City'] ?? 'N/A' }}</td>
                     <td>{{ $order['FulfillmentChannel'] ?? 'N/A' }}</td>
+                    <td style="text-align:center;">
+                        @php
+                            $geo = $order['Geocode'] ?? ['exists' => false, 'lat' => null, 'lng' => null];
+                        @endphp
+                        @if(!empty($geo['exists']))
+                            <span
+                                title="Geocode found ({{ $geo['lat'] }}, {{ $geo['lng'] }})"
+                                style="display:inline-block; color:#0f9d58; font-size:16px; line-height:1;"
+                            >●</span>
+                        @else
+                            <span
+                                title="No geocode found for this postal code"
+                                style="display:inline-block; color:#9aa3af; font-size:16px; line-height:1;"
+                            >○</span>
+                        @endif
+                    </td>
                     <td style="text-align: center;">{{ $order['NumberOfItemsUnshipped'] ?? '' }}</td>
                     <td style="text-align: center;">{{ $order['NumberOfItemsShipped'] ?? '' }}</td>
                     <td>{{ $order['PaymentMethodDetails'][0] ?? 'N/A' }}</td>

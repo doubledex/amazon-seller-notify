@@ -143,6 +143,23 @@ class OrderController extends Controller
                 }
                 return $raw;
             })->values()->all();
+            $postalGeoMap = $this->buildPostalGeoMapForOrders($allOrders);
+
+            $allOrders = array_map(function (array $order) use ($postalGeoMap) {
+                $ship = $order['ShippingAddress'] ?? [];
+                $country = strtoupper(trim((string) ($ship['CountryCode'] ?? '')));
+                $postal = strtoupper(trim((string) ($ship['PostalCode'] ?? '')));
+                $key = $country !== '' && $postal !== '' ? "{$country}|{$postal}" : '';
+                $geo = $key !== '' ? ($postalGeoMap[$key] ?? null) : null;
+
+                $order['Geocode'] = [
+                    'exists' => $geo !== null,
+                    'lat' => $geo['lat'] ?? null,
+                    'lng' => $geo['lng'] ?? null,
+                ];
+
+                return $order;
+            }, $allOrders);
 
             $dbEmpty = $ordersPaginator->total() === 0;
             $oldestDate = Order::query()->min('purchase_date');
@@ -992,6 +1009,55 @@ class OrderController extends Controller
         return str_contains($model, 'marketplace')
             || str_contains($responsibleParty, 'marketplace')
             || str_contains($responsibleParty, 'amazon');
+    }
+
+    private function buildPostalGeoMapForOrders(array $orders): array
+    {
+        $keys = [];
+        $countries = [];
+        $postals = [];
+
+        foreach ($orders as $order) {
+            $ship = is_array($order['ShippingAddress'] ?? null) ? $order['ShippingAddress'] : [];
+            $country = strtoupper(trim((string) ($ship['CountryCode'] ?? '')));
+            $postal = strtoupper(trim((string) ($ship['PostalCode'] ?? '')));
+            if ($country === '' || $postal === '') {
+                continue;
+            }
+
+            $key = "{$country}|{$postal}";
+            $keys[$key] = true;
+            $countries[$country] = true;
+            $postals[$postal] = true;
+        }
+
+        if (empty($keys)) {
+            return [];
+        }
+
+        $rows = PostalCodeGeo::query()
+            ->whereIn('country_code', array_keys($countries))
+            ->whereIn('postal_code', array_keys($postals))
+            ->get(['country_code', 'postal_code', 'lat', 'lng']);
+
+        $map = [];
+        foreach ($rows as $row) {
+            $country = strtoupper(trim((string) ($row->country_code ?? '')));
+            $postal = strtoupper(trim((string) ($row->postal_code ?? '')));
+            if ($country === '' || $postal === '') {
+                continue;
+            }
+            $key = "{$country}|{$postal}";
+            if (!isset($keys[$key])) {
+                continue;
+            }
+            $map[$key] = [
+                'lat' => $row->lat,
+                'lng' => $row->lng,
+            ];
+        }
+
+        return $map;
     }
 
     private function mergeConfiguredMarketplaces(array $marketplaces): array
