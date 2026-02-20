@@ -3,9 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Services\FxRateService;
+use App\Services\RegionConfigService;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use SellingPartnerApi\SellingPartnerApi;
 
 class MetricsController extends Controller
 {
@@ -76,6 +80,36 @@ class MetricsController extends Controller
             ->whereRaw("COALESCE(orders.order_total_amount, 0) <= 0")
             ->whereRaw("COALESCE(item_totals.item_total, 0) <= 0")
             ->groupByRaw("DATE(orders.purchase_date), marketplaces.country_code")
+            ->get();
+
+        $pendingOrderItemsForEstimate = DB::table('orders')
+            ->join('marketplaces', 'marketplaces.id', '=', 'orders.marketplace_id')
+            ->join('order_items', 'order_items.amazon_order_id', '=', 'orders.amazon_order_id')
+            ->leftJoinSub($itemTotals, 'item_totals', function ($join) {
+                $join->on('item_totals.amazon_order_id', '=', 'orders.amazon_order_id');
+            })
+            ->selectRaw("
+                DATE(orders.purchase_date) as metric_date,
+                marketplaces.country_code as country_code,
+                orders.marketplace_id as marketplace_id,
+                COALESCE(orders.is_business_order, 0) as is_business_order,
+                UPPER(COALESCE(order_items.asin, '')) as asin,
+                SUM(COALESCE(order_items.quantity_ordered, 0)) as units
+            ")
+            ->whereDate('orders.purchase_date', '>=', $from)
+            ->whereDate('orders.purchase_date', '<=', $to)
+            ->whereRaw("UPPER(COALESCE(orders.order_status, '')) IN ('PENDING', 'UNSHIPPED')")
+            ->whereRaw("COALESCE(orders.order_total_amount, 0) <= 0")
+            ->whereRaw("COALESCE(item_totals.item_total, 0) <= 0")
+            ->whereRaw("TRIM(COALESCE(order_items.asin, '')) <> ''")
+            ->whereRaw("TRIM(COALESCE(orders.marketplace_id, '')) <> ''")
+            ->groupByRaw("
+                DATE(orders.purchase_date),
+                marketplaces.country_code,
+                orders.marketplace_id,
+                COALESCE(orders.is_business_order, 0),
+                UPPER(COALESCE(order_items.asin, ''))
+            ")
             ->get();
 
         $unitRows = DB::table('orders')
@@ -208,6 +242,78 @@ class MetricsController extends Controller
             $breakdown[$key]['pending_sales_data'] = ((int) ($row->pending_count ?? 0)) > 0;
         }
 
+        $apiPriceLookup = $this->fetchPendingApiPrices($pendingOrderItemsForEstimate);
+        foreach ($pendingOrderItemsForEstimate as $row) {
+            $date = (string) $row->metric_date;
+            $country = $this->normalizeMarketplaceCode((string) $row->country_code);
+            if ($date === '' || $country === '') {
+                continue;
+            }
+
+            $units = (int) ($row->units ?? 0);
+            if ($units <= 0) {
+                continue;
+            }
+
+            $marketplaceId = trim((string) ($row->marketplace_id ?? ''));
+            $isBusinessOrder = ((int) ($row->is_business_order ?? 0)) === 1;
+            $asin = strtoupper(trim((string) ($row->asin ?? '')));
+            if ($marketplaceId === '' || $asin === '') {
+                continue;
+            }
+
+            $price = $this->findApiPrice($apiPriceLookup, $marketplaceId, $isBusinessOrder, $asin);
+            if ($price === null) {
+                continue;
+            }
+
+            $sourceCurrency = strtoupper(trim((string) ($price['currency'] ?? '')));
+            $unitPrice = (float) ($price['amount'] ?? 0);
+            if ($sourceCurrency === '' || $unitPrice <= 0) {
+                continue;
+            }
+
+            $estimatedAmount = $unitPrice * $units;
+            if ($estimatedAmount <= 0) {
+                continue;
+            }
+
+            $dates[$date] = true;
+            $key = $date . '|' . $country;
+            if (!isset($breakdown[$key])) {
+                $breakdown[$key] = [
+                    'date' => $date,
+                    'country' => $country,
+                    'currency' => $sourceCurrency,
+                    'sales_local' => 0.0,
+                    'sales_gbp' => 0.0,
+                    'order_count' => 0,
+                    'units' => 0,
+                    'ad_local' => 0.0,
+                    'ad_gbp' => 0.0,
+                    'pending_sales_data' => false,
+                ];
+            }
+
+            $entryCurrency = strtoupper((string) ($breakdown[$key]['currency'] ?? ''));
+            if ($entryCurrency === '') {
+                $entryCurrency = $sourceCurrency;
+                $breakdown[$key]['currency'] = $entryCurrency;
+            }
+
+            $localAmount = $estimatedAmount;
+            if ($sourceCurrency !== $entryCurrency) {
+                $convertedLocal = $fxRateService->convert($estimatedAmount, $sourceCurrency, $entryCurrency, $date);
+                if ($convertedLocal !== null) {
+                    $localAmount = $convertedLocal;
+                }
+            }
+
+            $breakdown[$key]['sales_local'] += $localAmount;
+            $breakdown[$key]['sales_gbp'] += $fxRateService->convert($estimatedAmount, $sourceCurrency, 'GBP', $date) ?? 0.0;
+            $breakdown[$key]['pending_sales_data'] = true;
+        }
+
         foreach ($adRows as $row) {
             $date = (string) $row->metric_date;
             $country = $this->normalizeMarketplaceCode((string) $row->country_code);
@@ -307,6 +413,142 @@ class MetricsController extends Controller
         }
 
         return $code;
+    }
+
+    private function fetchPendingApiPrices($pendingOrderItems): array
+    {
+        $lookup = [];
+        if ($pendingOrderItems->isEmpty()) {
+            return $lookup;
+        }
+
+        $regionService = new RegionConfigService();
+        $connectors = [];
+
+        foreach ($pendingOrderItems as $row) {
+            $marketplaceId = trim((string) ($row->marketplace_id ?? ''));
+            $asin = strtoupper(trim((string) ($row->asin ?? '')));
+            $isBusinessOrder = ((int) ($row->is_business_order ?? 0)) === 1;
+            if ($marketplaceId === '' || $asin === '') {
+                continue;
+            }
+
+            $country = $this->normalizeMarketplaceCode((string) ($row->country_code ?? ''));
+            $region = $this->regionForCountry($country);
+            if ($region === null) {
+                continue;
+            }
+
+            if (!isset($connectors[$region])) {
+                $spConfig = $regionService->spApiConfig($region);
+                if (
+                    trim((string) ($spConfig['client_id'] ?? '')) === ''
+                    || trim((string) ($spConfig['client_secret'] ?? '')) === ''
+                    || trim((string) ($spConfig['refresh_token'] ?? '')) === ''
+                ) {
+                    continue;
+                }
+
+                $connectors[$region] = SellingPartnerApi::seller(
+                    clientId: (string) $spConfig['client_id'],
+                    clientSecret: (string) $spConfig['client_secret'],
+                    refreshToken: (string) $spConfig['refresh_token'],
+                    endpoint: $regionService->spApiEndpointEnum($region)
+                );
+            }
+
+            $cacheKey = 'pending_price:' . sha1($marketplaceId . '|' . $asin . '|' . ($isBusinessOrder ? '1' : '0'));
+            $price = Cache::remember($cacheKey, now()->addMinutes(30), function () use ($connectors, $region, $marketplaceId, $asin, $isBusinessOrder) {
+                try {
+                    $pricingApi = $connectors[$region]->productPricingV0();
+                    $customerType = $isBusinessOrder ? 'Business' : 'Consumer';
+                    $response = $pricingApi->getItemOffers($asin, $marketplaceId, 'New', $customerType);
+                    if ($response->status() >= 400) {
+                        return null;
+                    }
+
+                    $json = $response->json();
+                    return $this->extractPriceFromItemOffersPayload(is_array($json) ? $json : []);
+                } catch (\Throwable $e) {
+                    Log::warning('Pending item price fetch failed', [
+                        'asin' => $asin,
+                        'marketplace_id' => $marketplaceId,
+                        'region' => $region,
+                        'is_business_order' => $isBusinessOrder,
+                        'error' => $e->getMessage(),
+                    ]);
+                    return null;
+                }
+            });
+
+            if (!is_array($price)) {
+                continue;
+            }
+
+            $specificKey = $marketplaceId . '|' . ($isBusinessOrder ? '1' : '0') . '|' . $asin;
+            $lookup[$specificKey] = $price;
+            $genericKey = $marketplaceId . '|*|' . $asin;
+            $lookup[$genericKey] = $lookup[$genericKey] ?? $price;
+        }
+
+        return $lookup;
+    }
+
+    private function extractPriceFromItemOffersPayload(array $json): ?array
+    {
+        $payload = (array) ($json['payload'] ?? []);
+        $summary = (array) ($payload['Summary'] ?? []);
+        $buyBox = (array) (($summary['BuyBoxPrices'] ?? [])[0] ?? []);
+        $lowest = (array) (($summary['LowestPrices'] ?? [])[0] ?? []);
+
+        $candidates = [
+            data_get($buyBox, 'LandedPrice'),
+            data_get($buyBox, 'ListingPrice'),
+            data_get($summary, 'ListPrice'),
+            data_get($lowest, 'LandedPrice'),
+            data_get($lowest, 'ListingPrice'),
+            data_get($payload, 'Offers.0.ListingPrice'),
+        ];
+
+        foreach ($candidates as $money) {
+            if (!is_array($money)) {
+                continue;
+            }
+
+            $amount = (float) ($money['Amount'] ?? 0);
+            $currency = strtoupper(trim((string) ($money['CurrencyCode'] ?? '')));
+            if ($amount > 0 && $currency !== '') {
+                return ['amount' => $amount, 'currency' => $currency];
+            }
+        }
+
+        return null;
+    }
+
+    private function findApiPrice(array $lookup, string $marketplaceId, bool $isBusinessOrder, string $asin): ?array
+    {
+        $specificKey = $marketplaceId . '|' . ($isBusinessOrder ? '1' : '0') . '|' . $asin;
+        if (isset($lookup[$specificKey])) {
+            return $lookup[$specificKey];
+        }
+
+        $genericKey = $marketplaceId . '|*|' . $asin;
+        return $lookup[$genericKey] ?? null;
+    }
+
+    private function regionForCountry(string $countryCode): ?string
+    {
+        $countryCode = strtoupper(trim($countryCode));
+
+        if (in_array($countryCode, ['US', 'CA', 'MX', 'BR'], true)) {
+            return 'NA';
+        }
+
+        if (in_array($countryCode, ['GB', 'UK', 'AT', 'BE', 'DE', 'DK', 'ES', 'FI', 'FR', 'IE', 'IT', 'LU', 'NL', 'NO', 'PL', 'SE', 'CH', 'TR'], true)) {
+            return 'EU';
+        }
+
+        return null;
     }
 
 }
