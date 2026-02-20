@@ -242,8 +242,22 @@ class MetricsController extends Controller
             $breakdown[$key]['pending_sales_data'] = ((int) ($row->pending_count ?? 0)) > 0;
         }
 
-        $apiPriceLookup = $this->fetchPendingApiPrices($pendingOrderItemsForEstimate);
+        $pendingPricingDebug = [
+            'considered_rows' => 0,
+            'cache_hits' => 0,
+            'cache_misses' => 0,
+            'api_calls' => 0,
+            'api_success' => 0,
+            'priced_rows' => 0,
+            'skipped_no_price' => 0,
+            'throttle_retries' => 0,
+            'api_non_200' => 0,
+            'payload_missing' => 0,
+            'exceptions' => 0,
+        ];
+        $apiPriceLookup = $this->fetchPendingApiPrices($pendingOrderItemsForEstimate, $pendingPricingDebug);
         foreach ($pendingOrderItemsForEstimate as $row) {
+            $pendingPricingDebug['considered_rows']++;
             $date = (string) $row->metric_date;
             $country = $this->normalizeMarketplaceCode((string) $row->country_code);
             if ($date === '' || $country === '') {
@@ -264,6 +278,7 @@ class MetricsController extends Controller
 
             $price = $this->findApiPrice($apiPriceLookup, $marketplaceId, $isBusinessOrder, $asin);
             if ($price === null) {
+                $pendingPricingDebug['skipped_no_price']++;
                 continue;
             }
 
@@ -312,6 +327,7 @@ class MetricsController extends Controller
             $breakdown[$key]['sales_local'] += $localAmount;
             $breakdown[$key]['sales_gbp'] += $fxRateService->convert($estimatedAmount, $sourceCurrency, 'GBP', $date) ?? 0.0;
             $breakdown[$key]['pending_sales_data'] = true;
+            $pendingPricingDebug['priced_rows']++;
         }
 
         foreach ($adRows as $row) {
@@ -390,6 +406,7 @@ class MetricsController extends Controller
             'rows' => $dailyRows,
             'from' => $from,
             'to' => $to,
+            'pendingPricingDebug' => $pendingPricingDebug,
         ]);
     }
 
@@ -415,7 +432,7 @@ class MetricsController extends Controller
         return $code;
     }
 
-    private function fetchPendingApiPrices($pendingOrderItems): array
+    private function fetchPendingApiPrices($pendingOrderItems, array &$stats): array
     {
         $lookup = [];
         if ($pendingOrderItems->isEmpty()) {
@@ -459,13 +476,17 @@ class MetricsController extends Controller
 
             $cacheKey = 'pending_price:' . sha1($marketplaceId . '|' . $asin . '|' . ($isBusinessOrder ? '1' : '0'));
             $price = Cache::get($cacheKey);
-            if (!is_array($price)) {
+            if (is_array($price)) {
+                $stats['cache_hits']++;
+            } else {
+                $stats['cache_misses']++;
                 $price = $this->fetchSinglePendingApiPrice(
                     $connectors[$region],
                     $marketplaceId,
                     $asin,
                     $isBusinessOrder,
-                    $region
+                    $region,
+                    $stats
                 );
                 if (is_array($price)) {
                     Cache::put($cacheKey, $price, now()->addMinutes(30));
@@ -490,7 +511,8 @@ class MetricsController extends Controller
         string $marketplaceId,
         string $asin,
         bool $isBusinessOrder,
-        string $region
+        string $region,
+        array &$stats
     ): ?array {
         $pricingApi = $connector->productPricingV0();
         $customerType = $isBusinessOrder ? 'Business' : 'Consumer';
@@ -499,15 +521,18 @@ class MetricsController extends Controller
 
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             try {
+                $stats['api_calls']++;
                 $response = $pricingApi->getItemOffers($asin, $marketplaceId, 'New', $customerType);
                 $lastStatus = $response->status();
 
                 if ($lastStatus === 429 && $attempt < $maxAttempts) {
+                    $stats['throttle_retries']++;
                     sleep($this->resolveRetryDelaySeconds($response, $attempt));
                     continue;
                 }
 
                 if ($lastStatus >= 400) {
+                    $stats['api_non_200']++;
                     Log::warning('Pending item price fetch non-200', [
                         'asin' => $asin,
                         'marketplace_id' => $marketplaceId,
@@ -523,9 +548,11 @@ class MetricsController extends Controller
                 $json = $response->json();
                 $price = $this->extractPriceFromItemOffersPayload(is_array($json) ? $json : []);
                 if ($price !== null) {
+                    $stats['api_success']++;
                     return $price;
                 }
 
+                $stats['payload_missing']++;
                 Log::warning('Pending item price missing in payload', [
                     'asin' => $asin,
                     'marketplace_id' => $marketplaceId,
@@ -538,10 +565,12 @@ class MetricsController extends Controller
                 return null;
             } catch (\Throwable $e) {
                 if (str_contains($e->getMessage(), '429') && $attempt < $maxAttempts) {
+                    $stats['throttle_retries']++;
                     sleep(min(10, 1 + ($attempt * 2)));
                     continue;
                 }
 
+                $stats['exceptions']++;
                 Log::warning('Pending item price fetch failed', [
                     'asin' => $asin,
                     'marketplace_id' => $marketplaceId,

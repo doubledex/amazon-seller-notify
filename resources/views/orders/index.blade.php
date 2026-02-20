@@ -274,7 +274,6 @@
                     $syncTime = $lastOrderSyncRun->finished_at ?: $lastOrderSyncRun->started_at;
                 @endphp
                 {{ \Illuminate\Support\Carbon::parse($syncTime)->timezone(config('app.timezone'))->format('Y-m-d H:i:s') }}
-                ({{ strtoupper((string) ($lastOrderSyncRun->status ?? 'unknown')) }}, {{ strtoupper((string) ($lastOrderSyncRun->region ?? 'n/a')) }})
             @else
                 Never
             @endif
