@@ -22,7 +22,7 @@
     </div>
 
     <div class="bg-white dark:bg-gray-800 p-4 rounded shadow-sm overflow-x-auto">
-        <p class="text-xs text-gray-600 mb-2">* Sales pending further Amazon order pricing data.</p>
+        <p class="text-xs text-gray-600 mb-2">* Includes estimated sales for pending/unshipped orders using latest ASIN + marketplace pricing (B2B-aware when available); final totals replace estimates once shipped/priced data arrives.</p>
         <table border="1" cellpadding="6" cellspacing="0" class="w-full text-sm">
             <thead class="bg-gray-100 dark:bg-gray-700">
                 <tr>
