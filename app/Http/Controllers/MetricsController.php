@@ -91,8 +91,24 @@ class MetricsController extends Controller
             ->groupByRaw("DATE(orders.purchase_date), marketplaces.country_code")
             ->get();
 
+        $latestAdsRequests = DB::table('amazon_ads_report_daily_spends as ds_latest')
+            ->join('amazon_ads_report_requests as rr_latest', 'rr_latest.id', '=', 'ds_latest.report_request_id')
+            ->selectRaw("
+                ds_latest.metric_date as metric_date,
+                ds_latest.profile_id as profile_id,
+                rr_latest.ad_product as ad_product,
+                MAX(rr_latest.id) as latest_request_id
+            ")
+            ->groupBy('ds_latest.metric_date', 'ds_latest.profile_id', 'rr_latest.ad_product');
+
         $adRows = DB::table('amazon_ads_report_daily_spends as ds')
             ->join('amazon_ads_report_requests as rr', 'rr.id', '=', 'ds.report_request_id')
+            ->joinSub($latestAdsRequests, 'latest_ads', function ($join) {
+                $join->on('latest_ads.metric_date', '=', 'ds.metric_date')
+                    ->on('latest_ads.profile_id', '=', 'ds.profile_id')
+                    ->on('latest_ads.ad_product', '=', 'rr.ad_product')
+                    ->on('latest_ads.latest_request_id', '=', 'rr.id');
+            })
             ->selectRaw("
                 ds.metric_date as metric_date,
                 rr.country_code as country_code,

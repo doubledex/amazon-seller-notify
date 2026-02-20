@@ -844,10 +844,28 @@ class AmazonAdsSpendSyncService
 
     private function refreshAggregatesForDates(array $dates): int
     {
-        $rows = DB::table('amazon_ads_report_daily_spends')
-            ->selectRaw('metric_date, region, currency, SUM(amount_local) as amount_local')
-            ->whereIn('metric_date', $dates)
-            ->groupBy('metric_date', 'region', 'currency')
+        $latestAdsRequests = DB::table('amazon_ads_report_daily_spends as ds_latest')
+            ->join('amazon_ads_report_requests as rr_latest', 'rr_latest.id', '=', 'ds_latest.report_request_id')
+            ->selectRaw("
+                ds_latest.metric_date as metric_date,
+                ds_latest.profile_id as profile_id,
+                rr_latest.ad_product as ad_product,
+                MAX(rr_latest.id) as latest_request_id
+            ")
+            ->whereIn('ds_latest.metric_date', $dates)
+            ->groupBy('ds_latest.metric_date', 'ds_latest.profile_id', 'rr_latest.ad_product');
+
+        $rows = DB::table('amazon_ads_report_daily_spends as ds')
+            ->join('amazon_ads_report_requests as rr', 'rr.id', '=', 'ds.report_request_id')
+            ->joinSub($latestAdsRequests, 'latest_ads', function ($join) {
+                $join->on('latest_ads.metric_date', '=', 'ds.metric_date')
+                    ->on('latest_ads.profile_id', '=', 'ds.profile_id')
+                    ->on('latest_ads.ad_product', '=', 'rr.ad_product')
+                    ->on('latest_ads.latest_request_id', '=', 'rr.id');
+            })
+            ->selectRaw('ds.metric_date as metric_date, ds.region as region, ds.currency as currency, SUM(ds.amount_local) as amount_local')
+            ->whereIn('ds.metric_date', $dates)
+            ->groupBy('ds.metric_date', 'ds.region', 'ds.currency')
             ->get();
 
         $upsertRows = [];
