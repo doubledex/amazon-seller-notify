@@ -30,6 +30,51 @@ class OrderSyncService
         $itemsLimit = max(0, min($itemsLimit, 500));
         $addressLimit = max(0, min($addressLimit, 500));
 
+        $region = strtoupper(trim((string) $region));
+        if ($region !== '') {
+            return $this->syncSingleRegion($days, $endBefore, $maxPages, $itemsLimit, $addressLimit, $region);
+        }
+
+        $regionService = new RegionConfigService();
+        $regions = $regionService->spApiRegions();
+        if (empty($regions)) {
+            $regions = [$regionService->defaultSpApiRegion()];
+        }
+
+        $results = [];
+        $failed = [];
+        foreach ($regions as $configuredRegion) {
+            $result = $this->syncSingleRegion($days, $endBefore, $maxPages, $itemsLimit, $addressLimit, $configuredRegion);
+            $results[] = $result;
+            if (!$result['ok']) {
+                $failed[] = $configuredRegion;
+            }
+        }
+
+        $messages = array_map(static fn (array $result) => (string) ($result['message'] ?? ''), $results);
+        $summary = implode(' | ', array_filter($messages, static fn (string $msg) => trim($msg) !== ''));
+
+        if (!empty($failed)) {
+            return [
+                'ok' => false,
+                'message' => 'Region sync failed for: ' . implode(', ', $failed) . ($summary !== '' ? ' | ' . $summary : ''),
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'message' => $summary !== '' ? $summary : 'All configured regions synced.',
+        ];
+    }
+
+    private function syncSingleRegion(
+        int $days,
+        ?string $endBefore,
+        int $maxPages,
+        int $itemsLimit,
+        int $addressLimit,
+        string $region
+    ): array {
         $regionService = new RegionConfigService();
         $regionConfig = $regionService->spApiConfig($region);
         $endpoint = $regionService->spApiEndpointEnum($region);
@@ -47,7 +92,7 @@ class OrderSyncService
         if (empty($marketplaceIds)) {
             return [
                 'ok' => false,
-                'message' => 'No marketplace IDs configured.',
+                'message' => "[{$region}] No marketplace IDs configured.",
             ];
         }
 
@@ -74,7 +119,7 @@ class OrderSyncService
             if (!$response) {
                 return [
                     'ok' => false,
-                    'message' => 'Orders API error after retries.',
+                    'message' => "[{$region}] Orders API error after retries.",
                 ];
             }
 
@@ -86,7 +131,7 @@ class OrderSyncService
                 ]);
                 return [
                     'ok' => false,
-                    'message' => 'Orders API error: ' . $response->status(),
+                    'message' => "[{$region}] Orders API error: " . $response->status(),
                 ];
             }
 
@@ -273,7 +318,7 @@ class OrderSyncService
 
         return [
             'ok' => true,
-            'message' => "Synced orders: {$totalOrders}, items fetched: {$itemsFetched}, addresses fetched: {$addressesFetched}, geocoded: {$geocoded}",
+            'message' => "[{$region}] Synced orders: {$totalOrders}, items fetched: {$itemsFetched}, addresses fetched: {$addressesFetched}, geocoded: {$geocoded}",
         ];
     }
 
