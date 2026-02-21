@@ -66,6 +66,7 @@
                 </div>
             </div>
             <a href="{{ route('orders.index') }}" class="block mt-4 bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg p-6 text-gray-900 dark:text-gray-100">View Amazon Orders</a>
+            <a href="{{ route('marketplaces') }}" class="block mt-4 bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg p-6 text-gray-900 dark:text-gray-100">View Marketplaces</a>
             <a href="{{ route('asins.europe') }}" class="block mt-4 bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg p-6 text-gray-900 dark:text-gray-100">View ASINs by European Marketplace</a>
             <a href="{{ route('metrics.index') }}" class="block mt-4 bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg p-6 text-gray-900 dark:text-gray-100">View Daily Sales & Ad Spend (UK/EU/NA)</a>
             <a href="{{ route('inventory.us_fc') }}" class="block mt-4 bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg p-6 text-gray-900 dark:text-gray-100">View US FC Inventory</a>
