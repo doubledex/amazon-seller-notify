@@ -452,10 +452,25 @@
                 @php
                     $marketplaceId = $order['MarketplaceId'] ?? null;
                     $marketplaceName = $marketplaceId ? (($marketplaces[$marketplaceId]['name'] ?? '') ?: 'Unknown') : 'N/A';
+                    $purchaseLocal = $order['PurchaseDateLocal'] ?? null;
+                    $purchaseUtc = $order['PurchaseDate'] ?? null;
+                    $purchaseSource = $purchaseLocal ?: $purchaseUtc;
+                    $purchaseDateOut = 'N/A';
+                    $purchaseTimeOut = 'N/A';
+                    if (!empty($purchaseSource)) {
+                        try {
+                            $dt = new DateTime($purchaseSource);
+                            $purchaseDateOut = $dt->format('Y-m-d');
+                            $purchaseTimeOut = $dt->format('H:i:s');
+                        } catch (Exception $e) {
+                            $purchaseDateOut = 'N/A';
+                            $purchaseTimeOut = 'N/A';
+                        }
+                    }
                 @endphp
                 <tr>
-                    <td>{{ (new DateTime($order['PurchaseDate']))->format('Y-m-d') }}</td>
-                    <td>{{ (new DateTime($order['PurchaseDate']))->format('H:i:s') }}</td>
+                    <td>{{ $purchaseDateOut }}</td>
+                    <td>{{ $purchaseTimeOut }}</td>
                     <td>{{ $order['OrderStatus'] }}</td>
                     <td>
                         <a href="{{ route('orders.show', ['order_id' => $order['AmazonOrderId']]) }}" class="text-blue-600 hover:underline">

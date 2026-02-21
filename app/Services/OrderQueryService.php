@@ -30,9 +30,9 @@ class OrderQueryService
             $createdBefore = $hasCreatedBefore
                 ? $this->normalizeCreatedBefore($createdBeforeInput)
                 : $this->normalizeCreatedBefore(now()->format('Y-m-d'));
-            $startDate = (new \DateTime($createdAfter))->format('Y-m-d H:i:s');
-            $endDate = (new \DateTime($createdBefore))->format('Y-m-d H:i:s');
-            $query->whereBetween('purchase_date', [$startDate, $endDate]);
+            $query
+                ->whereRaw("COALESCE(purchase_date_local_date, DATE(purchase_date)) >= ?", [$createdAfter])
+                ->whereRaw("COALESCE(purchase_date_local_date, DATE(purchase_date)) <= ?", [$createdBefore]);
         }
 
         $selectedCountries = $request->input('countries', []);
@@ -79,17 +79,17 @@ class OrderQueryService
     {
         $trimmed = trim($value);
         if ($trimmed === '') {
-            return now()->subDays(7)->format('Y-m-d\TH:i:s\Z');
+            return now()->subDays(7)->toDateString();
         }
 
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $trimmed)) {
-            return $trimmed . 'T00:00:00Z';
+            return $trimmed;
         }
 
         try {
-            return (new \DateTime($trimmed))->format('Y-m-d\TH:i:s\Z');
+            return (new \DateTime($trimmed))->format('Y-m-d');
         } catch (\Exception $e) {
-            return now()->subDays(7)->format('Y-m-d\TH:i:s\Z');
+            return now()->subDays(7)->toDateString();
         }
     }
 
@@ -97,17 +97,17 @@ class OrderQueryService
     {
         $trimmed = trim($value);
         if ($trimmed === '') {
-            return now()->subMinutes(2)->format('Y-m-d\TH:i:s\Z');
+            return now()->toDateString();
         }
 
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $trimmed)) {
-            return $trimmed . 'T23:59:59Z';
+            return $trimmed;
         }
 
         try {
-            return (new \DateTime($trimmed))->format('Y-m-d\TH:i:s\Z');
+            return (new \DateTime($trimmed))->format('Y-m-d');
         } catch (\Exception $e) {
-            return now()->subMinutes(2)->format('Y-m-d\TH:i:s\Z');
+            return now()->toDateString();
         }
     }
 }

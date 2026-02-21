@@ -99,7 +99,7 @@ class OrderController extends Controller
             $perPage = (int) $request->input('per_page', 25);
             $perPage = max(10, min($perPage, 200));
             $ordersPaginator = $query
-                ->orderBy('purchase_date', 'desc')
+                ->orderByRaw('COALESCE(purchase_date_local, purchase_date) desc')
                 ->orderBy('id', 'desc')
                 ->paginate($perPage)
                 ->appends($request->query());
@@ -123,6 +123,8 @@ class OrderController extends Controller
                     $raw = [
                         'AmazonOrderId' => $order->amazon_order_id,
                         'PurchaseDate' => $order->purchase_date ? $order->purchase_date->format('c') : null,
+                        'PurchaseDateLocal' => $order->purchase_date_local ? $order->purchase_date_local->format('c') : null,
+                        'MarketplaceTimezone' => $order->marketplace_timezone,
                         'OrderStatus' => $order->order_status,
                         'FulfillmentChannel' => $order->fulfillment_channel,
                         'PaymentMethodDetails' => $order->payment_method ? [$order->payment_method] : [],
@@ -144,6 +146,8 @@ class OrderController extends Controller
                     ];
                 } else {
                     $raw['IsMarketplaceFacilitator'] = $order->is_marketplace_facilitator ?? ($mfFallbackMap[$order->amazon_order_id] ?? null);
+                    $raw['PurchaseDateLocal'] = $order->purchase_date_local ? $order->purchase_date_local->format('c') : ($raw['PurchaseDateLocal'] ?? null);
+                    $raw['MarketplaceTimezone'] = $order->marketplace_timezone ?? ($raw['MarketplaceTimezone'] ?? null);
                 }
                 return $raw;
             })->values()->all();
@@ -181,8 +185,8 @@ class OrderController extends Controller
             }, $allOrders);
 
             $dbEmpty = $ordersPaginator->total() === 0;
-            $oldestDate = Order::query()->min('purchase_date');
-            $newestDate = Order::query()->max('purchase_date');
+            $oldestDate = Order::query()->selectRaw('MIN(COALESCE(purchase_date_local_date, DATE(purchase_date))) as d')->value('d');
+            $newestDate = Order::query()->selectRaw('MAX(COALESCE(purchase_date_local_date, DATE(purchase_date))) as d')->value('d');
 
             $lastOrderSyncRun = null;
             if (Schema::hasTable('order_sync_runs')) {
@@ -374,6 +378,7 @@ class OrderController extends Controller
 
         return view('orders.show', [
             'order' => $orderArray,
+            'orderRecord' => $orderRecord,
             'items' => $itemsArray,
             'address' => $addressArray,
             'marketplaces' => $marketplacesUi,

@@ -15,6 +15,8 @@
             @php
                 $status = $order['OrderStatus'] ?? 'N/A';
                 $purchaseDate = $order['PurchaseDate'] ?? null;
+                $purchaseDateLocal = $orderRecord?->purchase_date_local?->format('Y-m-d H:i:s');
+                $purchaseTimezone = $orderRecord?->marketplace_timezone;
                 $fulfillment = $order['FulfillmentChannel'] ?? 'N/A';
                 $salesChannel = $order['SalesChannel'] ?? 'N/A';
                 $marketplaceId = $order['MarketplaceId'] ?? 'N/A';
@@ -28,22 +30,30 @@
                 $companyName = $order['ShippingAddress']['CompanyName']
                     ?? $order['DefaultShipFromLocationAddress']['CompanyName']
                     ?? null;
-                $formatDateTime = function ($value) {
+                $formatDateTime = function ($value, $timezone = null) {
                     if (!$value) {
                         return 'N/A';
                     }
                     try {
-                        return (new DateTime($value))->format('D, M j, Y H:i');
+                        $date = new DateTime($value, new DateTimeZone('UTC'));
+                        if ($timezone) {
+                            $date->setTimezone(new DateTimeZone($timezone));
+                        }
+                        return $date->format('D, M j, Y H:i');
                     } catch (Exception $e) {
                         return 'N/A';
                     }
                 };
-                $formatDateOnly = function ($value) {
+                $formatDateOnly = function ($value, $timezone = null) {
                     if (!$value) {
                         return 'N/A';
                     }
                     try {
-                        return (new DateTime($value))->format('D, M j, Y');
+                        $date = new DateTime($value, new DateTimeZone('UTC'));
+                        if ($timezone) {
+                            $date->setTimezone(new DateTimeZone($timezone));
+                        }
+                        return $date->format('D, M j, Y');
                     } catch (Exception $e) {
                         return 'N/A';
                     }
@@ -65,9 +75,12 @@
 
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
-                        <div class="text-xs text-gray-500">Purchased</div>
+                        <div class="text-xs text-gray-500">Purchased (Local)</div>
                         <div class="text-sm font-medium">
-                            {{ $formatDateTime($purchaseDate) }}
+                            {{ $purchaseDateLocal ? $formatDateTime($purchaseDateLocal) : $formatDateTime($purchaseDate, $purchaseTimezone) }}
+                            @if(!empty($purchaseTimezone))
+                                <span class="text-xs text-gray-500">({{ $purchaseTimezone }})</span>
+                            @endif
                         </div>
                     </div>
                     <div>
@@ -91,7 +104,7 @@
                     </div>
                     <div>
                         <div class="text-xs text-gray-500">Last Update</div>
-                        <div class="text-sm font-medium">{{ $formatDateTime($order['LastUpdateDate'] ?? null) }}</div>
+                        <div class="text-sm font-medium">{{ $formatDateTime($order['LastUpdateDate'] ?? null, $purchaseTimezone) }}</div>
                     </div>
                 </div>
 
@@ -100,19 +113,19 @@
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div class="p-3 rounded-md border border-gray-200 bg-gray-50">
                             <div class="text-xs text-gray-500 mb-1">Earliest Ship</div>
-                            <div class="text-sm font-medium">{{ $formatDateOnly($order['EarliestShipDate'] ?? null) }}</div>
+                            <div class="text-sm font-medium">{{ $formatDateOnly($order['EarliestShipDate'] ?? null, $purchaseTimezone) }}</div>
                         </div>
                         <div class="p-3 rounded-md border border-gray-200 bg-gray-50">
                             <div class="text-xs text-gray-500 mb-1">Latest Ship</div>
-                            <div class="text-sm font-medium">{{ $formatDateOnly($order['LatestShipDate'] ?? null) }}</div>
+                            <div class="text-sm font-medium">{{ $formatDateOnly($order['LatestShipDate'] ?? null, $purchaseTimezone) }}</div>
                         </div>
                         <div class="p-3 rounded-md border border-gray-200 bg-gray-50">
                             <div class="text-xs text-gray-500 mb-1">Earliest Delivery</div>
-                            <div class="text-sm font-medium">{{ $formatDateOnly($order['EarliestDeliveryDate'] ?? null) }}</div>
+                            <div class="text-sm font-medium">{{ $formatDateOnly($order['EarliestDeliveryDate'] ?? null, $purchaseTimezone) }}</div>
                         </div>
                         <div class="p-3 rounded-md border border-gray-200 bg-gray-50">
                             <div class="text-xs text-gray-500 mb-1">Latest Delivery</div>
-                            <div class="text-sm font-medium">{{ $formatDateOnly($order['LatestDeliveryDate'] ?? null) }}</div>
+                            <div class="text-sm font-medium">{{ $formatDateOnly($order['LatestDeliveryDate'] ?? null, $purchaseTimezone) }}</div>
                         </div>
                     </div>
                 </div>
