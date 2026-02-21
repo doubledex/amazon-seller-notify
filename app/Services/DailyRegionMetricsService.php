@@ -165,7 +165,7 @@ class DailyRegionMetricsService
                 $join->on('item_totals.amazon_order_id', '=', 'orders.amazon_order_id');
             })
             ->select(
-                DB::raw("COALESCE(NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(item_totals.item_currency, ''), NULLIF(orders.order_total_currency, ''), 'GBP') as currency"),
+                DB::raw("COALESCE(NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(item_totals.item_currency, ''), NULLIF(orders.order_total_currency, ''), NULLIF(marketplaces.default_currency, ''), 'GBP') as currency"),
                 DB::raw("
                     SUM(
                         CASE
@@ -183,7 +183,7 @@ class DailyRegionMetricsService
         $this->applyRegionCountryFilter($query, $region);
 
         return $query
-            ->groupBy(DB::raw("COALESCE(NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(item_totals.item_currency, ''), NULLIF(orders.order_total_currency, ''), 'GBP')"))
+            ->groupBy(DB::raw("COALESCE(NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(item_totals.item_currency, ''), NULLIF(orders.order_total_currency, ''), NULLIF(marketplaces.default_currency, ''), 'GBP')"))
             ->get();
     }
 

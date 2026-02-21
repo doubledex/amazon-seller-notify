@@ -46,6 +46,7 @@ class MetricsController extends Controller
                     NULLIF(orders.order_net_ex_tax_currency, ''),
                     NULLIF(item_totals.item_currency, ''),
                     NULLIF(orders.order_total_currency, ''),
+                    NULLIF(marketplaces.default_currency, ''),
                     'GBP'
                 ) as currency,
                 SUM(
@@ -62,7 +63,7 @@ class MetricsController extends Controller
             ->groupByRaw("
                 {$metricDateExpr},
                 marketplaces.country_code,
-                COALESCE(NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(item_totals.item_currency, ''), NULLIF(orders.order_total_currency, ''), 'GBP')
+                COALESCE(NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(item_totals.item_currency, ''), NULLIF(orders.order_total_currency, ''), NULLIF(marketplaces.default_currency, ''), 'GBP')
             ")
             ->get();
 
