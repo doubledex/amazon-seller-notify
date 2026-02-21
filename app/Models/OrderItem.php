@@ -14,7 +14,9 @@ class OrderItem extends Model
         'title',
         'quantity_ordered',
         'item_price_amount',
+        'line_net_ex_tax',
         'item_price_currency',
+        'line_net_currency',
         'raw_item',
     ];
 

@@ -154,8 +154,8 @@ class DailyRegionMetricsService
         $itemTotals = DB::table('order_items')
             ->selectRaw("
                 amazon_order_id,
-                MAX(COALESCE(item_price_currency, '')) as item_currency,
-                SUM(COALESCE(quantity_ordered, 0) * COALESCE(item_price_amount, 0)) as item_total
+                MAX(COALESCE(line_net_currency, item_price_currency, '')) as item_currency,
+                SUM(COALESCE(line_net_ex_tax, 0)) as item_total
             ")
             ->groupBy('amazon_order_id');
 
@@ -165,11 +165,11 @@ class DailyRegionMetricsService
                 $join->on('item_totals.amazon_order_id', '=', 'orders.amazon_order_id');
             })
             ->select(
-                DB::raw("COALESCE(NULLIF(orders.order_total_currency, ''), NULLIF(item_totals.item_currency, ''), 'GBP') as currency"),
+                DB::raw("COALESCE(NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(item_totals.item_currency, ''), NULLIF(orders.order_total_currency, ''), 'GBP') as currency"),
                 DB::raw("
                     SUM(
                         CASE
-                            WHEN COALESCE(orders.order_total_amount, 0) > 0 THEN orders.order_total_amount
+                            WHEN COALESCE(orders.order_net_ex_tax, 0) > 0 THEN orders.order_net_ex_tax
                             ELSE COALESCE(item_totals.item_total, 0)
                         END
                     ) as amount
@@ -183,7 +183,7 @@ class DailyRegionMetricsService
         $this->applyRegionCountryFilter($query, $region);
 
         return $query
-            ->groupBy(DB::raw("COALESCE(NULLIF(orders.order_total_currency, ''), NULLIF(item_totals.item_currency, ''), 'GBP')"))
+            ->groupBy(DB::raw("COALESCE(NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(item_totals.item_currency, ''), NULLIF(orders.order_total_currency, ''), 'GBP')"))
             ->get();
     }
 

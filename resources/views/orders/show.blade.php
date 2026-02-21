@@ -24,6 +24,8 @@
                 $isB2b = !empty($order['IsBusinessOrder']);
                 $totalAmount = $order['OrderTotal']['Amount'] ?? null;
                 $totalCurrency = $order['OrderTotal']['CurrencyCode'] ?? null;
+                $netAmount = $orderRecord?->order_net_ex_tax;
+                $netCurrency = $orderRecord?->order_net_ex_tax_currency ?: $totalCurrency;
                 $buyerEmail = $order['BuyerInfo']['BuyerEmail']
                     ?? $order['BuyerEmail']
                     ?? null;
@@ -131,9 +133,9 @@
                 </div>
 
                 <div class="mt-4 flex items-baseline gap-2">
-                    <div class="text-xs text-gray-500">Total</div>
+                    <div class="text-xs text-gray-500">Net (ex tax)</div>
                     <div class="text-lg font-semibold">
-                        {{ $totalAmount ?? 'N/A' }} {{ $totalCurrency ?? '' }}
+                        {{ $netAmount ?? $totalAmount ?? 'N/A' }} {{ $netCurrency ?? '' }}
                     </div>
                 </div>
             </div>

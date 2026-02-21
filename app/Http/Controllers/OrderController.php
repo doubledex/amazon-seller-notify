@@ -7,6 +7,7 @@ use SellingPartnerApi\SellingPartnerApi;
 use DateTime;
 use Illuminate\Support\Facades\Log;
 use App\Services\MarketplaceService;
+use App\Services\OrderNetValueService;
 use App\Services\MarketplaceTimezoneService;
 use App\Services\RegionConfigService;
 use App\Models\CityGeo;
@@ -26,6 +27,7 @@ class OrderController extends Controller
     private $marketplaceService;
     private $orderQueryService;
     private $marketplaceTimezoneService;
+    private $orderNetValueService;
     private const ORDERS_MAX_RETRIES = 3;
 
     public function __construct()
@@ -43,6 +45,7 @@ class OrderController extends Controller
         $this->marketplaceService = new MarketplaceService();
         $this->orderQueryService = new OrderQueryService();
         $this->marketplaceTimezoneService = new MarketplaceTimezoneService();
+        $this->orderNetValueService = new OrderNetValueService();
     }
 
     public function index(Request $request)
@@ -132,6 +135,11 @@ class OrderController extends Controller
                             'Amount' => $order->order_total_amount,
                             'CurrencyCode' => $order->order_total_currency,
                         ],
+                        'OrderNetExTax' => [
+                            'Amount' => $order->order_net_ex_tax,
+                            'CurrencyCode' => $order->order_net_ex_tax_currency ?: $order->order_total_currency,
+                            'Source' => $order->order_net_ex_tax_source,
+                        ],
                         'SalesChannel' => $order->sales_channel,
                         'MarketplaceId' => $order->marketplace_id,
                         'IsBusinessOrder' => $order->is_business_order,
@@ -148,6 +156,11 @@ class OrderController extends Controller
                     $raw['IsMarketplaceFacilitator'] = $order->is_marketplace_facilitator ?? ($mfFallbackMap[$order->amazon_order_id] ?? null);
                     $raw['PurchaseDateLocal'] = $order->purchase_date_local ? $order->purchase_date_local->format('c') : ($raw['PurchaseDateLocal'] ?? null);
                     $raw['MarketplaceTimezone'] = $order->marketplace_timezone ?? ($raw['MarketplaceTimezone'] ?? null);
+                    $raw['OrderNetExTax'] = [
+                        'Amount' => $order->order_net_ex_tax,
+                        'CurrencyCode' => $order->order_net_ex_tax_currency ?: ($raw['OrderNetExTax']['CurrencyCode'] ?? $order->order_total_currency ?? null),
+                        'Source' => $order->order_net_ex_tax_source,
+                    ];
                 }
                 return $raw;
             })->values()->all();
@@ -295,6 +308,7 @@ class OrderController extends Controller
                         if (!$itemId) {
                             continue;
                         }
+                        $lineNet = $this->orderNetValueService->valuesFromApiItem($item);
                         OrderItem::updateOrCreate(
                             ['order_item_id' => $itemId],
                             [
@@ -304,7 +318,9 @@ class OrderController extends Controller
                                 'title' => $item['Title'] ?? null,
                                 'quantity_ordered' => $item['QuantityOrdered'] ?? null,
                                 'item_price_amount' => $item['ItemPrice']['Amount'] ?? null,
+                                'line_net_ex_tax' => $lineNet['line_net_ex_tax'],
                                 'item_price_currency' => $item['ItemPrice']['CurrencyCode'] ?? null,
+                                'line_net_currency' => $lineNet['line_net_currency'],
                                 'raw_item' => $item,
                             ]
                         );
@@ -317,6 +333,7 @@ class OrderController extends Controller
                     Order::query()
                         ->where('amazon_order_id', $order_id)
                         ->update(['is_marketplace_facilitator' => $isMarketplaceFacilitator]);
+                    $this->orderNetValueService->refreshOrderNet($order_id);
                 }
             }
 

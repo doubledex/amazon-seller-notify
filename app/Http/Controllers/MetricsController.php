@@ -28,8 +28,8 @@ class MetricsController extends Controller
         $itemTotals = DB::table('order_items')
             ->selectRaw("
                 amazon_order_id,
-                MAX(COALESCE(item_price_currency, '')) as item_currency,
-                SUM(COALESCE(quantity_ordered, 0) * COALESCE(item_price_amount, 0)) as item_total,
+                MAX(COALESCE(line_net_currency, item_price_currency, '')) as item_currency,
+                SUM(COALESCE(line_net_ex_tax, 0)) as item_total,
                 SUM(COALESCE(quantity_ordered, 0)) as item_units
             ")
             ->groupBy('amazon_order_id');
@@ -43,13 +43,14 @@ class MetricsController extends Controller
                 {$metricDateExpr} as metric_date,
                 marketplaces.country_code as country_code,
                 COALESCE(
-                    NULLIF(orders.order_total_currency, ''),
+                    NULLIF(orders.order_net_ex_tax_currency, ''),
                     NULLIF(item_totals.item_currency, ''),
+                    NULLIF(orders.order_total_currency, ''),
                     'GBP'
                 ) as currency,
                 SUM(
                     CASE
-                        WHEN COALESCE(orders.order_total_amount, 0) > 0 THEN orders.order_total_amount
+                        WHEN COALESCE(orders.order_net_ex_tax, 0) > 0 THEN orders.order_net_ex_tax
                         ELSE COALESCE(item_totals.item_total, 0)
                     END
                 ) as sales_amount,
@@ -61,7 +62,7 @@ class MetricsController extends Controller
             ->groupByRaw("
                 {$metricDateExpr},
                 marketplaces.country_code,
-                COALESCE(NULLIF(orders.order_total_currency, ''), NULLIF(item_totals.item_currency, ''), 'GBP')
+                COALESCE(NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(item_totals.item_currency, ''), NULLIF(orders.order_total_currency, ''), 'GBP')
             ")
             ->get();
 
@@ -78,7 +79,7 @@ class MetricsController extends Controller
             ->whereRaw("{$metricDateExpr} >= ?", [$from])
             ->whereRaw("{$metricDateExpr} <= ?", [$to])
             ->whereRaw("UPPER(COALESCE(orders.order_status, '')) IN ('PENDING', 'UNSHIPPED')")
-            ->whereRaw("COALESCE(orders.order_total_amount, 0) <= 0")
+            ->whereRaw("COALESCE(orders.order_net_ex_tax, 0) <= 0")
             ->whereRaw("COALESCE(item_totals.item_total, 0) <= 0")
             ->groupByRaw("{$metricDateExpr}, marketplaces.country_code")
             ->get();
@@ -100,7 +101,7 @@ class MetricsController extends Controller
             ->whereRaw("{$metricDateExpr} >= ?", [$from])
             ->whereRaw("{$metricDateExpr} <= ?", [$to])
             ->whereRaw("UPPER(COALESCE(orders.order_status, '')) IN ('PENDING', 'UNSHIPPED')")
-            ->whereRaw("COALESCE(orders.order_total_amount, 0) <= 0")
+            ->whereRaw("COALESCE(orders.order_net_ex_tax, 0) <= 0")
             ->whereRaw("COALESCE(item_totals.item_total, 0) <= 0")
             ->whereRaw("TRIM(COALESCE(order_items.asin, '')) <> ''")
             ->whereRaw("TRIM(COALESCE(orders.marketplace_id, '')) <> ''")

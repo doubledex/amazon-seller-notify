@@ -22,7 +22,7 @@
     </div>
 
     <div class="bg-white dark:bg-gray-800 p-4 rounded shadow-sm overflow-x-auto">
-        <p class="text-xs text-gray-600 mb-2">* Includes temporary values for pending/unshipped orders from live SP-API ASIN pricing (qty x price); final order pricing replaces this when available.</p>
+        <p class="text-xs text-gray-600 mb-2">* Sales use net ex-tax line values. Pending/unshipped rows may include temporary ASIN pricing until line values are available.</p>
         @if(!empty($pendingPricingDebug) && (int) ($pendingPricingDebug['considered_rows'] ?? 0) > 0)
             <p class="text-xs text-gray-600 mb-2">
                 Pending pricing debug:
@@ -46,7 +46,7 @@
                     <th class="text-left">Day</th>
                     <th class="text-right">Orders</th>
                     <th class="text-right">Units</th>
-                    <th class="text-right">Sales (GBP)</th>
+                    <th class="text-right">Sales ex tax (GBP)</th>
                     <th class="text-right">Ad Spend (GBP)</th>
                     <th class="text-right">ACOS %</th>
                 </tr>
@@ -82,8 +82,8 @@
                                         <th class="text-left">Marketplace</th>
                                         <th class="text-right">Orders</th>
                                         <th class="text-right">Units</th>
-                                        <th class="text-right">Sales (Local)</th>
-                                        <th class="text-right">Sales (GBP)</th>
+                                        <th class="text-right">Sales ex tax (Local)</th>
+                                        <th class="text-right">Sales ex tax (GBP)</th>
                                         <th class="text-right">Ad Spend (Local)</th>
                                         <th class="text-right">Ad Spend (GBP)</th>
                                         <th class="text-right">ACOS %</th>

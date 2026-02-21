@@ -98,6 +98,7 @@ class OrderSyncService
         $ordersApi = $connector->ordersV0();
         $marketplaceService = new MarketplaceService();
         $marketplaceTimezoneService = new MarketplaceTimezoneService();
+        $orderNetValueService = new OrderNetValueService();
         $marketplaceIds = $marketplaceService->getMarketplaceIds($connector);
 
         $nextToken = null;
@@ -254,6 +255,7 @@ class OrderSyncService
                                 if (!$itemId) {
                                     continue;
                                 }
+                                $lineNet = $orderNetValueService->valuesFromApiItem($item);
                                 OrderItem::updateOrCreate(
                                     ['order_item_id' => $itemId],
                                     [
@@ -263,7 +265,9 @@ class OrderSyncService
                                         'title' => $item['Title'] ?? null,
                                         'quantity_ordered' => $item['QuantityOrdered'] ?? null,
                                         'item_price_amount' => $item['ItemPrice']['Amount'] ?? null,
+                                        'line_net_ex_tax' => $lineNet['line_net_ex_tax'],
                                         'item_price_currency' => $item['ItemPrice']['CurrencyCode'] ?? null,
+                                        'line_net_currency' => $lineNet['line_net_currency'],
                                         'raw_item' => json_encode($item),
                                     ]
                                 );
@@ -276,6 +280,7 @@ class OrderSyncService
                             Order::query()
                                 ->where('amazon_order_id', $orderId)
                                 ->update(['is_marketplace_facilitator' => $isMarketplaceFacilitator]);
+                            $orderNetValueService->refreshOrderNet($orderId);
                             $itemsFetched++;
                         }
                     }
