@@ -252,7 +252,7 @@ class OrderController extends Controller
 
         $ordersApi = $this->connector->ordersV0();
         $needsOrder = !$orderRecord;
-        $needsItems = $items->isEmpty();
+        $needsItems = $items->isEmpty() || $this->needsItemShipmentRefresh($orderRecord, $items);
         $needsAddress = !$address;
 
         if ($needsOrder || $needsItems || $needsAddress) {
@@ -309,6 +309,14 @@ class OrderController extends Controller
                             continue;
                         }
                         $lineNet = $this->orderNetValueService->valuesFromApiItem($item);
+                        $orderedQty = isset($item['QuantityOrdered']) ? (int) $item['QuantityOrdered'] : null;
+                        $shippedQty = isset($item['QuantityShipped']) ? (int) $item['QuantityShipped'] : null;
+                        $unshippedQty = null;
+                        if (isset($item['QuantityUnshipped'])) {
+                            $unshippedQty = (int) $item['QuantityUnshipped'];
+                        } elseif ($orderedQty !== null && $shippedQty !== null) {
+                            $unshippedQty = max(0, $orderedQty - $shippedQty);
+                        }
                         OrderItem::updateOrCreate(
                             ['order_item_id' => $itemId],
                             [
@@ -316,7 +324,9 @@ class OrderController extends Controller
                                 'asin' => $item['ASIN'] ?? null,
                                 'seller_sku' => $item['SellerSKU'] ?? null,
                                 'title' => $item['Title'] ?? null,
-                                'quantity_ordered' => $item['QuantityOrdered'] ?? null,
+                                'quantity_ordered' => $orderedQty,
+                                'quantity_shipped' => $shippedQty,
+                                'quantity_unshipped' => $unshippedQty,
                                 'item_price_amount' => $item['ItemPrice']['Amount'] ?? null,
                                 'line_net_ex_tax' => $lineNet['line_net_ex_tax'],
                                 'item_price_currency' => $item['ItemPrice']['CurrencyCode'] ?? null,
@@ -1007,6 +1017,33 @@ class OrderController extends Controller
         } catch (\Exception $e) {
             return null;
         }
+    }
+
+    private function needsItemShipmentRefresh(?Order $orderRecord, $items): bool
+    {
+        if (!$orderRecord || $items->isEmpty()) {
+            return false;
+        }
+
+        $raw = $orderRecord->raw_order;
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+            $raw = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($raw)) {
+            return false;
+        }
+
+        $orderShipped = (int) ($raw['NumberOfItemsShipped'] ?? 0);
+        if ($orderShipped <= 0) {
+            return false;
+        }
+
+        $itemShipped = (int) $items->sum(function (OrderItem $item) {
+            return (int) ($item->quantity_shipped ?? 0);
+        });
+
+        return $itemShipped < $orderShipped;
     }
 
     private function buildMarketplaceFacilitatorMap(array $orderIds): array

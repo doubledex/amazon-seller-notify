@@ -13,6 +13,8 @@ class OrderItem extends Model
         'seller_sku',
         'title',
         'quantity_ordered',
+        'quantity_shipped',
+        'quantity_unshipped',
         'item_price_amount',
         'line_net_ex_tax',
         'item_price_currency',

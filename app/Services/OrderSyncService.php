@@ -237,9 +237,12 @@ class OrderSyncService
                     $status = $order['OrderStatus'] ?? null;
                     $needsDetails = !$status || !in_array($status, self::FINAL_STATUSES, true);
                     $itemsMissing = OrderItem::query()->where('amazon_order_id', $orderId)->count() === 0;
+                    $orderItemsShipped = (int) ($order['NumberOfItemsShipped'] ?? 0);
+                    $storedItemsShipped = (int) OrderItem::query()->where('amazon_order_id', $orderId)->sum('quantity_shipped');
+                    $itemsShipmentOutdated = $orderItemsShipped > 0 && $storedItemsShipped < $orderItemsShipped;
                     $addressMissing = OrderShipAddress::query()->where('order_id', $orderId)->count() === 0;
 
-                    if (($needsDetails || $itemsMissing) && $itemsFetched < $itemsLimit) {
+                    if (($needsDetails || $itemsMissing || $itemsShipmentOutdated) && $itemsFetched < $itemsLimit) {
                         $itemsResponse = $this->callSpApiWithRetries(
                             fn () => $ordersApi->getOrderItems($orderId),
                             'orders.getOrderItems',
@@ -256,6 +259,14 @@ class OrderSyncService
                                     continue;
                                 }
                                 $lineNet = $orderNetValueService->valuesFromApiItem($item);
+                                $orderedQty = isset($item['QuantityOrdered']) ? (int) $item['QuantityOrdered'] : null;
+                                $shippedQty = isset($item['QuantityShipped']) ? (int) $item['QuantityShipped'] : null;
+                                $unshippedQty = null;
+                                if (isset($item['QuantityUnshipped'])) {
+                                    $unshippedQty = (int) $item['QuantityUnshipped'];
+                                } elseif ($orderedQty !== null && $shippedQty !== null) {
+                                    $unshippedQty = max(0, $orderedQty - $shippedQty);
+                                }
                                 OrderItem::updateOrCreate(
                                     ['order_item_id' => $itemId],
                                     [
@@ -263,7 +274,9 @@ class OrderSyncService
                                         'asin' => $item['ASIN'] ?? null,
                                         'seller_sku' => $item['SellerSKU'] ?? null,
                                         'title' => $item['Title'] ?? null,
-                                        'quantity_ordered' => $item['QuantityOrdered'] ?? null,
+                                        'quantity_ordered' => $orderedQty,
+                                        'quantity_shipped' => $shippedQty,
+                                        'quantity_unshipped' => $unshippedQty,
                                         'item_price_amount' => $item['ItemPrice']['Amount'] ?? null,
                                         'line_net_ex_tax' => $lineNet['line_net_ex_tax'],
                                         'item_price_currency' => $item['ItemPrice']['CurrencyCode'] ?? null,

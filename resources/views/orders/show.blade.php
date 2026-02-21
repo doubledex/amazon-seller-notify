@@ -151,7 +151,9 @@
                                     <th>Title</th>
                                     <th>SKU</th>
                                     <th>ASIN</th>
-                                    <th>Qty</th>
+                                    <th>Qty Ordered</th>
+                                    <th>Qty Shipped</th>
+                                    <th>Qty Unshipped</th>
                                     <th>Price</th>
                                 </tr>
                             </thead>
@@ -164,6 +166,14 @@
                                             ?? $item['ImageUrl']
                                             ?? null;
                                     @endphp
+                                    @php
+                                        $qtyOrdered = $item['QuantityOrdered'] ?? null;
+                                        $qtyShipped = $item['QuantityShipped'] ?? null;
+                                        $qtyUnshipped = $item['QuantityUnshipped'] ?? null;
+                                        if ($qtyUnshipped === null && is_numeric($qtyOrdered) && is_numeric($qtyShipped)) {
+                                            $qtyUnshipped = max(0, (int) $qtyOrdered - (int) $qtyShipped);
+                                        }
+                                    @endphp
                                     <tr>
                                         <td style="text-align:center;">
                                             @if ($imageUrl)
@@ -175,7 +185,9 @@
                                         <td>{{ $item['Title'] ?? 'N/A' }}</td>
                                         <td>{{ $item['SellerSKU'] ?? 'N/A' }}</td>
                                         <td>{{ $item['ASIN'] ?? 'N/A' }}</td>
-                                        <td style="text-align:center;">{{ $item['QuantityOrdered'] ?? 'N/A' }}</td>
+                                        <td style="text-align:center;">{{ $qtyOrdered ?? 'N/A' }}</td>
+                                        <td style="text-align:center;">{{ $qtyShipped ?? 'N/A' }}</td>
+                                        <td style="text-align:center;">{{ $qtyUnshipped ?? 'N/A' }}</td>
                                         <td>
                                             {{ $item['ItemPrice']['Amount'] ?? 'N/A' }}
                                             {{ $item['ItemPrice']['CurrencyCode'] ?? '' }}
