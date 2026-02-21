@@ -9,8 +9,6 @@ class OrderNetValueService
 {
     public function valuesFromApiItem(array $item): array
     {
-        $quantity = max(1, (int) ($item['QuantityOrdered'] ?? 1));
-
         $itemPrice = $this->amount($item, 'ItemPrice');
         $shippingPrice = $this->amount($item, 'ShippingPrice');
         $promotionDiscount = $this->amount($item, 'PromotionDiscount');
@@ -23,9 +21,10 @@ class OrderNetValueService
             ];
         }
 
-        $unitBase = (float) ($itemPrice ?? 0) + (float) ($shippingPrice ?? 0);
-        $unitDiscounts = (float) ($promotionDiscount ?? 0) + (float) ($shippingDiscount ?? 0);
-        $lineNet = ($unitBase - $unitDiscounts) * $quantity;
+        // SP-API getOrderItems monetary amounts are line-level totals.
+        $lineBase = (float) ($itemPrice ?? 0) + (float) ($shippingPrice ?? 0);
+        $lineDiscounts = (float) ($promotionDiscount ?? 0) + (float) ($shippingDiscount ?? 0);
+        $lineNet = $lineBase - $lineDiscounts;
 
         return [
             'line_net_ex_tax' => round(max(0.0, $lineNet), 2),
