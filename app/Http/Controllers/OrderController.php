@@ -7,6 +7,7 @@ use SellingPartnerApi\SellingPartnerApi;
 use DateTime;
 use Illuminate\Support\Facades\Log;
 use App\Services\MarketplaceService;
+use App\Services\MarketplaceTimezoneService;
 use App\Services\RegionConfigService;
 use App\Models\CityGeo;
 use App\Models\PostalCodeGeo;
@@ -24,6 +25,7 @@ class OrderController extends Controller
     private $connector;
     private $marketplaceService;
     private $orderQueryService;
+    private $marketplaceTimezoneService;
     private const ORDERS_MAX_RETRIES = 3;
 
     public function __construct()
@@ -40,6 +42,7 @@ class OrderController extends Controller
         );
         $this->marketplaceService = new MarketplaceService();
         $this->orderQueryService = new OrderQueryService();
+        $this->marketplaceTimezoneService = new MarketplaceTimezoneService();
     }
 
     public function index(Request $request)
@@ -243,15 +246,24 @@ class OrderController extends Controller
                     $order = $orderData['payload'] ?? [];
                     if (!empty($order)) {
                         $ship = $order['ShippingAddress'] ?? [];
+                        $marketplaceId = $order['MarketplaceId'] ?? null;
+                        $localized = $this->marketplaceTimezoneService->localizeFromUtc(
+                            $order['PurchaseDate'] ?? null,
+                            $marketplaceId,
+                            null
+                        );
                         Order::updateOrCreate(
                             ['amazon_order_id' => $order_id],
                             [
                                 'purchase_date' => $this->normalizePurchaseDate($order['PurchaseDate'] ?? null),
+                                'purchase_date_local' => $localized['purchase_date_local'],
+                                'purchase_date_local_date' => $localized['purchase_date_local_date'],
                                 'order_status' => $order['OrderStatus'] ?? null,
                                 'fulfillment_channel' => $order['FulfillmentChannel'] ?? null,
                                 'payment_method' => $order['PaymentMethodDetails'][0] ?? ($order['PaymentMethod'] ?? null),
                                 'sales_channel' => $order['SalesChannel'] ?? null,
-                                'marketplace_id' => $order['MarketplaceId'] ?? null,
+                                'marketplace_id' => $marketplaceId,
+                                'marketplace_timezone' => $localized['marketplace_timezone'],
                                 'is_business_order' => !empty($order['IsBusinessOrder']),
                                 'order_total_amount' => $order['OrderTotal']['Amount'] ?? null,
                                 'order_total_currency' => $order['OrderTotal']['CurrencyCode'] ?? null,

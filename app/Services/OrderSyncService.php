@@ -97,6 +97,7 @@ class OrderSyncService
 
         $ordersApi = $connector->ordersV0();
         $marketplaceService = new MarketplaceService();
+        $marketplaceTimezoneService = new MarketplaceTimezoneService();
         $marketplaceIds = $marketplaceService->getMarketplaceIds($connector);
 
         $nextToken = null;
@@ -158,6 +159,7 @@ class OrderSyncService
                 foreach ($orders as $order) {
                     $ship = $order['ShippingAddress'] ?? [];
                     $paymentMethod = $order['PaymentMethodDetails'][0] ?? ($order['PaymentMethod'] ?? null);
+                    $marketplaceId = $order['MarketplaceId'] ?? null;
                     $purchaseDate = $order['PurchaseDate'] ?? null;
                     if ($purchaseDate) {
                         try {
@@ -166,14 +168,18 @@ class OrderSyncService
                             $purchaseDate = null;
                         }
                     }
+                    $localized = $marketplaceTimezoneService->localizeFromUtc($order['PurchaseDate'] ?? null, $marketplaceId, $region);
                     $rows[] = [
                         'amazon_order_id' => $order['AmazonOrderId'] ?? null,
                         'purchase_date' => $purchaseDate,
+                        'purchase_date_local' => $localized['purchase_date_local'],
+                        'purchase_date_local_date' => $localized['purchase_date_local_date'],
                         'order_status' => $order['OrderStatus'] ?? null,
                         'fulfillment_channel' => $order['FulfillmentChannel'] ?? null,
                         'payment_method' => $paymentMethod,
                         'sales_channel' => $order['SalesChannel'] ?? null,
-                        'marketplace_id' => $order['MarketplaceId'] ?? null,
+                        'marketplace_id' => $marketplaceId,
+                        'marketplace_timezone' => $localized['marketplace_timezone'],
                         'is_business_order' => !empty($order['IsBusinessOrder']),
                         'order_total_amount' => $order['OrderTotal']['Amount'] ?? null,
                         'order_total_currency' => $order['OrderTotal']['CurrencyCode'] ?? null,
@@ -196,11 +202,14 @@ class OrderSyncService
                         ['amazon_order_id'],
                         [
                             'purchase_date',
+                            'purchase_date_local',
+                            'purchase_date_local_date',
                             'order_status',
                             'fulfillment_channel',
                             'payment_method',
                             'sales_channel',
                             'marketplace_id',
+                            'marketplace_timezone',
                             'is_business_order',
                             'order_total_amount',
                             'order_total_currency',

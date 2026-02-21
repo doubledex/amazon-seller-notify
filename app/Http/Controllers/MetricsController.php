@@ -23,6 +23,7 @@ class MetricsController extends Controller
         if ($to < $from) {
             [$from, $to] = [$to, $from];
         }
+        $metricDateExpr = "COALESCE(orders.purchase_date_local_date, DATE(orders.purchase_date))";
 
         $itemTotals = DB::table('order_items')
             ->selectRaw("
@@ -39,7 +40,7 @@ class MetricsController extends Controller
                 $join->on('item_totals.amazon_order_id', '=', 'orders.amazon_order_id');
             })
             ->selectRaw("
-                DATE(orders.purchase_date) as metric_date,
+                {$metricDateExpr} as metric_date,
                 marketplaces.country_code as country_code,
                 COALESCE(
                     NULLIF(orders.order_total_currency, ''),
@@ -54,11 +55,11 @@ class MetricsController extends Controller
                 ) as sales_amount,
                 COUNT(*) as order_count
             ")
-            ->whereDate('orders.purchase_date', '>=', $from)
-            ->whereDate('orders.purchase_date', '<=', $to)
+            ->whereRaw("{$metricDateExpr} >= ?", [$from])
+            ->whereRaw("{$metricDateExpr} <= ?", [$to])
             ->whereRaw("UPPER(COALESCE(orders.order_status, '')) NOT IN ('CANCELED', 'CANCELLED')")
             ->groupByRaw("
-                DATE(orders.purchase_date),
+                {$metricDateExpr},
                 marketplaces.country_code,
                 COALESCE(NULLIF(orders.order_total_currency, ''), NULLIF(item_totals.item_currency, ''), 'GBP')
             ")
@@ -70,16 +71,16 @@ class MetricsController extends Controller
                 $join->on('item_totals.amazon_order_id', '=', 'orders.amazon_order_id');
             })
             ->selectRaw("
-                DATE(orders.purchase_date) as metric_date,
+                {$metricDateExpr} as metric_date,
                 marketplaces.country_code as country_code,
                 COUNT(*) as pending_count
             ")
-            ->whereDate('orders.purchase_date', '>=', $from)
-            ->whereDate('orders.purchase_date', '<=', $to)
+            ->whereRaw("{$metricDateExpr} >= ?", [$from])
+            ->whereRaw("{$metricDateExpr} <= ?", [$to])
             ->whereRaw("UPPER(COALESCE(orders.order_status, '')) IN ('PENDING', 'UNSHIPPED')")
             ->whereRaw("COALESCE(orders.order_total_amount, 0) <= 0")
             ->whereRaw("COALESCE(item_totals.item_total, 0) <= 0")
-            ->groupByRaw("DATE(orders.purchase_date), marketplaces.country_code")
+            ->groupByRaw("{$metricDateExpr}, marketplaces.country_code")
             ->get();
 
         $pendingOrderItemsForEstimate = DB::table('orders')
@@ -89,22 +90,22 @@ class MetricsController extends Controller
                 $join->on('item_totals.amazon_order_id', '=', 'orders.amazon_order_id');
             })
             ->selectRaw("
-                DATE(orders.purchase_date) as metric_date,
+                {$metricDateExpr} as metric_date,
                 marketplaces.country_code as country_code,
                 orders.marketplace_id as marketplace_id,
                 COALESCE(orders.is_business_order, 0) as is_business_order,
                 UPPER(COALESCE(order_items.asin, '')) as asin,
                 SUM(COALESCE(order_items.quantity_ordered, 0)) as units
             ")
-            ->whereDate('orders.purchase_date', '>=', $from)
-            ->whereDate('orders.purchase_date', '<=', $to)
+            ->whereRaw("{$metricDateExpr} >= ?", [$from])
+            ->whereRaw("{$metricDateExpr} <= ?", [$to])
             ->whereRaw("UPPER(COALESCE(orders.order_status, '')) IN ('PENDING', 'UNSHIPPED')")
             ->whereRaw("COALESCE(orders.order_total_amount, 0) <= 0")
             ->whereRaw("COALESCE(item_totals.item_total, 0) <= 0")
             ->whereRaw("TRIM(COALESCE(order_items.asin, '')) <> ''")
             ->whereRaw("TRIM(COALESCE(orders.marketplace_id, '')) <> ''")
             ->groupByRaw("
-                DATE(orders.purchase_date),
+                {$metricDateExpr},
                 marketplaces.country_code,
                 orders.marketplace_id,
                 COALESCE(orders.is_business_order, 0),
@@ -116,14 +117,14 @@ class MetricsController extends Controller
             ->join('marketplaces', 'marketplaces.id', '=', 'orders.marketplace_id')
             ->leftJoin('order_items', 'order_items.amazon_order_id', '=', 'orders.amazon_order_id')
             ->selectRaw("
-                DATE(orders.purchase_date) as metric_date,
+                {$metricDateExpr} as metric_date,
                 marketplaces.country_code as country_code,
                 SUM(COALESCE(order_items.quantity_ordered, 0)) as units
             ")
-            ->whereDate('orders.purchase_date', '>=', $from)
-            ->whereDate('orders.purchase_date', '<=', $to)
+            ->whereRaw("{$metricDateExpr} >= ?", [$from])
+            ->whereRaw("{$metricDateExpr} <= ?", [$to])
             ->whereRaw("UPPER(COALESCE(orders.order_status, '')) NOT IN ('CANCELED', 'CANCELLED')")
-            ->groupByRaw("DATE(orders.purchase_date), marketplaces.country_code")
+            ->groupByRaw("{$metricDateExpr}, marketplaces.country_code")
             ->get();
 
         $latestAdsRequests = DB::table('amazon_ads_report_daily_spends as ds_latest')

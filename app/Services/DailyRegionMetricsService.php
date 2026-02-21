@@ -176,7 +176,7 @@ class DailyRegionMetricsService
                 "),
                 DB::raw('COUNT(*) as order_count')
             )
-            ->whereDate('orders.purchase_date', $date);
+            ->whereRaw("COALESCE(orders.purchase_date_local_date, DATE(orders.purchase_date)) = ?", [$date]);
 
         $query->whereRaw("UPPER(COALESCE(orders.order_status, '')) NOT IN ('CANCELED', 'CANCELLED')");
 

@@ -107,4 +107,10 @@ return [
         'queue_url' => env('SQS_QUEUE_URL'),
     ],
 
+    'marketplace_timezones' => [
+        'by_marketplace_id' => [],
+        'by_country' => [],
+        'by_region' => [],
+    ],
+
 ];
