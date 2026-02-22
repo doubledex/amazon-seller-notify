@@ -50,14 +50,22 @@ Minimum required for current scheduled flows:
   - `AWS_DEFAULT_REGION`
   - `SQS_QUEUE_URL`
 
-### 2. One-Time Deploy Commands
+### 2. Pull / Build / Deploy Commands
 Run on deploy (or after pulling changes):
 
 ```bash
+git pull
+composer install --no-interaction --prefer-dist --optimize-autoloader
+npm ci
+npm run build
 php artisan migrate --force
 php artisan config:clear
 php artisan cache:clear
 ```
+
+Why `npm run build` is required:
+- Tailwind classes are compiled into `public/build` by Vite during build.
+- If build is skipped, CSS/JS changes in `resources/` are not reflected in production.
 
 ### 3. Cron for Laravel Scheduler (Required)
 Add this to crontab for the app user:
