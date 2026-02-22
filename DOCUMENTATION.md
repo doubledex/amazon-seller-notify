@@ -160,8 +160,8 @@ Check logs:
   - Why: repair/backfill `purchase_date` from raw order payloads.
 
 ### Products (Source Of Truth)
-- `php artisan products:bootstrap-from-orders --limit=1000`
-  - Why: seed `products` and `product_identifiers` from existing order items and link `order_items.product_id`.
+- `php artisan products:bootstrap-from-orders --limit=1000 [--reset=1]`
+  - Why: seed `products` from unique ASINs, attach identifiers, and link `order_items.product_id`. Use `--reset=1` to rebuild from scratch.
 
 ### SQS / Notifications
 - `php artisan sqs:process [--detail]`

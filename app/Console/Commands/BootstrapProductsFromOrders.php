@@ -9,13 +9,24 @@ use Illuminate\Support\Facades\DB;
 
 class BootstrapProductsFromOrders extends Command
 {
-    protected $signature = 'products:bootstrap-from-orders {--limit=1000}';
+    protected $signature = 'products:bootstrap-from-orders {--limit=1000} {--reset=0}';
 
-    protected $description = 'Create products + identifiers from existing order items and link order_items.product_id.';
+    protected $description = 'Create products from unique ASINs, attach identifiers, and link order_items.product_id.';
 
     public function handle(): int
     {
         $limit = max(1, min((int) $this->option('limit'), 50000));
+        $reset = (string) $this->option('reset') !== '0';
+
+        if ($reset) {
+            DB::table('order_items')->update([
+                'product_id' => null,
+                'updated_at' => now(),
+            ]);
+            ProductIdentifier::query()->delete();
+            Product::query()->delete();
+            $this->info('Reset existing product links and product tables.');
+        }
 
         $rows = DB::table('order_items as oi')
             ->join('orders as o', 'o.amazon_order_id', '=', 'oi.amazon_order_id')
@@ -27,10 +38,7 @@ class BootstrapProductsFromOrders extends Command
                 'o.marketplace_id as marketplace_id',
             ])
             ->whereNull('oi.product_id')
-            ->where(function ($q) {
-                $q->whereRaw("TRIM(COALESCE(oi.seller_sku, '')) <> ''")
-                    ->orWhereRaw("TRIM(COALESCE(oi.asin, '')) <> ''");
-            })
+            ->whereRaw("TRIM(COALESCE(oi.asin, '')) <> ''")
             ->orderBy('oi.id')
             ->limit($limit)
             ->get();
@@ -38,6 +46,7 @@ class BootstrapProductsFromOrders extends Command
         $createdProducts = 0;
         $linkedRows = 0;
         $skipped = 0;
+        $asinMap = [];
 
         foreach ($rows as $row) {
             $marketplaceId = trim((string) ($row->marketplace_id ?? ''));
@@ -45,36 +54,44 @@ class BootstrapProductsFromOrders extends Command
             $asin = strtoupper(trim((string) ($row->asin ?? '')));
             $title = trim((string) ($row->title ?? ''));
 
-            if ($sellerSku === '' && $asin === '') {
+            if ($asin === '') {
                 $skipped++;
                 continue;
             }
 
-            $productId = null;
-            if ($sellerSku !== '') {
-                $productId = ProductIdentifier::query()
-                    ->where('identifier_type', 'seller_sku')
-                    ->where('identifier_value', $sellerSku)
-                    ->where('marketplace_id', $marketplaceId !== '' ? $marketplaceId : null)
-                    ->value('product_id');
-            }
-
-            if ($productId === null && $asin !== '') {
+            $productId = $asinMap[$asin] ?? null;
+            if ($productId === null) {
                 $productId = ProductIdentifier::query()
                     ->where('identifier_type', 'asin')
                     ->where('identifier_value', $asin)
-                    ->where('marketplace_id', $marketplaceId !== '' ? $marketplaceId : null)
+                    ->whereNull('marketplace_id')
                     ->value('product_id');
+                if ($productId !== null) {
+                    $asinMap[$asin] = (int) $productId;
+                }
             }
 
             if ($productId === null) {
                 $product = Product::query()->create([
-                    'name' => $title !== '' ? $title : ($sellerSku !== '' ? $sellerSku : $asin),
+                    'name' => $title !== '' ? $title : $asin,
                     'status' => 'active',
                 ]);
                 $productId = (int) $product->id;
                 $createdProducts++;
+                $asinMap[$asin] = $productId;
             }
+
+            ProductIdentifier::query()->updateOrCreate(
+                [
+                    'identifier_type' => 'asin',
+                    'identifier_value' => $asin,
+                    'marketplace_id' => null,
+                ],
+                [
+                    'product_id' => $productId,
+                    'is_primary' => true,
+                ]
+            );
 
             if ($sellerSku !== '') {
                 ProductIdentifier::query()->updateOrCreate(
@@ -85,21 +102,7 @@ class BootstrapProductsFromOrders extends Command
                     ],
                     [
                         'product_id' => $productId,
-                        'is_primary' => true,
-                    ]
-                );
-            }
-
-            if ($asin !== '') {
-                ProductIdentifier::query()->updateOrCreate(
-                    [
-                        'identifier_type' => 'asin',
-                        'identifier_value' => $asin,
-                        'marketplace_id' => $marketplaceId !== '' ? $marketplaceId : null,
-                    ],
-                    [
-                        'product_id' => $productId,
-                        'is_primary' => $sellerSku === '',
+                        'is_primary' => false,
                     ]
                 );
             }

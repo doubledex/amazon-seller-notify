@@ -10,7 +10,7 @@ class LinkOrderItemsToProducts extends Command
 {
     protected $signature = 'orders:link-products {--limit=1000}';
 
-    protected $description = 'Link order_items to products using product_identifiers (SKU first, then ASIN).';
+    protected $description = 'Link order_items to products using product_identifiers (ASIN first, then SKU).';
 
     public function handle(): int
     {
@@ -43,17 +43,17 @@ class LinkOrderItemsToProducts extends Command
 
             $productId = null;
 
-            if ($sellerSku !== '') {
-                $productId = $this->findProductId('seller_sku', $sellerSku, $marketplaceId);
-                if ($productId === null) {
-                    $productId = $this->findProductId('seller_sku', $sellerSku, null);
-                }
-            }
-
-            if ($productId === null && $asin !== '') {
+            if ($asin !== '') {
                 $productId = $this->findProductId('asin', $asin, $marketplaceId);
                 if ($productId === null) {
                     $productId = $this->findProductId('asin', $asin, null);
+                }
+            }
+
+            if ($productId === null && $sellerSku !== '') {
+                $productId = $this->findProductId('seller_sku', $sellerSku, $marketplaceId);
+                if ($productId === null) {
+                    $productId = $this->findProductId('seller_sku', $sellerSku, null);
                 }
             }
 
