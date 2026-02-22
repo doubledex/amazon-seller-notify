@@ -22,7 +22,7 @@
     </div>
 
     <div class="bg-white dark:bg-gray-800 p-4 rounded shadow-sm overflow-x-auto">
-        <p class="text-xs text-gray-600 mb-2">* Sales use net ex-tax line values. Pending/unshipped rows may include temporary ASIN pricing until line values are available.</p>
+        <p class="text-xs text-gray-600 mb-2">* Estimated sales value (temporary ASIN-based pricing). Values without * are actual order/line values from Amazon.</p>
         @if(!empty($pendingPricingDebug) && (int) ($pendingPricingDebug['considered_rows'] ?? 0) > 0)
             <p class="text-xs text-gray-600 mb-2">
                 Pending pricing debug:
@@ -72,7 +72,7 @@
                         <td>Week Summary</td>
                         <td class="text-right">{{ number_format((int) ($week['order_count'] ?? 0)) }}</td>
                         <td class="text-right">{{ number_format((int) ($week['units'] ?? 0)) }}</td>
-                        <td class="text-right">{{ !empty($week['pending_sales_data']) ? '*' : '' }}£{{ number_format((float) $week['sales_gbp'], 2) }}</td>
+                        <td class="text-right">{{ !empty($week['estimated_sales_data']) ? '*' : '' }}£{{ number_format((float) $week['sales_gbp'], 2) }}</td>
                         <td class="text-right">£{{ number_format((float) $week['ad_gbp'], 2) }}</td>
                         <td class="text-right">{{ $week['acos_percent'] !== null ? number_format((float) $week['acos_percent'], 2) . '%' : 'N/A' }}</td>
                     </tr>
@@ -94,7 +94,7 @@
                         <td>{{ \Carbon\Carbon::parse($day['date'])->format('l') }}</td>
                         <td class="text-right">{{ number_format((int) ($day['order_count'] ?? 0)) }}</td>
                         <td class="text-right">{{ number_format((int) ($day['units'] ?? 0)) }}</td>
-                        <td class="text-right">{{ !empty($day['pending_sales_data']) ? '*' : '' }}£{{ number_format((float) $day['sales_gbp'], 2) }}</td>
+                        <td class="text-right">{{ !empty($day['estimated_sales_data']) ? '*' : '' }}£{{ number_format((float) $day['sales_gbp'], 2) }}</td>
                         <td class="text-right">£{{ number_format((float) $day['ad_gbp'], 2) }}</td>
                         <td class="text-right">{{ $day['acos_percent'] !== null ? number_format((float) $day['acos_percent'], 2) . '%' : 'N/A' }}</td>
                     </tr>
@@ -135,8 +135,8 @@
                                             <td class="text-left">{{ $item['country'] }}</td>
                                             <td class="text-right">{{ number_format((int) ($item['order_count'] ?? 0)) }}</td>
                                             <td class="text-right">{{ number_format((int) ($item['units'] ?? 0)) }}</td>
-                                            <td class="text-right">{{ !empty($item['pending_sales_data']) ? '*' : '' }}{{ $item['currency_symbol'] }}{{ number_format((float) $item['sales_local'], 2) }}</td>
-                                            <td class="text-right">{{ !empty($item['pending_sales_data']) ? '*' : '' }}£{{ number_format((float) $item['sales_gbp'], 2) }}</td>
+                                            <td class="text-right">{{ !empty($item['estimated_sales_data']) ? '*' : '' }}{{ $item['currency_symbol'] }}{{ number_format((float) $item['sales_local'], 2) }}</td>
+                                            <td class="text-right">{{ !empty($item['estimated_sales_data']) ? '*' : '' }}£{{ number_format((float) $item['sales_gbp'], 2) }}</td>
                                             <td class="text-right">{{ $item['currency_symbol'] }}{{ number_format((float) $item['ad_local'], 2) }}</td>
                                             <td class="text-right">£{{ number_format((float) $item['ad_gbp'], 2) }}</td>
                                             <td class="text-right">{{ $item['acos_percent'] !== null ? number_format((float) $item['acos_percent'], 2) . '%' : 'N/A' }}</td>
@@ -159,8 +159,8 @@
                                             <td class="text-left">{{ $item['country'] }}</td>
                                             <td class="text-right">{{ number_format((int) ($item['order_count'] ?? 0)) }}</td>
                                             <td class="text-right">{{ number_format((int) ($item['units'] ?? 0)) }}</td>
-                                            <td class="text-right">{{ !empty($item['pending_sales_data']) ? '*' : '' }}{{ $item['currency_symbol'] }}{{ number_format((float) $item['sales_local'], 2) }}</td>
-                                            <td class="text-right">{{ !empty($item['pending_sales_data']) ? '*' : '' }}£{{ number_format((float) $item['sales_gbp'], 2) }}</td>
+                                            <td class="text-right">{{ !empty($item['estimated_sales_data']) ? '*' : '' }}{{ $item['currency_symbol'] }}{{ number_format((float) $item['sales_local'], 2) }}</td>
+                                            <td class="text-right">{{ !empty($item['estimated_sales_data']) ? '*' : '' }}£{{ number_format((float) $item['sales_gbp'], 2) }}</td>
                                             <td class="text-right">{{ $item['currency_symbol'] }}{{ number_format((float) $item['ad_local'], 2) }}</td>
                                             <td class="text-right">£{{ number_format((float) $item['ad_gbp'], 2) }}</td>
                                             <td class="text-right">{{ $item['acos_percent'] !== null ? number_format((float) $item['acos_percent'], 2) . '%' : 'N/A' }}</td>
@@ -171,8 +171,8 @@
                                             <td class="text-left">{{ $item['country'] }}</td>
                                             <td class="text-right">{{ number_format((int) ($item['order_count'] ?? 0)) }}</td>
                                             <td class="text-right">{{ number_format((int) ($item['units'] ?? 0)) }}</td>
-                                            <td class="text-right">{{ !empty($item['pending_sales_data']) ? '*' : '' }}{{ $item['currency_symbol'] }}{{ number_format((float) $item['sales_local'], 2) }}</td>
-                                            <td class="text-right">{{ !empty($item['pending_sales_data']) ? '*' : '' }}£{{ number_format((float) $item['sales_gbp'], 2) }}</td>
+                                            <td class="text-right">{{ !empty($item['estimated_sales_data']) ? '*' : '' }}{{ $item['currency_symbol'] }}{{ number_format((float) $item['sales_local'], 2) }}</td>
+                                            <td class="text-right">{{ !empty($item['estimated_sales_data']) ? '*' : '' }}£{{ number_format((float) $item['sales_gbp'], 2) }}</td>
                                             <td class="text-right">{{ $item['currency_symbol'] }}{{ number_format((float) $item['ad_local'], 2) }}</td>
                                             <td class="text-right">£{{ number_format((float) $item['ad_gbp'], 2) }}</td>
                                             <td class="text-right">{{ $item['acos_percent'] !== null ? number_format((float) $item['acos_percent'], 2) . '%' : 'N/A' }}</td>
@@ -183,8 +183,8 @@
                                             <td class="text-left">{{ $item['country'] }}</td>
                                             <td class="text-right">{{ number_format((int) ($item['order_count'] ?? 0)) }}</td>
                                             <td class="text-right">{{ number_format((int) ($item['units'] ?? 0)) }}</td>
-                                            <td class="text-right">{{ !empty($item['pending_sales_data']) ? '*' : '' }}{{ $item['currency_symbol'] }}{{ number_format((float) $item['sales_local'], 2) }}</td>
-                                            <td class="text-right">{{ !empty($item['pending_sales_data']) ? '*' : '' }}£{{ number_format((float) $item['sales_gbp'], 2) }}</td>
+                                            <td class="text-right">{{ !empty($item['estimated_sales_data']) ? '*' : '' }}{{ $item['currency_symbol'] }}{{ number_format((float) $item['sales_local'], 2) }}</td>
+                                            <td class="text-right">{{ !empty($item['estimated_sales_data']) ? '*' : '' }}£{{ number_format((float) $item['sales_gbp'], 2) }}</td>
                                             <td class="text-right">{{ $item['currency_symbol'] }}{{ number_format((float) $item['ad_local'], 2) }}</td>
                                             <td class="text-right">£{{ number_format((float) $item['ad_gbp'], 2) }}</td>
                                             <td class="text-right">{{ $item['acos_percent'] !== null ? number_format((float) $item['acos_percent'], 2) . '%' : 'N/A' }}</td>

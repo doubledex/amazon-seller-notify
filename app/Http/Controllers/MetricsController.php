@@ -184,6 +184,7 @@ class MetricsController extends Controller
                     'ad_local' => 0.0,
                     'ad_gbp' => 0.0,
                     'pending_sales_data' => false,
+                    'estimated_sales_data' => false,
                 ];
             }
 
@@ -214,6 +215,7 @@ class MetricsController extends Controller
                     'ad_local' => 0.0,
                     'ad_gbp' => 0.0,
                     'pending_sales_data' => false,
+                    'estimated_sales_data' => false,
                 ];
             }
             $breakdown[$key]['units'] += (int) ($row->units ?? 0);
@@ -240,6 +242,7 @@ class MetricsController extends Controller
                     'ad_local' => 0.0,
                     'ad_gbp' => 0.0,
                     'pending_sales_data' => false,
+                    'estimated_sales_data' => false,
                 ];
             }
             $breakdown[$key]['pending_sales_data'] = ((int) ($row->pending_count ?? 0)) > 0;
@@ -310,6 +313,7 @@ class MetricsController extends Controller
                     'ad_local' => 0.0,
                     'ad_gbp' => 0.0,
                     'pending_sales_data' => false,
+                    'estimated_sales_data' => false,
                 ];
             }
 
@@ -330,6 +334,7 @@ class MetricsController extends Controller
             $breakdown[$key]['sales_local'] += $localAmount;
             $breakdown[$key]['sales_gbp'] += $fxRateService->convert($estimatedAmount, $sourceCurrency, 'GBP', $date) ?? 0.0;
             $breakdown[$key]['pending_sales_data'] = true;
+            $breakdown[$key]['estimated_sales_data'] = true;
             $pendingPricingDebug['priced_rows']++;
         }
 
@@ -356,6 +361,7 @@ class MetricsController extends Controller
                     'ad_local' => 0.0,
                     'ad_gbp' => 0.0,
                     'pending_sales_data' => false,
+                    'estimated_sales_data' => false,
                 ];
             }
 
@@ -375,6 +381,7 @@ class MetricsController extends Controller
             $totalOrders = 0;
             $totalUnits = 0;
             $hasPendingSalesData = false;
+            $hasEstimatedSalesData = false;
 
             foreach ($breakdown as $entry) {
                 if ($entry['date'] !== $date) {
@@ -390,6 +397,7 @@ class MetricsController extends Controller
                 $totalOrders += (int) ($entry['order_count'] ?? 0);
                 $totalUnits += (int) ($entry['units'] ?? 0);
                 $hasPendingSalesData = $hasPendingSalesData || (bool) ($entry['pending_sales_data'] ?? false);
+                $hasEstimatedSalesData = $hasEstimatedSalesData || (bool) ($entry['estimated_sales_data'] ?? false);
             }
 
             usort($items, fn ($a, $b) => strcmp($a['country'], $b['country']));
@@ -401,6 +409,7 @@ class MetricsController extends Controller
                 'units' => $totalUnits,
                 'acos_percent' => $totalSalesGbp > 0 ? ($totalAdGbp / $totalSalesGbp) * 100 : null,
                 'pending_sales_data' => $hasPendingSalesData,
+                'estimated_sales_data' => $hasEstimatedSalesData,
                 'items' => $items,
             ];
         }
@@ -418,6 +427,7 @@ class MetricsController extends Controller
                     'order_count' => 0,
                     'units' => 0,
                     'pending_sales_data' => false,
+                    'estimated_sales_data' => false,
                     'days' => [],
                 ];
             }
@@ -427,6 +437,7 @@ class MetricsController extends Controller
             $weekly[$weekStart]['order_count'] += (int) ($day['order_count'] ?? 0);
             $weekly[$weekStart]['units'] += (int) ($day['units'] ?? 0);
             $weekly[$weekStart]['pending_sales_data'] = $weekly[$weekStart]['pending_sales_data'] || (bool) ($day['pending_sales_data'] ?? false);
+            $weekly[$weekStart]['estimated_sales_data'] = $weekly[$weekStart]['estimated_sales_data'] || (bool) ($day['estimated_sales_data'] ?? false);
             $weekly[$weekStart]['days'][] = $day;
         }
 
