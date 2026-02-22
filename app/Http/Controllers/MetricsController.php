@@ -354,8 +354,36 @@ class MetricsController extends Controller
                 ),
             ],
             [
-                'name' => 'Ads Report Queue',
-                'schedule' => 'daily 04:40 + catch-up schedules',
+                'name' => 'Ads Queue (baseline)',
+                'schedule' => 'daily 04:40',
+                'last_refresh' => $this->formatRefreshTime(
+                    DB::table('amazon_ads_report_requests')->max('requested_at')
+                ),
+            ],
+            [
+                'name' => 'Ads Queue (today)',
+                'schedule' => 'every 5 minutes (from=today to=today)',
+                'last_refresh' => $this->formatRefreshTime(
+                    DB::table('amazon_ads_report_requests')->max('requested_at')
+                ),
+            ],
+            [
+                'name' => 'Ads Queue (yesterday)',
+                'schedule' => 'hourly (from=yesterday to=yesterday)',
+                'last_refresh' => $this->formatRefreshTime(
+                    DB::table('amazon_ads_report_requests')->max('requested_at')
+                ),
+            ],
+            [
+                'name' => 'Ads Queue (2-7 days)',
+                'schedule' => 'every 8 hours (from=now-7d to=now-2d)',
+                'last_refresh' => $this->formatRefreshTime(
+                    DB::table('amazon_ads_report_requests')->max('requested_at')
+                ),
+            ],
+            [
+                'name' => 'Ads Queue (7-30 days)',
+                'schedule' => 'daily (from=now-30d to=now-7d)',
                 'last_refresh' => $this->formatRefreshTime(
                     DB::table('amazon_ads_report_requests')->max('requested_at')
                 ),
