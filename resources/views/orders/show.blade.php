@@ -141,6 +141,38 @@
             </div>
 
             <div class="p-4 rounded-lg border border-gray-200 bg-white shadow-sm mb-6">
+                <div class="text-sm font-semibold mb-3">Amazon Fee Breakdown</div>
+                @if (!empty($feeLines) && $feeLines->count() > 0)
+                    <div class="overflow-x-auto">
+                        <table class="w-full border-collapse" border="1" cellpadding="6" cellspacing="0">
+                            <thead>
+                                <tr class="bg-gray-100">
+                                    <th>Description</th>
+                                    <th>Type</th>
+                                    <th>Event</th>
+                                    <th>Amount</th>
+                                    <th>Posted</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach ($feeLines as $feeLine)
+                                    <tr>
+                                        <td>{{ $feeLine->description ?: 'Fee' }}</td>
+                                        <td>{{ $feeLine->fee_type ?: 'N/A' }}</td>
+                                        <td>{{ $feeLine->event_type ?: 'N/A' }}</td>
+                                        <td dir="rtl">{{ number_format((float) $feeLine->amount, 2) }} {{ $feeLine->currency }}</td>
+                                        <td>{{ $feeLine->posted_date ? $feeLine->posted_date->format('Y-m-d H:i:s') : 'N/A' }}</td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                @else
+                    <div class="text-sm text-gray-600">No fee line items synced yet for this order.</div>
+                @endif
+            </div>
+
+            <div class="p-4 rounded-lg border border-gray-200 bg-white shadow-sm mb-6">
                 <div class="text-sm font-semibold mb-3">Items</div>
                 @if (!empty($items))
                     <div class="overflow-x-auto">

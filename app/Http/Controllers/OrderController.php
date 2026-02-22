@@ -13,6 +13,7 @@ use App\Services\RegionConfigService;
 use App\Models\CityGeo;
 use App\Models\PostalCodeGeo;
 use App\Models\OrderShipAddress;
+use App\Models\AmazonOrderFeeLine;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Services\OrderQueryService;
@@ -469,12 +470,18 @@ class OrderController extends Controller
         }
 
         $marketplacesUi = $this->marketplaceService->getMarketplacesForUi($this->connector);
+        $feeLines = AmazonOrderFeeLine::query()
+            ->where('amazon_order_id', $order_id)
+            ->orderBy('posted_date')
+            ->orderBy('id')
+            ->get();
 
         return view('orders.show', [
             'order' => $orderArray,
             'orderRecord' => $orderRecord,
             'items' => $itemsArray,
             'address' => $addressArray,
+            'feeLines' => $feeLines,
             'marketplaces' => $marketplacesUi,
         ]);
     }
