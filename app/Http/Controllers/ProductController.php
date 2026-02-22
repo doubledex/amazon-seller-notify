@@ -21,7 +21,6 @@ class ProductController extends Controller
             ->groupBy('product_id');
 
         $products = Product::query()
-            ->withCount(['identifiers', 'costLayers'])
             ->leftJoinSub($primaryIdentifierIds, 'pi_ids', function ($join) {
                 $join->on('pi_ids.product_id', '=', 'products.id');
             })
@@ -35,6 +34,7 @@ class ProductController extends Controller
                 DB::raw('pm.name as primary_marketplace_name'),
                 DB::raw('pm.country_code as primary_marketplace_country_code'),
             ])
+            ->withCount(['identifiers', 'costLayers'])
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($sub) use ($q) {
                     $sub->where('products.name', 'like', '%' . $q . '%')
