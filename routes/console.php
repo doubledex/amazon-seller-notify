@@ -23,24 +23,24 @@ Schedule::call(function () {
         '--from' => now()->toDateString(),
         '--to' => now()->toDateString(),
     ]);
-})->everyFiveMinutes()->withoutOverlapping()->name('ads:queue-reports-today-5m');
+})->everyFiveMinutes()->name('ads:queue-reports-today-5m')->withoutOverlapping();
 Schedule::call(function () {
     Artisan::call('ads:queue-reports', [
         '--from' => now()->subDay()->toDateString(),
         '--to' => now()->subDay()->toDateString(),
     ]);
-})->hourly()->withoutOverlapping()->name('ads:queue-reports-yesterday-hourly');
+})->hourly()->name('ads:queue-reports-yesterday-hourly')->withoutOverlapping();
 Schedule::call(function () {
     Artisan::call('ads:queue-reports', [
         '--from' => now()->subDays(7)->toDateString(),
         '--to' => now()->subDays(2)->toDateString(),
     ]);
-})->everyEightHours()->withoutOverlapping()->name('ads:queue-reports-2to7d-8h');
+})->everyEightHours()->name('ads:queue-reports-2to7d-8h')->withoutOverlapping();
 Schedule::call(function () {
     Artisan::call('ads:queue-reports', [
         '--from' => now()->subDays(30)->toDateString(),
         '--to' => now()->subDays(7)->toDateString(),
     ]);
-})->daily()->withoutOverlapping()->name('ads:queue-reports-7to30d-daily');
+})->daily()->name('ads:queue-reports-7to30d-daily')->withoutOverlapping();
 Schedule::command('ads:poll-reports --limit=200')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('metrics:refresh')->dailyAt('05:00')->withoutOverlapping();
