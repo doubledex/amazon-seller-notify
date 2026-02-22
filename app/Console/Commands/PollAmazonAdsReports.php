@@ -31,9 +31,15 @@ class PollAmazonAdsReports extends Command
         $this->line('Oldest wait (s): ' . (int) $result['oldest_wait_seconds']);
 
         if ((string) $this->option('refresh-metrics') !== '0' && (int) $result['processed'] > 0) {
-            $today = Carbon::today();
-            $summary = $metricsService->refreshRange($today->copy()->subDays(14), $today);
-            $this->line("Metrics refreshed for {$summary['days']} day(s), {$summary['regions']} region(s).");
+            $affectedDates = array_values(array_filter(array_map('strval', (array) ($result['affected_dates'] ?? []))));
+            if (!empty($affectedDates)) {
+                $summary = $metricsService->refreshDates($affectedDates);
+                $this->line("Metrics refreshed for {$summary['days']} affected day(s), {$summary['regions']} region(s).");
+            } else {
+                $today = Carbon::today();
+                $summary = $metricsService->refreshRange($today->copy()->subDays(2), $today);
+                $this->line("Metrics refreshed fallback for {$summary['days']} day(s), {$summary['regions']} region(s).");
+            }
         }
 
         return self::SUCCESS;

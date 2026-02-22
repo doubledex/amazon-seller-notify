@@ -42,5 +42,5 @@ Schedule::call(function () {
         '--to' => now()->subDays(7)->toDateString(),
     ]);
 })->daily()->name('ads:queue-reports-7to30d-daily')->withoutOverlapping();
-Schedule::command('ads:poll-reports --limit=200')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('ads:poll-reports --limit=200 --refresh-metrics=1')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('metrics:refresh')->dailyAt('05:00')->withoutOverlapping();

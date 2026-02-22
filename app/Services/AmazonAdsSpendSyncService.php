@@ -540,6 +540,7 @@ class AmazonAdsSpendSyncService
             'processed' => $processed,
             'failed' => $failed,
             'aggregated_rows' => $aggregateRows,
+            'affected_dates' => array_values(array_keys($affectedDates)),
             'outstanding' => $outstanding['count'],
             'oldest_wait_seconds' => $outstanding['oldest_wait_seconds'],
         ];

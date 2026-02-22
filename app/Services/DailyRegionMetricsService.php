@@ -49,6 +49,33 @@ class DailyRegionMetricsService
         return ['days' => $days, 'regions' => count(self::REGIONS)];
     }
 
+    public function refreshDates(array $dates): array
+    {
+        $normalized = [];
+        foreach ($dates as $date) {
+            $date = trim((string) $date);
+            if ($date === '') {
+                continue;
+            }
+            try {
+                $normalized[Carbon::parse($date)->toDateString()] = true;
+            } catch (\Throwable) {
+                // Ignore invalid date values.
+            }
+        }
+
+        $dateList = array_keys($normalized);
+        sort($dateList);
+
+        foreach ($dateList as $date) {
+            foreach (self::REGIONS as $region) {
+                $this->refreshDayRegion($date, $region);
+            }
+        }
+
+        return ['days' => count($dateList), 'regions' => count(self::REGIONS)];
+    }
+
     public function importAdSpendCsv(string $path, string $source = 'csv'): int
     {
         if (!is_readable($path)) {
