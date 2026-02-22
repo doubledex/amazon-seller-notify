@@ -128,6 +128,19 @@ class OrderController extends Controller
                     ->get();
             }
 
+            $feeFallbackRows = [];
+            if (!empty($orderIdsOnPage) && Schema::hasTable('amazon_order_fee_lines')) {
+                $feeFallbackRows = DB::table('amazon_order_fee_lines')
+                    ->selectRaw("
+                        amazon_order_id,
+                        MAX(COALESCE(currency, '')) as fee_currency,
+                        SUM(COALESCE(amount, 0)) as fee_total
+                    ")
+                    ->whereIn('amazon_order_id', $orderIdsOnPage)
+                    ->groupBy('amazon_order_id')
+                    ->get();
+            }
+
             $itemNetFallbackMap = [];
             foreach ($itemNetFallbackRows as $row) {
                 $orderId = (string) ($row->amazon_order_id ?? '');
@@ -153,8 +166,19 @@ class OrderController extends Controller
                 ->values()
                 ->all();
             $mfFallbackMap = $this->buildMarketplaceFacilitatorMap($fallbackOrderIds);
+            $feeFallbackMap = [];
+            foreach ($feeFallbackRows as $row) {
+                $orderId = (string) ($row->amazon_order_id ?? '');
+                if ($orderId === '') {
+                    continue;
+                }
+                $feeFallbackMap[$orderId] = [
+                    'amount' => (float) ($row->fee_total ?? 0),
+                    'currency' => strtoupper(trim((string) ($row->fee_currency ?? ''))),
+                ];
+            }
 
-            $allOrders = $orderModels->map(function (Order $order) use ($mfFallbackMap, $itemNetFallbackMap) {
+            $allOrders = $orderModels->map(function (Order $order) use ($mfFallbackMap, $itemNetFallbackMap, $feeFallbackMap) {
                 $raw = $order->raw_order;
                 if (is_string($raw)) {
                     $decoded = json_decode($raw, true);
@@ -168,6 +192,15 @@ class OrderController extends Controller
                     $netAmount = $fallbackNet['amount'];
                     $netCurrency = $fallbackNet['currency'] ?: $netCurrency;
                     $netSource = $fallbackNet['source'];
+                }
+                $feeAmount = $order->amazon_fee_total;
+                $feeCurrency = $order->amazon_fee_currency ?: $netCurrency;
+                if ($feeAmount === null && isset($feeFallbackMap[$order->amazon_order_id])) {
+                    $feeAmount = $feeFallbackMap[$order->amazon_order_id]['amount'];
+                    $fallbackCurrency = $feeFallbackMap[$order->amazon_order_id]['currency'];
+                    if ($fallbackCurrency !== '') {
+                        $feeCurrency = $fallbackCurrency;
+                    }
                 }
 
                 if (!is_array($raw) || empty($raw)) {
@@ -189,8 +222,8 @@ class OrderController extends Controller
                             'Source' => $netSource,
                         ],
                         'AmazonFees' => [
-                            'Amount' => $order->amazon_fee_total,
-                            'CurrencyCode' => $order->amazon_fee_currency ?: $netCurrency,
+                            'Amount' => $feeAmount,
+                            'CurrencyCode' => $feeCurrency,
                         ],
                         'SalesChannel' => $order->sales_channel,
                         'MarketplaceId' => $order->marketplace_id,
@@ -214,8 +247,8 @@ class OrderController extends Controller
                         'Source' => $netSource,
                     ];
                     $raw['AmazonFees'] = [
-                        'Amount' => $order->amazon_fee_total,
-                        'CurrencyCode' => $order->amazon_fee_currency
+                        'Amount' => $feeAmount,
+                        'CurrencyCode' => $feeCurrency
                             ?: ($raw['AmazonFees']['CurrencyCode'] ?? $netCurrency ?? $order->order_total_currency ?? null),
                     ];
                 }
