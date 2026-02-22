@@ -147,6 +147,9 @@ Check logs:
 - `php artisan orders:refresh-estimates --days=14 --limit=300 --max-lookups=80 --stale-minutes=180`
   - Why: refresh temporary estimated line sales values for pending/unshipped items via SP-API pricing.
 
+- `php artisan orders:link-products --limit=1000`
+  - Why: link `order_items.product_id` using configured `product_identifiers` (SKU first, then ASIN).
+
 - `php artisan orders:sync --days=30 --max-pages=20 --items-limit=300 --address-limit=300`
   - Why: daily reconciliation window to catch delayed status/total updates (for example pending to canceled).
 
@@ -155,6 +158,10 @@ Check logs:
 
 - `php artisan orders:backfill-dates`
   - Why: repair/backfill `purchase_date` from raw order payloads.
+
+### Products (Source Of Truth)
+- `php artisan products:bootstrap-from-orders --limit=1000`
+  - Why: seed `products` and `product_identifiers` from existing order items and link `order_items.product_id`.
 
 ### SQS / Notifications
 - `php artisan sqs:process [--detail]`

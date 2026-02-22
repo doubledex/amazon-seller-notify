@@ -8,6 +8,7 @@ class OrderItem extends Model
 {
     protected $fillable = [
         'amazon_order_id',
+        'product_id',
         'order_item_id',
         'asin',
         'seller_sku',
@@ -29,4 +30,9 @@ class OrderItem extends Model
     protected $casts = [
         'raw_item' => 'array',
     ];
+
+    public function product()
+    {
+        return $this->belongsTo(Product::class);
+    }
 }
