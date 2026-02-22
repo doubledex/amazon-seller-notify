@@ -21,6 +21,30 @@
         </form>
     </div>
 
+    <div class="bg-blue-50 dark:bg-gray-900 border border-blue-100 dark:border-gray-700 p-4 mb-4 rounded">
+        <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">Pipeline Status</h3>
+        <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+                <thead>
+                    <tr class="text-left text-gray-600 dark:text-gray-300">
+                        <th class="py-1 pr-3">Process</th>
+                        <th class="py-1 pr-3">Configured Schedule</th>
+                        <th class="py-1">Last Refresh</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach(($pipelineStatus ?? []) as $status)
+                        <tr class="border-t border-blue-100 dark:border-gray-700">
+                            <td class="py-1 pr-3 font-medium text-gray-800 dark:text-gray-100">{{ $status['name'] ?? '' }}</td>
+                            <td class="py-1 pr-3 text-gray-700 dark:text-gray-300">{{ $status['schedule'] ?? '' }}</td>
+                            <td class="py-1 text-gray-700 dark:text-gray-300">{{ $status['last_refresh'] ?? 'Never' }}</td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+    </div>
+
     <div class="bg-white dark:bg-gray-800 p-4 rounded shadow-sm overflow-x-auto">
         <p class="text-xs text-gray-600 mb-2">* Estimated sales value (temporary ASIN-based pricing). Values without * are actual order/line values from Amazon.</p>
         <table border="1" cellpadding="6" cellspacing="0" class="w-full text-sm">

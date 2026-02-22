@@ -336,11 +336,52 @@ class MetricsController extends Controller
         }
         unset($week);
 
+        $pipelineStatus = [
+            [
+                'name' => 'Orders Sync',
+                'schedule' => 'every 5 minutes',
+                'last_refresh' => $this->formatRefreshTime(
+                    DB::table('order_sync_runs')
+                        ->whereRaw("UPPER(COALESCE(status, '')) = 'SUCCESS'")
+                        ->max('finished_at')
+                ),
+            ],
+            [
+                'name' => 'Pending Estimate Refresh',
+                'schedule' => 'every 30 minutes',
+                'last_refresh' => $this->formatRefreshTime(
+                    DB::table('order_items')->max('estimated_line_estimated_at')
+                ),
+            ],
+            [
+                'name' => 'Ads Report Queue',
+                'schedule' => 'daily 04:40 + catch-up schedules',
+                'last_refresh' => $this->formatRefreshTime(
+                    DB::table('amazon_ads_report_requests')->max('requested_at')
+                ),
+            ],
+            [
+                'name' => 'Ads Report Poll + Ingest',
+                'schedule' => 'every 5 minutes',
+                'last_refresh' => $this->formatRefreshTime(
+                    DB::table('amazon_ads_report_requests')->max('processed_at')
+                ),
+            ],
+            [
+                'name' => 'Metrics Refresh',
+                'schedule' => 'daily 05:00 (+ poll-triggered refresh)',
+                'last_refresh' => $this->formatRefreshTime(
+                    DB::table('daily_region_metrics')->max('updated_at')
+                ),
+            ],
+        ];
+
         return view('metrics.index', [
             'rows' => $dailyRows,
             'weeklyRows' => $weeklyRows,
             'from' => $from,
             'to' => $to,
+            'pipelineStatus' => $pipelineStatus,
         ]);
     }
 
@@ -364,5 +405,19 @@ class MetricsController extends Controller
         }
 
         return $code;
+    }
+
+    private function formatRefreshTime($value): string
+    {
+        if (empty($value)) {
+            return 'Never';
+        }
+
+        try {
+            $time = Carbon::parse((string) $value);
+            return $time->format('Y-m-d H:i:s') . ' (' . $time->diffForHumans() . ')';
+        } catch (\Throwable) {
+            return (string) $value;
+        }
     }
 }
