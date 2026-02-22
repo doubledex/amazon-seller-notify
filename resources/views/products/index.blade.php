@@ -12,6 +12,26 @@
         @endif
 
         <div class="bg-white dark:bg-gray-800 p-4 rounded shadow-sm mb-4">
+            <form class="flex flex-wrap items-end gap-3" onsubmit="return false;">
+                <div class="min-w-[260px]">
+                    <label for="product_picker" class="block text-sm font-medium mb-1">Select Existing Product</label>
+                    <select
+                        id="product_picker"
+                        class="w-full border rounded px-2 py-1"
+                        onchange="if(this.value){ window.location.href='{{ url('/products') }}/'+this.value; }"
+                    >
+                        <option value="">Choose a product...</option>
+                        @foreach(($productOptions ?? []) as $option)
+                            <option value="{{ $option->id }}" {{ (int) ($selectedProductId ?? 0) === (int) $option->id ? 'selected' : '' }}>
+                                {{ $option->id }} — {{ $option->name ?: 'Untitled Product' }}
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+            </form>
+        </div>
+
+        <div class="bg-white dark:bg-gray-800 p-4 rounded shadow-sm mb-4">
             <form method="GET" action="{{ route('products.index') }}" class="flex flex-wrap items-end gap-3">
                 <div>
                     <label for="q" class="block text-sm font-medium mb-1">Search</label>

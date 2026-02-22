@@ -13,6 +13,7 @@ class ProductController extends Controller
     public function index(Request $request): View
     {
         $q = trim((string) $request->query('q', ''));
+        $selectedProductId = (int) $request->query('product_id', 0);
 
         $products = Product::query()
             ->withCount(['identifiers', 'costLayers'])
@@ -29,9 +30,15 @@ class ProductController extends Controller
             ->paginate(50)
             ->withQueryString();
 
+        $productOptions = Product::query()
+            ->orderBy('id')
+            ->get(['id', 'name']);
+
         return view('products.index', [
             'products' => $products,
             'q' => $q,
+            'productOptions' => $productOptions,
+            'selectedProductId' => $selectedProductId,
         ]);
     }
 
