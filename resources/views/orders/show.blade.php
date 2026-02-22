@@ -114,16 +114,8 @@
                     <div class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">Date Windows</div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div class="p-3 rounded-md border border-gray-200 bg-gray-50">
-                            <div class="text-xs text-gray-500 mb-1">Earliest Ship</div>
-                            <div class="text-sm font-medium">{{ $formatDateOnly($order['EarliestShipDate'] ?? null, $purchaseTimezone) }}</div>
-                        </div>
-                        <div class="p-3 rounded-md border border-gray-200 bg-gray-50">
                             <div class="text-xs text-gray-500 mb-1">Latest Ship</div>
                             <div class="text-sm font-medium">{{ $formatDateOnly($order['LatestShipDate'] ?? null, $purchaseTimezone) }}</div>
-                        </div>
-                        <div class="p-3 rounded-md border border-gray-200 bg-gray-50">
-                            <div class="text-xs text-gray-500 mb-1">Earliest Delivery</div>
-                            <div class="text-sm font-medium">{{ $formatDateOnly($order['EarliestDeliveryDate'] ?? null, $purchaseTimezone) }}</div>
                         </div>
                         <div class="p-3 rounded-md border border-gray-200 bg-gray-50">
                             <div class="text-xs text-gray-500 mb-1">Latest Delivery</div>
