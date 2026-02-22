@@ -95,13 +95,37 @@
                 <tbody>
                     @forelse($product->identifiers as $identifier)
                         <tr>
-                            <td>{{ $identifier->identifier_type }}</td>
-                            <td>{{ $identifier->identifier_value }}</td>
-                            <td>{{ $identifier->marketplace_id ?: '-' }}</td>
-                            <td>{{ $identifier->region ?: '-' }}</td>
-                            <td>{{ $identifier->is_primary ? 'yes' : 'no' }}</td>
                             <td>
-                                <form method="POST" action="{{ route('products.identifiers.destroy', $identifier) }}" onsubmit="return confirm('Delete this identifier?');">
+                                <form method="POST" action="{{ route('products.identifiers.update', $identifier) }}" class="inline">
+                                    @csrf
+                                    @method('PATCH')
+                                    <select name="identifier_type" class="border rounded px-2 py-1 text-xs">
+                                        @foreach(['seller_sku','asin','fnsku','upc','ean','other'] as $type)
+                                            <option value="{{ $type }}" {{ $identifier->identifier_type === $type ? 'selected' : '' }}>{{ $type }}</option>
+                                        @endforeach
+                                    </select>
+                            </td>
+                            <td>
+                                    <input name="identifier_value" value="{{ $identifier->identifier_value }}" class="border rounded px-2 py-1 text-xs w-full">
+                            </td>
+                            <td>
+                                    <input name="marketplace_id" value="{{ $identifier->marketplace_id }}" class="border rounded px-2 py-1 text-xs w-full" placeholder="-">
+                            </td>
+                            <td>
+                                    <select name="region" class="border rounded px-2 py-1 text-xs">
+                                        <option value="">-</option>
+                                        @foreach(['EU','NA','FE'] as $region)
+                                            <option value="{{ $region }}" {{ $identifier->region === $region ? 'selected' : '' }}>{{ $region }}</option>
+                                        @endforeach
+                                    </select>
+                            </td>
+                            <td>
+                                    <label class="text-xs"><input type="checkbox" name="is_primary" value="1" {{ $identifier->is_primary ? 'checked' : '' }}> primary</label>
+                            </td>
+                            <td>
+                                    <button type="submit" class="px-2 py-1 rounded border text-xs border-gray-300 bg-white text-gray-700">Save</button>
+                                </form>
+                                <form method="POST" action="{{ route('products.identifiers.destroy', $identifier) }}" class="inline" onsubmit="return confirm('Delete this identifier?');">
                                     @csrf
                                     @method('DELETE')
                                     <button type="submit" class="px-2 py-1 rounded border text-xs border-gray-300 bg-white text-gray-700">Delete</button>

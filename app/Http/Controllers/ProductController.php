@@ -153,8 +153,14 @@ class ProductController extends Controller
                 'region' => $region,
                 'is_primary' => !empty($validated['is_primary']),
             ]);
+            if (!empty($validated['is_primary'])) {
+                ProductIdentifier::query()
+                    ->where('product_id', $product->id)
+                    ->where('id', '!=', $existing->id)
+                    ->update(['is_primary' => false]);
+            }
         } else {
-            ProductIdentifier::query()->create([
+            $created = ProductIdentifier::query()->create([
                 'product_id' => $product->id,
                 'identifier_type' => $type,
                 'identifier_value' => $value,
@@ -162,9 +168,79 @@ class ProductController extends Controller
                 'region' => $region,
                 'is_primary' => !empty($validated['is_primary']),
             ]);
+            if (!empty($validated['is_primary'])) {
+                ProductIdentifier::query()
+                    ->where('product_id', $product->id)
+                    ->where('id', '!=', $created->id)
+                    ->update(['is_primary' => false]);
+            }
         }
 
         return back()->with('status', 'Identifier saved.');
+    }
+
+    public function updateIdentifier(Request $request, ProductIdentifier $identifier): RedirectResponse
+    {
+        $product = $identifier->product;
+        if (!$product) {
+            return back()->withErrors(['identifier_value' => 'Identifier product not found.']);
+        }
+
+        $validated = $request->validate([
+            'identifier_type' => ['required', 'in:seller_sku,asin,fnsku,upc,ean,other'],
+            'identifier_value' => ['required', 'string', 'max:191'],
+            'marketplace_id' => ['nullable', 'string', 'exists:marketplaces,id'],
+            'region' => ['nullable', 'in:EU,NA,FE'],
+            'is_primary' => ['nullable', 'boolean'],
+        ]);
+
+        $type = strtolower(trim((string) $validated['identifier_type']));
+        $value = trim((string) $validated['identifier_value']);
+        if (in_array($type, ['asin', 'fnsku', 'upc', 'ean'], true)) {
+            $value = strtoupper($value);
+        }
+
+        $marketplaceId = isset($validated['marketplace_id']) ? trim((string) $validated['marketplace_id']) : null;
+        $marketplaceId = $marketplaceId !== '' ? $marketplaceId : null;
+        $region = isset($validated['region']) ? strtoupper(trim((string) $validated['region'])) : null;
+        $region = $region !== '' ? $region : null;
+        $isPrimary = !empty($validated['is_primary']);
+
+        $conflict = ProductIdentifier::query()
+            ->where('id', '!=', $identifier->id)
+            ->where('identifier_type', $type)
+            ->where('identifier_value', $value)
+            ->where(function ($q) use ($marketplaceId) {
+                if ($marketplaceId === null) {
+                    $q->whereNull('marketplace_id');
+                } else {
+                    $q->where('marketplace_id', $marketplaceId);
+                }
+            })
+            ->first();
+
+        if ($conflict && (int) $conflict->product_id !== (int) $product->id) {
+            return back()->withErrors([
+                'identifier_value' => 'This identifier is already assigned to another product.',
+            ])->withInput();
+        }
+
+        $identifier->update([
+            'identifier_type' => $type,
+            'identifier_value' => $value,
+            'marketplace_id' => $marketplaceId,
+            'region' => $region,
+            'is_primary' => $isPrimary,
+        ]);
+
+        if ($isPrimary) {
+            ProductIdentifier::query()
+                ->where('product_id', $product->id)
+                ->where('id', '!=', $identifier->id)
+                ->update(['is_primary' => false]);
+        }
+
+        return redirect()->route('products.show', $product)->with('status', 'Identifier updated.');
     }
 
     public function destroyIdentifier(ProductIdentifier $identifier): RedirectResponse

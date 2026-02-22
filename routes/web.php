@@ -57,6 +57,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/products/{product}', [ProductController::class, 'show'])->name('products.show');
     Route::patch('/products/{product}', [ProductController::class, 'update'])->name('products.update');
     Route::post('/products/{product}/identifiers', [ProductController::class, 'storeIdentifier'])->name('products.identifiers.store');
+    Route::patch('/products/identifiers/{identifier}', [ProductController::class, 'updateIdentifier'])->name('products.identifiers.update');
     Route::delete('/products/identifiers/{identifier}', [ProductController::class, 'destroyIdentifier'])->name('products.identifiers.destroy');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
