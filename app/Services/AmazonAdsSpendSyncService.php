@@ -7,6 +7,7 @@ use App\Models\AmazonAdsReportRequest;
 use App\Models\DailyRegionAdSpend;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -223,6 +224,22 @@ class AmazonAdsSpendSyncService
 
             foreach ($this->splitRange($from, $to, 31) as [$chunkFrom, $chunkTo]) {
                 foreach ($configs as $config) {
+                    $existingOutstanding = $this->findOutstandingReportRequest(
+                        $profileId,
+                        $config['adProduct'],
+                        $config['reportTypeId'],
+                        $chunkFrom->toDateString(),
+                        $chunkTo->toDateString()
+                    );
+                    if ($existingOutstanding) {
+                        if ($existingOutstanding->next_check_at === null || $existingOutstanding->next_check_at->gt(now())) {
+                            $existingOutstanding->next_check_at = now();
+                            $existingOutstanding->save();
+                        }
+                        $existing++;
+                        continue;
+                    }
+
                     $reportName = strtolower($config['adProduct']) . '_daily_spend_' . $profileId . '_' . $chunkFrom->format('Ymd') . '_' . $chunkTo->format('Ymd');
                     $createResponse = null;
                     $reportId = '';
@@ -553,6 +570,12 @@ class AmazonAdsSpendSyncService
             return null;
         }
 
+        $cacheKey = 'amazon_ads:access_token:' . strtolower($apiRegion) . ':' . sha1($clientId . '|' . $refreshToken);
+        $cachedToken = Cache::get($cacheKey);
+        if (is_string($cachedToken) && trim($cachedToken) !== '') {
+            return $cachedToken;
+        }
+
         $response = Http::asForm()->timeout(20)->post('https://api.amazon.com/auth/o2/token', [
             'grant_type' => 'refresh_token',
             'client_id' => $clientId,
@@ -571,7 +594,15 @@ class AmazonAdsSpendSyncService
         }
 
         $token = (string) ($response->json('access_token') ?? '');
-        return $token !== '' ? $token : null;
+        if ($token === '') {
+            return null;
+        }
+
+        $expiresIn = (int) ($response->json('expires_in') ?? 3600);
+        $cacheSeconds = max(60, $expiresIn - 120);
+        Cache::put($cacheKey, $token, now()->addSeconds($cacheSeconds));
+
+        return $token;
     }
 
     private function getProfiles(string $token, array $adsConfig): array
@@ -1336,5 +1367,24 @@ class AmazonAdsSpendSyncService
             'x_amz_ratelimit_reset' => $response->header('x-amz-ratelimit-reset'),
             'x_ratelimit_reset' => $response->header('x-ratelimit-reset'),
         ]);
+    }
+
+    private function findOutstandingReportRequest(
+        string $profileId,
+        string $adProduct,
+        string $reportTypeId,
+        string $startDate,
+        string $endDate
+    ): ?AmazonAdsReportRequest {
+        return AmazonAdsReportRequest::query()
+            ->where('profile_id', $profileId)
+            ->where('ad_product', $adProduct)
+            ->where('report_type_id', $reportTypeId)
+            ->whereDate('start_date', $startDate)
+            ->whereDate('end_date', $endDate)
+            ->whereNull('processed_at')
+            ->whereNotIn('status', ['FAILED', 'CANCELLED'])
+            ->orderByDesc('id')
+            ->first();
     }
 }
