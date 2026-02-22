@@ -181,8 +181,8 @@ class DailyRegionMetricsService
         $itemTotals = DB::table('order_items')
             ->selectRaw("
                 amazon_order_id,
-                MAX(COALESCE(line_net_currency, item_price_currency, '')) as item_currency,
-                SUM(COALESCE(line_net_ex_tax, 0)) as item_total
+                MAX(COALESCE(line_net_currency, estimated_line_currency, item_price_currency, '')) as item_currency,
+                SUM(COALESCE(line_net_ex_tax, estimated_line_net_ex_tax, 0)) as item_total
             ")
             ->groupBy('amazon_order_id');
 

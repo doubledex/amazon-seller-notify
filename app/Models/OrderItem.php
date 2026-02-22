@@ -19,6 +19,10 @@ class OrderItem extends Model
         'line_net_ex_tax',
         'item_price_currency',
         'line_net_currency',
+        'estimated_line_net_ex_tax',
+        'estimated_line_currency',
+        'estimated_line_source',
+        'estimated_line_estimated_at',
         'raw_item',
     ];
 

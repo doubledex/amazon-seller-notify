@@ -85,6 +85,7 @@ Defined in `routes/console.php`:
 - `map:geocode-missing --limit=250` daily at 02:30
 - `map:geocode-missing-cities --limit=250 --older-than-days=14` daily at 02:35
 - `orders:sync --days=7 --max-pages=5 --items-limit=50 --address-limit=50` hourly
+- `orders:refresh-estimates --days=14 --limit=300 --max-lookups=80 --stale-minutes=180` every 30 minutes
 - `orders:sync --days=30 --max-pages=20 --items-limit=300 --address-limit=300` daily at 03:50 (reconciliation for late status changes)
 - `sqs:process` every minute
 - `ads:queue-reports` daily at 04:40
@@ -142,6 +143,9 @@ Check logs:
 ### Orders
 - `php artisan orders:sync --days=7 --max-pages=5 --items-limit=50 --address-limit=50`
   - Why: fetch and persist recent orders/items/addresses.
+
+- `php artisan orders:refresh-estimates --days=14 --limit=300 --max-lookups=80 --stale-minutes=180`
+  - Why: refresh temporary estimated line sales values for pending/unshipped items via SP-API pricing.
 
 - `php artisan orders:sync --days=30 --max-pages=20 --items-limit=300 --address-limit=300`
   - Why: daily reconciliation window to catch delayed status/total updates (for example pending to canceled).

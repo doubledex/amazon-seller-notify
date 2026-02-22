@@ -23,21 +23,6 @@
 
     <div class="bg-white dark:bg-gray-800 p-4 rounded shadow-sm overflow-x-auto">
         <p class="text-xs text-gray-600 mb-2">* Estimated sales value (temporary ASIN-based pricing). Values without * are actual order/line values from Amazon.</p>
-        @if(!empty($pendingPricingDebug) && (int) ($pendingPricingDebug['considered_rows'] ?? 0) > 0)
-            <p class="text-xs text-gray-600 mb-2">
-                Pending pricing debug:
-                rows={{ (int) ($pendingPricingDebug['considered_rows'] ?? 0) }},
-                priced={{ (int) ($pendingPricingDebug['priced_rows'] ?? 0) }},
-                skipped={{ (int) ($pendingPricingDebug['skipped_no_price'] ?? 0) }},
-                cache_hit={{ (int) ($pendingPricingDebug['cache_hits'] ?? 0) }},
-                cache_miss={{ (int) ($pendingPricingDebug['cache_misses'] ?? 0) }},
-                api_calls={{ (int) ($pendingPricingDebug['api_calls'] ?? 0) }},
-                retries_429={{ (int) ($pendingPricingDebug['throttle_retries'] ?? 0) }},
-                api_non_200={{ (int) ($pendingPricingDebug['api_non_200'] ?? 0) }},
-                payload_missing={{ (int) ($pendingPricingDebug['payload_missing'] ?? 0) }},
-                exceptions={{ (int) ($pendingPricingDebug['exceptions'] ?? 0) }}
-            </p>
-        @endif
         <table border="1" cellpadding="6" cellspacing="0" class="w-full text-sm">
             <thead class="bg-gray-100 dark:bg-gray-700">
                 <tr>
