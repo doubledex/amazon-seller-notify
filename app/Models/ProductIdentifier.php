@@ -19,4 +19,8 @@ class ProductIdentifier extends Model
     {
         return $this->belongsTo(Product::class);
     }
+
+    protected $casts = [
+        'is_primary' => 'boolean',
+    ];
 }
