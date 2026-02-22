@@ -205,10 +205,16 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                 <div class="p-4 rounded-lg border border-gray-200 bg-white shadow-sm">
                     <div class="text-sm font-semibold mb-3">Shipping</div>
-                    @if (!empty($address))
-                        @php
+                    @php
+                        $ship = [];
+                        if (!empty($address)) {
                             $ship = $address['ShippingAddress'] ?? $address;
-                        @endphp
+                        }
+                        if (empty($ship) && !empty($order['ShippingAddress']) && is_array($order['ShippingAddress'])) {
+                            $ship = $order['ShippingAddress'];
+                        }
+                    @endphp
+                    @if (!empty($ship))
                         <div class="text-sm">
                             <div class="font-medium">{{ $ship['Name'] ?? 'N/A' }}</div>
                             @if (!empty($ship['CompanyName']))
@@ -228,7 +234,7 @@
                             @endif
                         </div>
                     @else
-                        <div class="text-sm text-gray-600">No address available.</div>
+                        <div class="text-sm text-gray-600">No shipping details available.</div>
                     @endif
                 </div>
             </div>
