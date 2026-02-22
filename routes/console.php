@@ -35,7 +35,7 @@ Schedule::call(function () {
         '--from' => now()->subDays(7)->toDateString(),
         '--to' => now()->subDays(2)->toDateString(),
     ]);
-})->everyEightHours()->name('ads:queue-reports-2to7d-8h')->withoutOverlapping();
+})->cron('0 */8 * * *')->name('ads:queue-reports-2to7d-8h')->withoutOverlapping();
 Schedule::call(function () {
     Artisan::call('ads:queue-reports', [
         '--from' => now()->subDays(30)->toDateString(),
