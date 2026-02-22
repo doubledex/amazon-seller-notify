@@ -26,6 +26,8 @@
                 $totalCurrency = $order['OrderTotal']['CurrencyCode'] ?? null;
                 $netAmount = $orderRecord?->order_net_ex_tax;
                 $netCurrency = $orderRecord?->order_net_ex_tax_currency ?: $totalCurrency;
+                $feeAmount = $orderRecord?->amazon_fee_total;
+                $feeCurrency = $orderRecord?->amazon_fee_currency ?: $netCurrency;
                 $buyerEmail = $order['BuyerInfo']['BuyerEmail']
                     ?? $order['BuyerEmail']
                     ?? null;
@@ -128,6 +130,12 @@
                     <div class="text-xs text-gray-500">Net (ex tax)</div>
                     <div class="text-lg font-semibold">
                         {{ $netAmount ?? $totalAmount ?? 'N/A' }} {{ $netCurrency ?? '' }}
+                    </div>
+                </div>
+                <div class="mt-2 flex items-baseline gap-2">
+                    <div class="text-xs text-gray-500">Amazon Fees</div>
+                    <div class="text-sm font-semibold">
+                        {{ $feeAmount ?? 'N/A' }} {{ $feeCurrency ?? '' }}
                     </div>
                 </div>
             </div>

@@ -57,6 +57,7 @@
                     <th class="text-right">Units</th>
                     <th class="text-right">Sales ex tax (GBP)</th>
                     <th class="text-right">Ad Spend (GBP)</th>
+                    <th class="text-right">Amazon Fees (GBP)</th>
                     <th class="text-right">ACOS %</th>
                 </tr>
             </thead>
@@ -83,6 +84,7 @@
                         <td class="text-right">{{ number_format((int) ($week['units'] ?? 0)) }}</td>
                         <td class="text-right">{{ !empty($week['estimated_sales_data']) ? '*' : '' }}£{{ number_format((float) $week['sales_gbp'], 2) }}</td>
                         <td class="text-right">£{{ number_format((float) $week['ad_gbp'], 2) }}</td>
+                        <td class="text-right">£{{ number_format((float) ($week['fees_gbp'] ?? 0), 2) }}</td>
                         <td class="text-right">{{ $week['acos_percent'] !== null ? number_format((float) $week['acos_percent'], 2) . '%' : 'N/A' }}</td>
                     </tr>
                     @foreach(($week['days'] ?? []) as $day)
@@ -105,10 +107,11 @@
                         <td class="text-right">{{ number_format((int) ($day['units'] ?? 0)) }}</td>
                         <td class="text-right">{{ !empty($day['estimated_sales_data']) ? '*' : '' }}£{{ number_format((float) $day['sales_gbp'], 2) }}</td>
                         <td class="text-right">£{{ number_format((float) $day['ad_gbp'], 2) }}</td>
+                        <td class="text-right">£{{ number_format((float) ($day['fees_gbp'] ?? 0), 2) }}</td>
                         <td class="text-right">{{ $day['acos_percent'] !== null ? number_format((float) $day['acos_percent'], 2) . '%' : 'N/A' }}</td>
                     </tr>
                     <tr id="{{ $rowId }}" class="hidden">
-                        <td colspan="8" class="p-2">
+                        <td colspan="9" class="p-2">
                             <table border="1" cellpadding="6" cellspacing="0" class="w-full text-sm">
                                 <thead class="bg-gray-50 dark:bg-gray-600">
                                     <tr>
@@ -119,6 +122,8 @@
                                         <th class="text-right">Sales ex tax (GBP)</th>
                                         <th class="text-right">Ad Spend (Local)</th>
                                         <th class="text-right">Ad Spend (GBP)</th>
+                                        <th class="text-right">Amazon Fees (Local)</th>
+                                        <th class="text-right">Amazon Fees (GBP)</th>
                                         <th class="text-right">ACOS %</th>
                                     </tr>
                                 </thead>
@@ -136,6 +141,8 @@
                                         $euUnits = (int) $euItems->sum(fn ($i) => (int) ($i['units'] ?? 0));
                                         $euSalesGbp = (float) $euItems->sum(fn ($i) => (float) ($i['sales_gbp'] ?? 0));
                                         $euAdGbp = (float) $euItems->sum(fn ($i) => (float) ($i['ad_gbp'] ?? 0));
+                                        $euFeesLocal = (float) $euItems->sum(fn ($i) => (float) ($i['fees_local'] ?? 0));
+                                        $euFeesGbp = (float) $euItems->sum(fn ($i) => (float) ($i['fees_gbp'] ?? 0));
                                         $euAcos = $euSalesGbp > 0 ? ($euAdGbp / $euSalesGbp) * 100 : null;
                                     @endphp
 
@@ -148,6 +155,8 @@
                                             <td class="text-right">{{ !empty($item['estimated_sales_data']) ? '*' : '' }}£{{ number_format((float) $item['sales_gbp'], 2) }}</td>
                                             <td class="text-right">{{ $item['currency_symbol'] }}{{ number_format((float) $item['ad_local'], 2) }}</td>
                                             <td class="text-right">£{{ number_format((float) $item['ad_gbp'], 2) }}</td>
+                                            <td class="text-right">{{ $item['currency_symbol'] }}{{ number_format((float) ($item['fees_local'] ?? 0), 2) }}</td>
+                                            <td class="text-right">£{{ number_format((float) ($item['fees_gbp'] ?? 0), 2) }}</td>
                                             <td class="text-right">{{ $item['acos_percent'] !== null ? number_format((float) $item['acos_percent'], 2) . '%' : 'N/A' }}</td>
                                         </tr>
                                     @endforeach
@@ -160,6 +169,8 @@
                                             <td class="text-right">£{{ number_format($euSalesGbp, 2) }}</td>
                                             <td class="text-right">€{{ number_format($euAdLocal, 2) }}</td>
                                             <td class="text-right">£{{ number_format($euAdGbp, 2) }}</td>
+                                            <td class="text-right">€{{ number_format($euFeesLocal, 2) }}</td>
+                                            <td class="text-right">£{{ number_format($euFeesGbp, 2) }}</td>
                                             <td class="text-right">{{ $euAcos !== null ? number_format($euAcos, 2) . '%' : 'N/A' }}</td>
                                         </tr>
                                     @endif
@@ -172,6 +183,8 @@
                                             <td class="text-right">{{ !empty($item['estimated_sales_data']) ? '*' : '' }}£{{ number_format((float) $item['sales_gbp'], 2) }}</td>
                                             <td class="text-right">{{ $item['currency_symbol'] }}{{ number_format((float) $item['ad_local'], 2) }}</td>
                                             <td class="text-right">£{{ number_format((float) $item['ad_gbp'], 2) }}</td>
+                                            <td class="text-right">{{ $item['currency_symbol'] }}{{ number_format((float) ($item['fees_local'] ?? 0), 2) }}</td>
+                                            <td class="text-right">£{{ number_format((float) ($item['fees_gbp'] ?? 0), 2) }}</td>
                                             <td class="text-right">{{ $item['acos_percent'] !== null ? number_format((float) $item['acos_percent'], 2) . '%' : 'N/A' }}</td>
                                         </tr>
                                     @endforeach
@@ -184,6 +197,8 @@
                                             <td class="text-right">{{ !empty($item['estimated_sales_data']) ? '*' : '' }}£{{ number_format((float) $item['sales_gbp'], 2) }}</td>
                                             <td class="text-right">{{ $item['currency_symbol'] }}{{ number_format((float) $item['ad_local'], 2) }}</td>
                                             <td class="text-right">£{{ number_format((float) $item['ad_gbp'], 2) }}</td>
+                                            <td class="text-right">{{ $item['currency_symbol'] }}{{ number_format((float) ($item['fees_local'] ?? 0), 2) }}</td>
+                                            <td class="text-right">£{{ number_format((float) ($item['fees_gbp'] ?? 0), 2) }}</td>
                                             <td class="text-right">{{ $item['acos_percent'] !== null ? number_format((float) $item['acos_percent'], 2) . '%' : 'N/A' }}</td>
                                         </tr>
                                     @endforeach
@@ -196,12 +211,14 @@
                                             <td class="text-right">{{ !empty($item['estimated_sales_data']) ? '*' : '' }}£{{ number_format((float) $item['sales_gbp'], 2) }}</td>
                                             <td class="text-right">{{ $item['currency_symbol'] }}{{ number_format((float) $item['ad_local'], 2) }}</td>
                                             <td class="text-right">£{{ number_format((float) $item['ad_gbp'], 2) }}</td>
+                                            <td class="text-right">{{ $item['currency_symbol'] }}{{ number_format((float) ($item['fees_local'] ?? 0), 2) }}</td>
+                                            <td class="text-right">£{{ number_format((float) ($item['fees_gbp'] ?? 0), 2) }}</td>
                                             <td class="text-right">{{ $item['acos_percent'] !== null ? number_format((float) $item['acos_percent'], 2) . '%' : 'N/A' }}</td>
                                         </tr>
                                     @endforeach
                                     @if($euItems->isEmpty() && $naItems->isEmpty() && $gbItems->isEmpty() && $otherItems->isEmpty())
                                         <tr>
-                                            <td colspan="8">No marketplace data for this day.</td>
+                                            <td colspan="10">No marketplace data for this day.</td>
                                         </tr>
                                     @endif
                                 </tbody>
@@ -211,7 +228,7 @@
                     @endforeach
                 @empty
                     <tr>
-                        <td colspan="8">No metrics found for this date range.</td>
+                        <td colspan="9">No metrics found for this date range.</td>
                     </tr>
                 @endforelse
             </tbody>

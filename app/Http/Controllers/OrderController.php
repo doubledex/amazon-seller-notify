@@ -187,6 +187,10 @@ class OrderController extends Controller
                             'CurrencyCode' => $netCurrency,
                             'Source' => $netSource,
                         ],
+                        'AmazonFees' => [
+                            'Amount' => $order->amazon_fee_total,
+                            'CurrencyCode' => $order->amazon_fee_currency ?: $netCurrency,
+                        ],
                         'SalesChannel' => $order->sales_channel,
                         'MarketplaceId' => $order->marketplace_id,
                         'IsBusinessOrder' => $order->is_business_order,
@@ -207,6 +211,11 @@ class OrderController extends Controller
                         'Amount' => $netAmount,
                         'CurrencyCode' => $netCurrency ?: ($raw['OrderNetExTax']['CurrencyCode'] ?? $order->order_total_currency ?? null),
                         'Source' => $netSource,
+                    ];
+                    $raw['AmazonFees'] = [
+                        'Amount' => $order->amazon_fee_total,
+                        'CurrencyCode' => $order->amazon_fee_currency
+                            ?: ($raw['AmazonFees']['CurrencyCode'] ?? $netCurrency ?? $order->order_total_currency ?? null),
                     ];
                 }
                 return $raw;

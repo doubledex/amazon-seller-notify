@@ -102,6 +102,24 @@ class MetricsController extends Controller
             ->groupByRaw("{$metricDateExpr}, marketplaces.country_code")
             ->get();
 
+        $feeRows = DB::table('orders')
+            ->join('marketplaces', 'marketplaces.id', '=', 'orders.marketplace_id')
+            ->selectRaw("
+                {$metricDateExpr} as metric_date,
+                marketplaces.country_code as country_code,
+                COALESCE(NULLIF(orders.amazon_fee_currency, ''), NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(orders.order_total_currency, ''), 'GBP') as currency,
+                SUM(COALESCE(orders.amazon_fee_total, 0)) as fee_amount
+            ")
+            ->whereRaw("{$metricDateExpr} >= ?", [$from])
+            ->whereRaw("{$metricDateExpr} <= ?", [$to])
+            ->whereRaw("UPPER(COALESCE(orders.order_status, '')) NOT IN ('CANCELED', 'CANCELLED')")
+            ->groupByRaw("
+                {$metricDateExpr},
+                marketplaces.country_code,
+                COALESCE(NULLIF(orders.amazon_fee_currency, ''), NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(orders.order_total_currency, ''), 'GBP')
+            ")
+            ->get();
+
         $latestAdsRequests = DB::table('amazon_ads_report_daily_spends as ds_latest')
             ->join('amazon_ads_report_requests as rr_latest', 'rr_latest.id', '=', 'ds_latest.report_request_id')
             ->selectRaw("
@@ -156,6 +174,8 @@ class MetricsController extends Controller
                     'units' => 0,
                     'ad_local' => 0.0,
                     'ad_gbp' => 0.0,
+                    'fees_local' => 0.0,
+                    'fees_gbp' => 0.0,
                     'pending_sales_data' => false,
                     'estimated_sales_data' => false,
                 ];
@@ -189,6 +209,8 @@ class MetricsController extends Controller
                     'units' => 0,
                     'ad_local' => 0.0,
                     'ad_gbp' => 0.0,
+                    'fees_local' => 0.0,
+                    'fees_gbp' => 0.0,
                     'pending_sales_data' => false,
                     'estimated_sales_data' => false,
                 ];
@@ -216,6 +238,8 @@ class MetricsController extends Controller
                     'units' => 0,
                     'ad_local' => 0.0,
                     'ad_gbp' => 0.0,
+                    'fees_local' => 0.0,
+                    'fees_gbp' => 0.0,
                     'pending_sales_data' => false,
                     'estimated_sales_data' => false,
                 ];
@@ -245,6 +269,8 @@ class MetricsController extends Controller
                     'units' => 0,
                     'ad_local' => 0.0,
                     'ad_gbp' => 0.0,
+                    'fees_local' => 0.0,
+                    'fees_gbp' => 0.0,
                     'pending_sales_data' => false,
                     'estimated_sales_data' => false,
                 ];
@@ -255,6 +281,39 @@ class MetricsController extends Controller
             $breakdown[$key]['ad_gbp'] += $fxRateService->convert($amount, $currency, 'GBP', $date) ?? 0.0;
         }
 
+        foreach ($feeRows as $row) {
+            $date = (string) $row->metric_date;
+            $country = $this->normalizeMarketplaceCode((string) $row->country_code);
+            $currency = strtoupper((string) $row->currency);
+            $amount = (float) $row->fee_amount;
+            if ($date === '' || $country === '') {
+                continue;
+            }
+
+            $dates[$date] = true;
+            $key = $date . '|' . $country;
+            if (!isset($breakdown[$key])) {
+                $breakdown[$key] = [
+                    'date' => $date,
+                    'country' => $country,
+                    'currency' => $currency,
+                    'sales_local' => 0.0,
+                    'sales_gbp' => 0.0,
+                    'order_count' => 0,
+                    'units' => 0,
+                    'ad_local' => 0.0,
+                    'ad_gbp' => 0.0,
+                    'fees_local' => 0.0,
+                    'fees_gbp' => 0.0,
+                    'pending_sales_data' => false,
+                    'estimated_sales_data' => false,
+                ];
+            }
+
+            $breakdown[$key]['fees_local'] += $amount;
+            $breakdown[$key]['fees_gbp'] += $fxRateService->convert($amount, $currency, 'GBP', $date) ?? 0.0;
+        }
+
         $dailyRows = [];
         $dateList = array_keys($dates);
         rsort($dateList);
@@ -263,6 +322,7 @@ class MetricsController extends Controller
             $items = [];
             $totalSalesGbp = 0.0;
             $totalAdGbp = 0.0;
+            $totalFeesGbp = 0.0;
             $totalOrders = 0;
             $totalUnits = 0;
             $hasPendingSalesData = false;
@@ -279,6 +339,7 @@ class MetricsController extends Controller
                 $items[] = $entry;
                 $totalSalesGbp += $entry['sales_gbp'];
                 $totalAdGbp += $entry['ad_gbp'];
+                $totalFeesGbp += $entry['fees_gbp'];
                 $totalOrders += (int) ($entry['order_count'] ?? 0);
                 $totalUnits += (int) ($entry['units'] ?? 0);
                 $hasPendingSalesData = $hasPendingSalesData || (bool) ($entry['pending_sales_data'] ?? false);
@@ -290,6 +351,7 @@ class MetricsController extends Controller
                 'date' => $date,
                 'sales_gbp' => $totalSalesGbp,
                 'ad_gbp' => $totalAdGbp,
+                'fees_gbp' => $totalFeesGbp,
                 'order_count' => $totalOrders,
                 'units' => $totalUnits,
                 'acos_percent' => $totalSalesGbp > 0 ? ($totalAdGbp / $totalSalesGbp) * 100 : null,
@@ -309,6 +371,7 @@ class MetricsController extends Controller
                     'week_end' => $weekEnd,
                     'sales_gbp' => 0.0,
                     'ad_gbp' => 0.0,
+                    'fees_gbp' => 0.0,
                     'order_count' => 0,
                     'units' => 0,
                     'pending_sales_data' => false,
@@ -319,6 +382,7 @@ class MetricsController extends Controller
 
             $weekly[$weekStart]['sales_gbp'] += (float) ($day['sales_gbp'] ?? 0.0);
             $weekly[$weekStart]['ad_gbp'] += (float) ($day['ad_gbp'] ?? 0.0);
+            $weekly[$weekStart]['fees_gbp'] += (float) ($day['fees_gbp'] ?? 0.0);
             $weekly[$weekStart]['order_count'] += (int) ($day['order_count'] ?? 0);
             $weekly[$weekStart]['units'] += (int) ($day['units'] ?? 0);
             $weekly[$weekStart]['pending_sales_data'] = $weekly[$weekStart]['pending_sales_data'] || (bool) ($day['pending_sales_data'] ?? false);

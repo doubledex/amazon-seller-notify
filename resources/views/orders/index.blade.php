@@ -441,6 +441,7 @@
                 <th>Shipped</th>
                 <th>Method</th>
                 <th>Net (ex tax)</th>
+                <th>Amazon Fees</th>
                 <th>Currency</th>
                 <th>Ship to</th>
                 <th>Marketplace</th>
@@ -515,6 +516,10 @@
                     <td style="text-align: center;">{{ $order['NumberOfItemsShipped'] ?? '' }}</td>
                     <td>{{ $order['PaymentMethodDetails'][0] ?? 'N/A' }}</td>
                     <td dir="rtl">{{ $order['OrderNetExTax']['Amount'] ?? 'N/A' }}</td>
+                    <td dir="rtl">
+                        {{ $order['AmazonFees']['Amount'] ?? 'N/A' }}
+                        {{ $order['AmazonFees']['CurrencyCode'] ?? '' }}
+                    </td>
                     <td>{{ $order['OrderNetExTax']['CurrencyCode'] ?? '' }}</td>
                     <td>{{ $order['ShippingAddress']['CountryCode'] ?? '' }}</td>
                     <td>
