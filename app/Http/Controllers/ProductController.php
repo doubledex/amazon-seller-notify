@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Models\ProductIdentifier;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -14,19 +15,38 @@ class ProductController extends Controller
     {
         $q = trim((string) $request->query('q', ''));
         $selectedProductId = (int) $request->query('product_id', 0);
+        $primaryIdentifierIds = ProductIdentifier::query()
+            ->selectRaw('product_id, MIN(id) as primary_identifier_id')
+            ->where('is_primary', true)
+            ->groupBy('product_id');
 
         $products = Product::query()
             ->withCount(['identifiers', 'costLayers'])
+            ->leftJoinSub($primaryIdentifierIds, 'pi_ids', function ($join) {
+                $join->on('pi_ids.product_id', '=', 'products.id');
+            })
+            ->leftJoin('product_identifiers as pi', 'pi.id', '=', 'pi_ids.primary_identifier_id')
+            ->leftJoin('marketplaces as pm', 'pm.id', '=', 'pi.marketplace_id')
+            ->select([
+                'products.*',
+                DB::raw('pi.identifier_type as primary_identifier_type'),
+                DB::raw('pi.identifier_value as primary_identifier_value'),
+                DB::raw('pi.marketplace_id as primary_marketplace_id'),
+                DB::raw('pm.name as primary_marketplace_name'),
+                DB::raw('pm.country_code as primary_marketplace_country_code'),
+            ])
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($sub) use ($q) {
-                    $sub->where('name', 'like', '%' . $q . '%')
-                        ->orWhere('id', $q)
+                    $sub->where('products.name', 'like', '%' . $q . '%')
+                        ->orWhere('products.id', $q)
                         ->orWhereHas('identifiers', function ($idq) use ($q) {
                             $idq->where('identifier_value', 'like', '%' . $q . '%');
                         });
                 });
             })
-            ->orderBy('id')
+            ->orderByRaw("CASE WHEN TRIM(COALESCE(pi.identifier_value, '')) = '' THEN 1 ELSE 0 END")
+            ->orderBy('pi.identifier_value')
+            ->orderBy('products.id')
             ->paginate(50)
             ->withQueryString();
 

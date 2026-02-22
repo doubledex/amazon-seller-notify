@@ -74,6 +74,8 @@
                     <tr>
                         <th class="text-left">ID</th>
                         <th class="text-left">Name</th>
+                        <th class="text-left">Primary Identifier</th>
+                        <th class="text-left">Marketplace</th>
                         <th class="text-left">Status</th>
                         <th class="text-right">Identifiers</th>
                         <th class="text-right">Cost Layers</th>
@@ -82,16 +84,41 @@
                 </thead>
                 <tbody>
                     @forelse($products as $product)
+                        @php
+                            $primaryType = trim((string) ($product->primary_identifier_type ?? ''));
+                            $primaryValue = trim((string) ($product->primary_identifier_value ?? ''));
+                            $primaryLabel = $primaryType !== '' || $primaryValue !== ''
+                                ? trim($primaryType . ': ' . $primaryValue, ': ')
+                                : '-';
+                            $marketplaceName = trim((string) ($product->primary_marketplace_name ?? ''));
+                            $marketplaceCountry = strtoupper(trim((string) ($product->primary_marketplace_country_code ?? '')));
+                            $flagUrl = strlen($marketplaceCountry) === 2
+                                ? 'https://flagcdn.com/24x18/' . strtolower($marketplaceCountry) . '.png'
+                                : null;
+                        @endphp
                         <tr>
                             <td><a class="text-blue-600 hover:underline" href="{{ route('products.show', $product) }}">{{ $product->id }}</a></td>
                             <td>{{ $product->name }}</td>
+                            <td>{{ $primaryLabel }}</td>
+                            <td>
+                                @if($marketplaceName !== '' || !empty($product->primary_marketplace_id))
+                                    <div class="inline-flex items-center gap-2">
+                                        @if($flagUrl)
+                                            <img src="{{ $flagUrl }}" alt="{{ $marketplaceCountry }} flag" class="w-5 h-3 rounded-sm" loading="lazy" onerror="this.style.display='none'">
+                                        @endif
+                                        <span>{{ $marketplaceName !== '' ? $marketplaceName : ($product->primary_marketplace_id ?? '-') }}</span>
+                                    </div>
+                                @else
+                                    -
+                                @endif
+                            </td>
                             <td>{{ $product->status }}</td>
                             <td class="text-right">{{ (int) $product->identifiers_count }}</td>
                             <td class="text-right">{{ (int) $product->cost_layers_count }}</td>
                             <td>{{ optional($product->updated_at)->format('Y-m-d H:i:s') }}</td>
                         </tr>
                     @empty
-                        <tr><td colspan="6">No products found.</td></tr>
+                        <tr><td colspan="8">No products found.</td></tr>
                     @endforelse
                 </tbody>
             </table>
