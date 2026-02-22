@@ -514,8 +514,8 @@
                     <td style="text-align: center;">{{ $order['NumberOfItemsUnshipped'] ?? '' }}</td>
                     <td style="text-align: center;">{{ $order['NumberOfItemsShipped'] ?? '' }}</td>
                     <td>{{ $order['PaymentMethodDetails'][0] ?? 'N/A' }}</td>
-                    <td dir="rtl">{{ $order['OrderNetExTax']['Amount'] ?? $order['OrderTotal']['Amount'] ?? 'N/A' }}</td>
-                    <td>{{ $order['OrderNetExTax']['CurrencyCode'] ?? $order['OrderTotal']['CurrencyCode'] ?? '' }}</td>
+                    <td dir="rtl">{{ $order['OrderNetExTax']['Amount'] ?? 'N/A' }}</td>
+                    <td>{{ $order['OrderNetExTax']['CurrencyCode'] ?? '' }}</td>
                     <td>{{ $order['ShippingAddress']['CountryCode'] ?? '' }}</td>
                     <td>
                         @if($marketplaceId)

@@ -11,20 +11,64 @@ class OrderNetValueService
     {
         $itemPrice = $this->amount($item, 'ItemPrice');
         $shippingPrice = $this->amount($item, 'ShippingPrice');
+        $giftWrapPrice = $this->amount($item, 'GiftWrapPrice');
+        $codFee = $this->amount($item, 'CODFee');
+
+        $itemTax = $this->amount($item, 'ItemTax');
+        $shippingTax = $this->amount($item, 'ShippingTax');
+        $giftWrapTax = $this->amount($item, 'GiftWrapTax');
+        $codFeeTax = $this->amount($item, 'CODFeeTax');
+        if ($codFeeTax === null) {
+            $codFeeTax = $this->amount($item, 'CODFeeDiscountTax');
+        }
+
         $promotionDiscount = $this->amount($item, 'PromotionDiscount');
         $shippingDiscount = $this->amount($item, 'ShippingDiscount');
+        $giftWrapDiscount = $this->amount($item, 'GiftWrapTaxDiscount');
 
-        if ($itemPrice === null && $shippingPrice === null && $promotionDiscount === null && $shippingDiscount === null) {
+        $promotionDiscountTax = $this->amount($item, 'PromotionDiscountTax');
+        $shippingDiscountTax = $this->amount($item, 'ShippingDiscountTax');
+
+        if (
+            $itemPrice === null
+            && $shippingPrice === null
+            && $giftWrapPrice === null
+            && $codFee === null
+            && $itemTax === null
+            && $shippingTax === null
+            && $giftWrapTax === null
+            && $codFeeTax === null
+            && $promotionDiscount === null
+            && $shippingDiscount === null
+            && $giftWrapDiscount === null
+            && $promotionDiscountTax === null
+            && $shippingDiscountTax === null
+        ) {
             return [
                 'line_net_ex_tax' => null,
                 'line_net_currency' => $this->currency($item),
             ];
         }
 
-        // SP-API getOrderItems monetary amounts are line-level totals.
-        $lineBase = (float) ($itemPrice ?? 0) + (float) ($shippingPrice ?? 0);
-        $lineDiscounts = (float) ($promotionDiscount ?? 0) + (float) ($shippingDiscount ?? 0);
-        $lineNet = $lineBase - $lineDiscounts;
+        // Calculate net ex-tax from line-level gross components minus tax components.
+        $grossPositive = (float) ($itemPrice ?? 0)
+            + (float) ($shippingPrice ?? 0)
+            + (float) ($giftWrapPrice ?? 0)
+            + (float) ($codFee ?? 0);
+        $grossNegative = (float) ($promotionDiscount ?? 0)
+            + (float) ($shippingDiscount ?? 0)
+            + (float) ($giftWrapDiscount ?? 0);
+        $grossLine = $grossPositive - $grossNegative;
+
+        $taxPositive = (float) ($itemTax ?? 0)
+            + (float) ($shippingTax ?? 0)
+            + (float) ($giftWrapTax ?? 0)
+            + (float) ($codFeeTax ?? 0);
+        $taxNegative = (float) ($promotionDiscountTax ?? 0)
+            + (float) ($shippingDiscountTax ?? 0);
+        $lineTax = $taxPositive - $taxNegative;
+
+        $lineNet = $grossLine - $lineTax;
 
         return [
             'line_net_ex_tax' => round(max(0.0, $lineNet), 2),

@@ -108,6 +108,43 @@ class OrderController extends Controller
                 ->appends($request->query());
 
             $orderModels = $ordersPaginator->getCollection();
+            $orderIdsOnPage = $orderModels
+                ->pluck('amazon_order_id')
+                ->filter()
+                ->values()
+                ->all();
+
+            $itemNetFallbackRows = [];
+            if (!empty($orderIdsOnPage)) {
+                $itemNetFallbackRows = DB::table('order_items')
+                    ->selectRaw("
+                        amazon_order_id,
+                        SUM(COALESCE(line_net_ex_tax, 0)) as item_net_total,
+                        MAX(COALESCE(line_net_currency, item_price_currency, '')) as item_net_currency
+                    ")
+                    ->whereIn('amazon_order_id', $orderIdsOnPage)
+                    ->groupBy('amazon_order_id')
+                    ->get();
+            }
+
+            $itemNetFallbackMap = [];
+            foreach ($itemNetFallbackRows as $row) {
+                $orderId = (string) ($row->amazon_order_id ?? '');
+                if ($orderId === '') {
+                    continue;
+                }
+                $total = (float) ($row->item_net_total ?? 0);
+                $currency = strtoupper(trim((string) ($row->item_net_currency ?? '')));
+                if ($total <= 0) {
+                    continue;
+                }
+                $itemNetFallbackMap[$orderId] = [
+                    'amount' => round($total, 2),
+                    'currency' => $currency !== '' ? $currency : null,
+                    'source' => 'line_items_fallback',
+                ];
+            }
+
             $fallbackOrderIds = $orderModels
                 ->filter(fn (Order $order) => $order->is_marketplace_facilitator === null)
                 ->pluck('amazon_order_id')
@@ -116,12 +153,22 @@ class OrderController extends Controller
                 ->all();
             $mfFallbackMap = $this->buildMarketplaceFacilitatorMap($fallbackOrderIds);
 
-            $allOrders = $orderModels->map(function (Order $order) use ($mfFallbackMap) {
+            $allOrders = $orderModels->map(function (Order $order) use ($mfFallbackMap, $itemNetFallbackMap) {
                 $raw = $order->raw_order;
                 if (is_string($raw)) {
                     $decoded = json_decode($raw, true);
                     $raw = is_array($decoded) ? $decoded : [];
                 }
+                $fallbackNet = $itemNetFallbackMap[$order->amazon_order_id] ?? null;
+                $netAmount = $order->order_net_ex_tax;
+                $netCurrency = $order->order_net_ex_tax_currency ?: $order->order_total_currency;
+                $netSource = $order->order_net_ex_tax_source;
+                if (($netAmount === null || (float) $netAmount <= 0) && is_array($fallbackNet)) {
+                    $netAmount = $fallbackNet['amount'];
+                    $netCurrency = $fallbackNet['currency'] ?: $netCurrency;
+                    $netSource = $fallbackNet['source'];
+                }
+
                 if (!is_array($raw) || empty($raw)) {
                     $raw = [
                         'AmazonOrderId' => $order->amazon_order_id,
@@ -136,9 +183,9 @@ class OrderController extends Controller
                             'CurrencyCode' => $order->order_total_currency,
                         ],
                         'OrderNetExTax' => [
-                            'Amount' => $order->order_net_ex_tax,
-                            'CurrencyCode' => $order->order_net_ex_tax_currency ?: $order->order_total_currency,
-                            'Source' => $order->order_net_ex_tax_source,
+                            'Amount' => $netAmount,
+                            'CurrencyCode' => $netCurrency,
+                            'Source' => $netSource,
                         ],
                         'SalesChannel' => $order->sales_channel,
                         'MarketplaceId' => $order->marketplace_id,
@@ -157,9 +204,9 @@ class OrderController extends Controller
                     $raw['PurchaseDateLocal'] = $order->purchase_date_local ? $order->purchase_date_local->format('c') : ($raw['PurchaseDateLocal'] ?? null);
                     $raw['MarketplaceTimezone'] = $order->marketplace_timezone ?? ($raw['MarketplaceTimezone'] ?? null);
                     $raw['OrderNetExTax'] = [
-                        'Amount' => $order->order_net_ex_tax,
-                        'CurrencyCode' => $order->order_net_ex_tax_currency ?: ($raw['OrderNetExTax']['CurrencyCode'] ?? $order->order_total_currency ?? null),
-                        'Source' => $order->order_net_ex_tax_source,
+                        'Amount' => $netAmount,
+                        'CurrencyCode' => $netCurrency ?: ($raw['OrderNetExTax']['CurrencyCode'] ?? $order->order_total_currency ?? null),
+                        'Source' => $netSource,
                     ];
                 }
                 return $raw;
