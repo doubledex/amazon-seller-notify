@@ -52,9 +52,33 @@
                 </tr>
             </thead>
             <tbody>
-                @forelse($rows as $day)
+                @forelse(($weeklyRows ?? []) as $week)
+                    @php
+                        $weekId = 'week-row-' . str_replace('-', '', (string) $week['week_start']);
+                        $weekGroupClass = 'week-group-' . str_replace('-', '', (string) $week['week_start']);
+                    @endphp
+                    <tr class="bg-gray-50 dark:bg-gray-700 font-semibold">
+                        <td class="text-left w-10">
+                            <button
+                                type="button"
+                                aria-expanded="false"
+                                class="px-2 py-1 border rounded text-xs bg-white text-gray-700"
+                                onclick="const rows=document.querySelectorAll('.{{ $weekGroupClass }}'); const anyVisible=Array.from(rows).some(r=>!r.classList.contains('hidden')); rows.forEach(r=>r.classList.toggle('hidden', anyVisible)); this.setAttribute('aria-expanded', (!anyVisible).toString()); this.querySelector('span').textContent = anyVisible ? '▸' : '▾';"
+                            >
+                                <span>▸</span>
+                            </button>
+                        </td>
+                        <td>{{ $week['week_start'] }} to {{ $week['week_end'] }}</td>
+                        <td>Week Summary</td>
+                        <td class="text-right">{{ number_format((int) ($week['order_count'] ?? 0)) }}</td>
+                        <td class="text-right">{{ number_format((int) ($week['units'] ?? 0)) }}</td>
+                        <td class="text-right">{{ !empty($week['pending_sales_data']) ? '*' : '' }}£{{ number_format((float) $week['sales_gbp'], 2) }}</td>
+                        <td class="text-right">£{{ number_format((float) $week['ad_gbp'], 2) }}</td>
+                        <td class="text-right">{{ $week['acos_percent'] !== null ? number_format((float) $week['acos_percent'], 2) . '%' : 'N/A' }}</td>
+                    </tr>
+                    @foreach(($week['days'] ?? []) as $day)
                     @php $rowId = 'day-row-' . str_replace('-', '', $day['date']); @endphp
-                    <tr>
+                    <tr class="hidden {{ $weekGroupClass }}">
                         <td class="text-left w-10">
                             <button
                                 type="button"
@@ -74,7 +98,7 @@
                         <td class="text-right">£{{ number_format((float) $day['ad_gbp'], 2) }}</td>
                         <td class="text-right">{{ $day['acos_percent'] !== null ? number_format((float) $day['acos_percent'], 2) . '%' : 'N/A' }}</td>
                     </tr>
-                    <tr id="{{ $rowId }}" class="hidden">
+                    <tr id="{{ $rowId }}" class="hidden {{ $weekGroupClass }}">
                         <td colspan="8" class="p-2">
                             <table border="1" cellpadding="6" cellspacing="0" class="w-full text-sm">
                                 <thead class="bg-gray-50 dark:bg-gray-600">
@@ -175,6 +199,7 @@
                             </table>
                         </td>
                     </tr>
+                    @endforeach
                 @empty
                     <tr>
                         <td colspan="8">No metrics found for this date range.</td>

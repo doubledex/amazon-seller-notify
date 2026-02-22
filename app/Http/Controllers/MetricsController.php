@@ -405,8 +405,44 @@ class MetricsController extends Controller
             ];
         }
 
+        $weekly = [];
+        foreach ($dailyRows as $day) {
+            $weekStart = Carbon::parse((string) $day['date'])->startOfWeek(Carbon::MONDAY)->toDateString();
+            $weekEnd = Carbon::parse($weekStart)->endOfWeek(Carbon::SUNDAY)->toDateString();
+            if (!isset($weekly[$weekStart])) {
+                $weekly[$weekStart] = [
+                    'week_start' => $weekStart,
+                    'week_end' => $weekEnd,
+                    'sales_gbp' => 0.0,
+                    'ad_gbp' => 0.0,
+                    'order_count' => 0,
+                    'units' => 0,
+                    'pending_sales_data' => false,
+                    'days' => [],
+                ];
+            }
+
+            $weekly[$weekStart]['sales_gbp'] += (float) ($day['sales_gbp'] ?? 0.0);
+            $weekly[$weekStart]['ad_gbp'] += (float) ($day['ad_gbp'] ?? 0.0);
+            $weekly[$weekStart]['order_count'] += (int) ($day['order_count'] ?? 0);
+            $weekly[$weekStart]['units'] += (int) ($day['units'] ?? 0);
+            $weekly[$weekStart]['pending_sales_data'] = $weekly[$weekStart]['pending_sales_data'] || (bool) ($day['pending_sales_data'] ?? false);
+            $weekly[$weekStart]['days'][] = $day;
+        }
+
+        krsort($weekly);
+        $weeklyRows = array_values($weekly);
+        foreach ($weeklyRows as &$week) {
+            usort($week['days'], fn ($a, $b) => strcmp((string) ($b['date'] ?? ''), (string) ($a['date'] ?? '')));
+            $sales = (float) ($week['sales_gbp'] ?? 0.0);
+            $ad = (float) ($week['ad_gbp'] ?? 0.0);
+            $week['acos_percent'] = $sales > 0 ? ($ad / $sales) * 100 : null;
+        }
+        unset($week);
+
         return view('metrics.index', [
             'rows' => $dailyRows,
+            'weeklyRows' => $weeklyRows,
             'from' => $from,
             'to' => $to,
             'pendingPricingDebug' => $pendingPricingDebug,
