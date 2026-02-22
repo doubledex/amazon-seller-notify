@@ -156,7 +156,7 @@ class PendingOrderEstimateService
                 continue;
             }
 
-            $lineAmount = round($amount * $qty, 2);
+            $lineAmount = round($this->estimateUnitNetExTax($amount, $countryCode) * $qty, 2);
             if ($lineAmount <= 0) {
                 $stats['skipped_no_price']++;
                 continue;
@@ -354,5 +354,39 @@ class PendingOrderEstimateService
         }
 
         return null;
+    }
+
+    private function estimateUnitNetExTax(float $unitAmount, string $countryCode): float
+    {
+        $countryCode = strtoupper(trim($countryCode));
+        $vatRate = $this->vatRateForCountry($countryCode);
+        if ($vatRate <= 0) {
+            return max(0.0, $unitAmount);
+        }
+
+        return max(0.0, round($unitAmount / (1 + $vatRate), 6));
+    }
+
+    private function vatRateForCountry(string $countryCode): float
+    {
+        return match ($countryCode) {
+            'GB', 'UK' => 0.20,
+            'DE' => 0.19,
+            'FR' => 0.20,
+            'IT' => 0.22,
+            'ES' => 0.21,
+            'NL' => 0.21,
+            'BE' => 0.21,
+            'SE' => 0.25,
+            'PL' => 0.23,
+            'IE' => 0.23,
+            'AT' => 0.20,
+            'DK' => 0.25,
+            'FI' => 0.25,
+            'NO' => 0.25,
+            'LU' => 0.17,
+            'CH' => 0.081,
+            default => 0.0,
+        };
     }
 }
