@@ -49,6 +49,7 @@ class AmazonOrderFeeSyncService
             $nextToken = null;
             $feeByOrderCurrency = [];
             $feeLineRows = [];
+            $seenShipmentFeeFingerprints = [];
             $events = 0;
 
             do {
@@ -74,7 +75,13 @@ class AmazonOrderFeeSyncService
 
                 $payload = (array) ($response->json('payload') ?? []);
                 $financialEvents = (array) ($payload['FinancialEvents'] ?? []);
-                $events += $this->accumulateFeesFromFinancialEvents($financialEvents, $feeByOrderCurrency, $feeLineRows, $configuredRegion);
+                $events += $this->accumulateFeesFromFinancialEvents(
+                    $financialEvents,
+                    $feeByOrderCurrency,
+                    $feeLineRows,
+                    $configuredRegion,
+                    $seenShipmentFeeFingerprints
+                );
                 $nextToken = $payload['NextToken'] ?? null;
             } while (!empty($nextToken));
 
@@ -91,7 +98,8 @@ class AmazonOrderFeeSyncService
         array $financialEvents,
         array &$feeByOrderCurrency,
         array &$feeLineRows,
-        string $region
+        string $region,
+        array &$seenShipmentFeeFingerprints
     ): int
     {
         $events = 0;
@@ -111,6 +119,7 @@ class AmazonOrderFeeSyncService
                 }
                 $eventType = preg_replace('/List$/', '', $key) ?: $key;
                 $postedDate = $this->normalizePostedDate($event['PostedDate'] ?? null);
+                $isShipmentOrSettle = in_array($eventType, ['ShipmentEvent', 'ShipmentSettleEvent'], true);
 
                 $fees = [];
                 $this->extractFeeListAmounts($event, '', $fees);
@@ -120,6 +129,22 @@ class AmazonOrderFeeSyncService
                     if ($currency === '' || $amount == 0.0) {
                         continue;
                     }
+
+                    if ($isShipmentOrSettle) {
+                        $fingerprint = sha1(json_encode([
+                            'order_id' => $orderId,
+                            'posted_date' => $postedDate,
+                            'fee_type' => (string) ($fee['fee_type'] ?? ''),
+                            'amount' => number_format($amount, 2, '.', ''),
+                            'currency' => $currency,
+                            'raw_entry' => $fee['raw_entry'] ?? null,
+                        ]));
+                        if (isset($seenShipmentFeeFingerprints[$fingerprint])) {
+                            continue;
+                        }
+                        $seenShipmentFeeFingerprints[$fingerprint] = $eventType;
+                    }
+
                     if (!isset($feeByOrderCurrency[$orderId])) {
                         $feeByOrderCurrency[$orderId] = [];
                     }
