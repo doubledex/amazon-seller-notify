@@ -17,6 +17,13 @@ class AmazonOrderFeeSyncService
     {
         $from = $from->copy()->startOfDay();
         $to = $to->copy()->endOfDay();
+        $maxPostedBefore = now()->subMinutes(2);
+        if ($to->gt($maxPostedBefore)) {
+            $to = $maxPostedBefore->copy();
+        }
+        if ($from->gte($to)) {
+            $from = $to->copy()->subDay();
+        }
 
         $regionService = new RegionConfigService();
         $regions = $region ? [strtoupper(trim($region))] : $regionService->spApiRegions();
@@ -47,9 +54,9 @@ class AmazonOrderFeeSyncService
                     fn () => $nextToken
                         ? $api->listFinancialEvents(nextToken: $nextToken)
                         : $api->listFinancialEvents(
-                            postedAfter: $from->toIso8601ZuluString(),
-                            postedBefore: $to->toIso8601ZuluString(),
-                            maxResultsPerPage: 100
+                            maxResultsPerPage: 100,
+                            postedAfter: $from,
+                            postedBefore: $to
                         ),
                     'finances.listFinancialEvents'
                 );
@@ -237,4 +244,3 @@ class AmazonOrderFeeSyncService
         return 10;
     }
 }
-
