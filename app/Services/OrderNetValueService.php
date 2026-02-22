@@ -7,7 +7,7 @@ use App\Models\OrderItem;
 
 class OrderNetValueService
 {
-    public function valuesFromApiItem(array $item): array
+    public function valuesFromApiItem(array $item, ?string $marketplaceCountryCode = null): array
     {
         $itemPrice = $this->amount($item, 'ItemPrice');
         $shippingPrice = $this->amount($item, 'ShippingPrice');
@@ -50,7 +50,24 @@ class OrderNetValueService
             ];
         }
 
-        // Calculate net ex-tax from line-level gross components minus tax components.
+        // In NA marketplaces, item price fields are already tax-exclusive for our use case.
+        if ($this->isNaMarketplace($marketplaceCountryCode)) {
+            $lineBase = (float) ($itemPrice ?? 0)
+                + (float) ($shippingPrice ?? 0)
+                + (float) ($giftWrapPrice ?? 0)
+                + (float) ($codFee ?? 0);
+            $lineDiscounts = (float) ($promotionDiscount ?? 0)
+                + (float) ($shippingDiscount ?? 0)
+                + (float) ($giftWrapDiscount ?? 0);
+            $lineNet = $lineBase - $lineDiscounts;
+
+            return [
+                'line_net_ex_tax' => round(max(0.0, $lineNet), 2),
+                'line_net_currency' => $this->currency($item),
+            ];
+        }
+
+        // For VAT marketplaces, derive ex-tax by removing tax components from line totals.
         $grossPositive = (float) ($itemPrice ?? 0)
             + (float) ($shippingPrice ?? 0)
             + (float) ($giftWrapPrice ?? 0)
@@ -74,6 +91,12 @@ class OrderNetValueService
             'line_net_ex_tax' => round(max(0.0, $lineNet), 2),
             'line_net_currency' => $this->currency($item),
         ];
+    }
+
+    private function isNaMarketplace(?string $marketplaceCountryCode): bool
+    {
+        $country = strtoupper(trim((string) $marketplaceCountryCode));
+        return in_array($country, ['US', 'CA', 'MX', 'BR'], true);
     }
 
     public function refreshOrderNet(string $orderId): void

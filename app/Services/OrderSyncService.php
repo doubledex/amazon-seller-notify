@@ -99,6 +99,7 @@ class OrderSyncService
         $marketplaceService = new MarketplaceService();
         $marketplaceTimezoneService = new MarketplaceTimezoneService();
         $orderNetValueService = new OrderNetValueService();
+        $marketplaceCountryMap = $marketplaceService->getMarketplaceMap();
         $marketplaceIds = $marketplaceService->getMarketplaceIds($connector);
 
         $nextToken = null;
@@ -258,7 +259,8 @@ class OrderSyncService
                                 if (!$itemId) {
                                     continue;
                                 }
-                                $lineNet = $orderNetValueService->valuesFromApiItem($item);
+                                $marketplaceCountry = strtoupper(trim((string) ($marketplaceCountryMap[$order['MarketplaceId'] ?? ''] ?? '')));
+                                $lineNet = $orderNetValueService->valuesFromApiItem($item, $marketplaceCountry);
                                 $orderedQty = isset($item['QuantityOrdered']) ? (int) $item['QuantityOrdered'] : null;
                                 $shippedQty = isset($item['QuantityShipped']) ? (int) $item['QuantityShipped'] : null;
                                 $unshippedQty = null;

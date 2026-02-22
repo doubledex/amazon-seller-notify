@@ -296,6 +296,12 @@ class OrderController extends Controller
         $orderRecord = Order::query()->where('amazon_order_id', $order_id)->first();
         $items = OrderItem::query()->where('amazon_order_id', $order_id)->get();
         $address = OrderShipAddress::query()->where('order_id', $order_id)->first();
+        $marketplaceCountryCode = null;
+        if ($orderRecord && !empty($orderRecord->marketplace_id)) {
+            $marketplaceCountryCode = DB::table('marketplaces')
+                ->where('id', (string) $orderRecord->marketplace_id)
+                ->value('country_code');
+        }
 
         $ordersApi = $this->connector->ordersV0();
         $needsOrder = !$orderRecord;
@@ -340,6 +346,11 @@ class OrderController extends Controller
                                 'last_synced_at' => now(),
                             ]
                         );
+                        if (!empty($marketplaceId) && empty($marketplaceCountryCode)) {
+                            $marketplaceCountryCode = DB::table('marketplaces')
+                                ->where('id', (string) $marketplaceId)
+                                ->value('country_code');
+                        }
                     }
                 }
             }
@@ -355,7 +366,7 @@ class OrderController extends Controller
                         if (!$itemId) {
                             continue;
                         }
-                        $lineNet = $this->orderNetValueService->valuesFromApiItem($item);
+                        $lineNet = $this->orderNetValueService->valuesFromApiItem($item, $marketplaceCountryCode);
                         $orderedQty = isset($item['QuantityOrdered']) ? (int) $item['QuantityOrdered'] : null;
                         $shippedQty = isset($item['QuantityShipped']) ? (int) $item['QuantityShipped'] : null;
                         $unshippedQty = null;
