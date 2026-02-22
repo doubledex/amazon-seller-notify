@@ -98,7 +98,7 @@
                         <td class="text-right">£{{ number_format((float) $day['ad_gbp'], 2) }}</td>
                         <td class="text-right">{{ $day['acos_percent'] !== null ? number_format((float) $day['acos_percent'], 2) . '%' : 'N/A' }}</td>
                     </tr>
-                    <tr id="{{ $rowId }}" class="hidden {{ $weekGroupClass }}">
+                    <tr id="{{ $rowId }}" class="hidden">
                         <td colspan="8" class="p-2">
                             <table border="1" cellpadding="6" cellspacing="0" class="w-full text-sm">
                                 <thead class="bg-gray-50 dark:bg-gray-600">
