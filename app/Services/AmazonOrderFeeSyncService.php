@@ -47,7 +47,6 @@ class AmazonOrderFeeSyncService
             $api = $connector->financesV0();
 
             $nextToken = null;
-            $feeByOrderCurrency = [];
             $feeLineRows = [];
             $seenShipmentFeeFingerprints = [];
             $events = 0;
@@ -77,7 +76,6 @@ class AmazonOrderFeeSyncService
                 $financialEvents = (array) ($payload['FinancialEvents'] ?? []);
                 $events += $this->accumulateFeesFromFinancialEvents(
                     $financialEvents,
-                    $feeByOrderCurrency,
                     $feeLineRows,
                     $configuredRegion,
                     $seenShipmentFeeFingerprints
@@ -86,7 +84,7 @@ class AmazonOrderFeeSyncService
             } while (!empty($nextToken));
 
             $this->persistFeeLines($feeLineRows);
-            $updated = $this->persistOrderFees($feeByOrderCurrency, $configuredRegion);
+            $updated = $this->recalculateOrderFeesFromLines($configuredRegion);
             $summary['events'] += $events;
             $summary['orders_updated'] += $updated;
         }
@@ -96,7 +94,6 @@ class AmazonOrderFeeSyncService
 
     private function accumulateFeesFromFinancialEvents(
         array $financialEvents,
-        array &$feeByOrderCurrency,
         array &$feeLineRows,
         string $region,
         array &$seenShipmentFeeFingerprints
@@ -144,11 +141,6 @@ class AmazonOrderFeeSyncService
                         }
                         $seenShipmentFeeFingerprints[$fingerprint] = $eventType;
                     }
-
-                    if (!isset($feeByOrderCurrency[$orderId])) {
-                        $feeByOrderCurrency[$orderId] = [];
-                    }
-                    $feeByOrderCurrency[$orderId][$currency] = ($feeByOrderCurrency[$orderId][$currency] ?? 0.0) + $amount;
 
                     $feeType = trim((string) ($fee['fee_type'] ?? ''));
                     $description = $feeType !== '' ? $feeType : (string) ($fee['path'] ?? 'Fee');
@@ -221,24 +213,61 @@ class AmazonOrderFeeSyncService
         }
     }
 
-    private function persistOrderFees(array $feeByOrderCurrency, string $region): int
+    private function recalculateOrderFeesFromLines(string $region): int
     {
-        if (empty($feeByOrderCurrency)) {
+        if (!DB::getSchemaBuilder()->hasTable('amazon_order_fee_lines')) {
+            return 0;
+        }
+
+        $targetOrderIds = DB::table('orders')
+            ->whereIn('marketplace_id', $this->marketplaceIdsForRegion($region))
+            ->pluck('amazon_order_id')
+            ->filter()
+            ->values()
+            ->all();
+
+        if (empty($targetOrderIds)) {
+            return 0;
+        }
+
+        $lines = DB::table('amazon_order_fee_lines')
+            ->select('amazon_order_id', 'currency', DB::raw('SUM(amount) as fee_total'))
+            ->where('region', $region)
+            ->whereIn('amazon_order_id', $targetOrderIds)
+            ->groupBy('amazon_order_id', 'currency')
+            ->get();
+
+        if ($lines->isEmpty()) {
+            return 0;
+        }
+
+        $byOrder = [];
+        foreach ($lines as $line) {
+            $orderId = (string) ($line->amazon_order_id ?? '');
+            $currency = strtoupper(trim((string) ($line->currency ?? '')));
+            if ($orderId === '' || $currency === '') {
+                continue;
+            }
+            if (!isset($byOrder[$orderId])) {
+                $byOrder[$orderId] = [];
+            }
+            $byOrder[$orderId][$currency] = (float) ($line->fee_total ?? 0);
+        }
+
+        if (empty($byOrder)) {
             return 0;
         }
 
         $updated = 0;
-        $orderIds = array_keys($feeByOrderCurrency);
         $orders = Order::query()
-            ->whereIn('amazon_order_id', $orderIds)
+            ->whereIn('amazon_order_id', array_keys($byOrder))
             ->get(['id', 'amazon_order_id', 'order_total_currency']);
 
         foreach ($orders as $order) {
-            $currencyMap = $feeByOrderCurrency[$order->amazon_order_id] ?? [];
+            $currencyMap = $byOrder[$order->amazon_order_id] ?? [];
             if (empty($currencyMap)) {
                 continue;
             }
-
             $preferredCurrency = strtoupper(trim((string) ($order->order_total_currency ?? '')));
             if ($preferredCurrency !== '' && isset($currencyMap[$preferredCurrency])) {
                 $currency = $preferredCurrency;
@@ -340,5 +369,24 @@ class AmazonOrderFeeSyncService
         }
 
         return 10;
+    }
+
+    private function marketplaceIdsForRegion(string $region): array
+    {
+        $region = strtoupper(trim($region));
+        if ($region === 'NA') {
+            $countries = ['US', 'CA', 'MX', 'BR'];
+        } elseif ($region === 'FE') {
+            $countries = ['JP', 'AU', 'SG', 'AE', 'IN', 'SA'];
+        } else {
+            $countries = ['GB', 'UK', 'AT', 'BE', 'DE', 'DK', 'ES', 'FI', 'FR', 'IE', 'IT', 'LU', 'NL', 'NO', 'PL', 'SE', 'CH', 'TR'];
+        }
+
+        return DB::table('marketplaces')
+            ->whereIn(DB::raw("UPPER(COALESCE(country_code, ''))"), $countries)
+            ->pluck('id')
+            ->filter()
+            ->values()
+            ->all();
     }
 }
