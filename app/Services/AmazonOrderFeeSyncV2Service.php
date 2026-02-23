@@ -391,6 +391,7 @@ class AmazonOrderFeeSyncV2Service
     {
         $transactionId = trim((string) $this->firstValue($txn, ['transactionId', 'TransactionId']));
         $relatedIdentifiers = $this->firstArray($txn, ['relatedIdentifiers', 'RelatedIdentifiers']);
+        $linkedId = '';
         foreach ($relatedIdentifiers as $identifier) {
             if (!is_array($identifier)) {
                 continue;
@@ -401,8 +402,19 @@ class AmazonOrderFeeSyncV2Service
             }
             $value = trim((string) $this->firstValue($identifier, ['relatedIdentifierValue', 'RelatedIdentifierValue']));
             if ($value !== '') {
-                return $value;
+                $linkedId = $value;
+                break;
             }
+        }
+
+        if ($transactionId !== '' && $linkedId !== '') {
+            $pair = [$transactionId, $linkedId];
+            sort($pair, SORT_STRING);
+            return implode('|', $pair);
+        }
+
+        if ($linkedId !== '') {
+            return $linkedId;
         }
 
         return $transactionId !== '' ? $transactionId : sha1(json_encode($txn));
@@ -414,6 +426,7 @@ class AmazonOrderFeeSyncV2Service
         $top = $this->firstArray($txn, ['breakdowns', 'Breakdowns']);
         if (!empty($top)) {
             $sources[] = ['path' => 'transaction.breakdowns', 'breakdowns' => $top];
+            return $sources;
         }
         $items = $this->firstArray($txn, ['items', 'Items']);
         foreach ($items as $itemIndex => $item) {
