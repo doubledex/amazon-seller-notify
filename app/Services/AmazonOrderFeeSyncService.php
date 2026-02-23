@@ -115,9 +115,14 @@ class AmazonOrderFeeSyncService
             static fn ($v) => trim((string) $v),
             (array) ($config['marketplace_ids'] ?? [])
         )));
-        if (empty($marketplaceIds)) {
-            $marketplaceIds = [null];
-        }
+        // Always include one unfiltered pass so missing marketplace config
+        // does not silently drop transactions.
+        $marketplaceIds[] = null;
+        $marketplaceIds = array_values(array_unique(array_map(
+            static fn ($v) => $v === null ? '__ALL__' : $v,
+            $marketplaceIds
+        )));
+        $marketplaceIds = array_map(static fn ($v) => $v === '__ALL__' ? null : $v, $marketplaceIds);
 
         foreach ($marketplaceIds as $marketplaceId) {
             $nextToken = null;
