@@ -11,9 +11,10 @@ use SellingPartnerApi\SellingPartnerApi;
 
 class UsFcInventorySyncService
 {
-    public const DEFAULT_REPORT_TYPE = 'GET_LEDGER_SUMMARY_VIEW_DATA';
+    public const DEFAULT_REPORT_TYPE = 'GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA';
     public const DEFAULT_US_MARKETPLACE_ID = 'ATVPDKIKX0DER';
     private const FALLBACK_REPORT_TYPES = [
+        'GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA',
         'GET_LEDGER_SUMMARY_VIEW_DATA',
     ];
     private const CREATE_REPORT_MAX_RETRIES = 8;
@@ -28,8 +29,10 @@ class UsFcInventorySyncService
         ?string $startDate = null,
         ?string $endDate = null
     ): array {
-        // Force ledger summary report aggregated by FC.
-        $reportType = self::DEFAULT_REPORT_TYPE;
+        $reportType = strtoupper(trim($reportType));
+        if ($reportType === '') {
+            $reportType = self::DEFAULT_REPORT_TYPE;
+        }
         $maxAttempts = max(1, min($maxAttempts, 120));
         $sleepSeconds = max(1, min($sleepSeconds, 20));
         [$dataStartTime, $dataEndTime] = $this->resolveReportWindow($startDate, $endDate);
@@ -62,7 +65,9 @@ class UsFcInventorySyncService
 
         if (is_array($last)) {
             $last['attempted_report_types'] = array_values(array_unique($attempted));
-            $last['message'] = 'No inventory rows returned from any report type attempted.';
+            $last['message'] = trim((string) ($last['message'] ?? '')) !== ''
+                ? (string) $last['message']
+                : 'No inventory rows returned from any report type attempted.';
             return $last;
         }
 
@@ -152,8 +157,9 @@ class UsFcInventorySyncService
             }
 
             if (in_array($status, ['DONE_NO_DATA', 'CANCELLED', 'FATAL'], true)) {
+                $ok = $status === 'DONE_NO_DATA';
                 return [
-                    'ok' => true,
+                    'ok' => $ok,
                     'message' => "Inventory report ended with status {$status}.",
                     'rows' => 0,
                     'rows_parsed' => 0,
@@ -163,6 +169,7 @@ class UsFcInventorySyncService
                     'report_id' => $reportId,
                     'report_type' => $reportType,
                     'report_date' => $reportDate,
+                    'processing_status' => $status,
                 ];
             }
 
