@@ -513,7 +513,11 @@ class AmazonOrderFeeSyncV2Service
         if (!is_array($money)) {
             return null;
         }
-        $amount = $money['CurrencyAmount'] ?? $money['Amount'] ?? $money['amount'] ?? null;
+        $amount = $money['CurrencyAmount']
+            ?? $money['currencyAmount']
+            ?? $money['Amount']
+            ?? $money['amount']
+            ?? null;
         return is_numeric($amount) ? (float) $amount : null;
     }
 
