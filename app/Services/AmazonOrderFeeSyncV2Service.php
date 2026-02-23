@@ -424,7 +424,7 @@ class AmazonOrderFeeSyncV2Service
     {
         $sources = [];
         $top = $this->firstArray($txn, ['breakdowns', 'Breakdowns']);
-        if (!empty($top)) {
+        if (!empty($top) && $this->hasFeeCandidates($top)) {
             $sources[] = ['path' => 'transaction.breakdowns', 'breakdowns' => $top];
             return $sources;
         }
@@ -443,6 +443,22 @@ class AmazonOrderFeeSyncV2Service
         }
 
         return $sources;
+    }
+
+    private function hasFeeCandidates(array $breakdowns): bool
+    {
+        foreach ($breakdowns as $breakdown) {
+            if (!is_array($breakdown)) {
+                continue;
+            }
+            $candidates = [];
+            $this->collectCandidateFeeBreakdowns($breakdown, $candidates);
+            if (!empty($candidates)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function collectCandidateFeeBreakdowns(array $node, array &$out): void
