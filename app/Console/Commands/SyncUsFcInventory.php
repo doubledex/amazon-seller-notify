@@ -14,6 +14,7 @@ class SyncUsFcInventory extends Command
         {--report-type=GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA}
         {--max-attempts=30}
         {--sleep-seconds=5}
+        {--debug-json : Print raw SP-API reply payloads}
         {--yesterday : Use yesterday in app timezone}
         {--start-date= : Start date (YYYY-MM-DD)}
         {--end-date= : End date (YYYY-MM-DD)}';
@@ -39,10 +40,16 @@ class SyncUsFcInventory extends Command
             (int) $this->option('sleep-seconds'),
             $startDate !== '' ? $startDate : null,
             $endDate !== '' ? $endDate : null,
+            (bool) $this->option('debug-json'),
         );
 
         if (!($result['ok'] ?? false)) {
             $this->error((string) ($result['message'] ?? 'US FC inventory sync failed.'));
+            if ((bool) $this->option('debug-json')) {
+                $this->line('Debug payload:');
+                $json = json_encode($result['debug_payload'] ?? null, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+                $this->line($json !== false ? $json : 'null');
+            }
             return self::FAILURE;
         }
 
@@ -70,6 +77,12 @@ class SyncUsFcInventory extends Command
                 }
                 $this->line(' - ' . implode(', ', array_map('strval', $keys)));
             }
+        }
+
+        if ((bool) $this->option('debug-json')) {
+            $this->line('Debug payload:');
+            $json = json_encode($result['debug_payload'] ?? null, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            $this->line($json !== false ? $json : 'null');
         }
 
         return self::SUCCESS;

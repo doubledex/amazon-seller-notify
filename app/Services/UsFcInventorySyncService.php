@@ -27,7 +27,8 @@ class UsFcInventorySyncService
         int $maxAttempts = 30,
         int $sleepSeconds = 5,
         ?string $startDate = null,
-        ?string $endDate = null
+        ?string $endDate = null,
+        bool $debugJson = false
     ): array {
         $reportType = strtoupper(trim($reportType));
         if ($reportType === '') {
@@ -51,7 +52,8 @@ class UsFcInventorySyncService
                 $maxAttempts,
                 $sleepSeconds,
                 $dataStartTime,
-                $dataEndTime
+                $dataEndTime,
+                $debugJson
             );
             $result['attempted_report_types'] = array_values(array_unique([...$attempted, $candidateType]));
             $last = $result;
@@ -86,8 +88,14 @@ class UsFcInventorySyncService
         int $maxAttempts,
         int $sleepSeconds,
         ?\DateTimeInterface $dataStartTime = null,
-        ?\DateTimeInterface $dataEndTime = null
+        ?\DateTimeInterface $dataEndTime = null,
+        bool $debugJson = false
     ): array {
+        $debugPayload = [
+            'create_report' => null,
+            'get_report_polls' => [],
+            'get_report_document' => null,
+        ];
         $reportId = '';
         $lastCreateError = null;
         for ($attempt = 0; $attempt < self::CREATE_REPORT_MAX_RETRIES; $attempt++) {
@@ -101,6 +109,9 @@ class UsFcInventorySyncService
                         dataEndTime: $dataEndTime,
                     )
                 );
+                if ($debugJson) {
+                    $debugPayload['create_report'] = $createResponse->json();
+                }
                 $reportId = trim((string) ($createResponse->json('reportId') ?? ''));
                 if ($reportId !== '') {
                     break;
@@ -132,6 +143,7 @@ class UsFcInventorySyncService
                 'message' => 'Unable to create inventory report. ' . ($lastCreateError ? 'Last error: ' . $lastCreateError : ''),
                 'rows' => 0,
                 'report_type' => $reportType,
+                'debug_payload' => $debugJson ? $debugPayload : null,
             ];
         }
 
@@ -140,10 +152,14 @@ class UsFcInventorySyncService
         $reportDate = null;
         for ($i = 0; $i < $maxAttempts; $i++) {
             $poll = $reportsApi->getReport($reportId);
-            $status = strtoupper((string) ($poll->json('processingStatus') ?? 'IN_QUEUE'));
-            $reportDocumentId = trim((string) ($poll->json('reportDocumentId') ?? ''));
+            $pollPayload = $poll->json();
+            if ($debugJson && count($debugPayload['get_report_polls']) < 20) {
+                $debugPayload['get_report_polls'][] = $pollPayload;
+            }
+            $status = strtoupper((string) ($pollPayload['processingStatus'] ?? 'IN_QUEUE'));
+            $reportDocumentId = trim((string) ($pollPayload['reportDocumentId'] ?? ''));
 
-            $completedAt = trim((string) ($poll->json('processingEndTime') ?? ''));
+            $completedAt = trim((string) ($pollPayload['processingEndTime'] ?? ''));
             if ($completedAt !== '') {
                 try {
                     $reportDate = Carbon::parse($completedAt)->toDateString();
@@ -170,6 +186,7 @@ class UsFcInventorySyncService
                     'report_type' => $reportType,
                     'report_date' => $reportDate,
                     'processing_status' => $status,
+                    'debug_payload' => $debugJson ? $debugPayload : null,
                 ];
             }
 
@@ -183,11 +200,15 @@ class UsFcInventorySyncService
                 'rows' => 0,
                 'report_id' => $reportId,
                 'report_type' => $reportType,
+                'debug_payload' => $debugJson ? $debugPayload : null,
             ];
         }
 
         $documentResponse = $reportsApi->getReportDocument($reportDocumentId, $reportType);
         $documentPayload = $documentResponse->json();
+        if ($debugJson) {
+            $debugPayload['get_report_document'] = $documentPayload;
+        }
         $documentUrl = trim((string) ($documentPayload['url'] ?? ''));
         $compression = strtoupper(trim((string) ($documentPayload['compressionAlgorithm'] ?? '')));
 
@@ -198,6 +219,7 @@ class UsFcInventorySyncService
                 'report_id' => $reportId,
                 'rows' => 0,
                 'report_type' => $reportType,
+                'debug_payload' => $debugJson ? $debugPayload : null,
             ];
         }
 
@@ -209,6 +231,7 @@ class UsFcInventorySyncService
                 'report_id' => $reportId,
                 'rows' => 0,
                 'report_type' => $reportType,
+                'debug_payload' => $debugJson ? $debugPayload : null,
             ];
         }
 
@@ -222,6 +245,7 @@ class UsFcInventorySyncService
                     'report_id' => $reportId,
                     'rows' => 0,
                     'report_type' => $reportType,
+                    'debug_payload' => $debugJson ? $debugPayload : null,
                 ];
             }
             $raw = $decoded;
@@ -297,6 +321,7 @@ class UsFcInventorySyncService
             'sample_row_keys' => $sampleKeys,
             'report_type' => $reportType,
             'report_date' => $reportDate,
+            'debug_payload' => $debugJson ? $debugPayload : null,
         ];
     }
 
