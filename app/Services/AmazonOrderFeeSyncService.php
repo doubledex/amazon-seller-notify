@@ -54,7 +54,7 @@ class AmazonOrderFeeSyncService
             );
 
             $this->persistFeeLines($feeLineRows);
-            $updated = $this->recalculateOrderFeesFromLines($configuredRegion);
+            $updated = $this->recalculateOrderFeesFromLines($configuredRegion, $from, $to);
             $summary['events'] += $events;
             $summary['orders_updated'] += $updated;
         }
@@ -105,72 +105,90 @@ class AmazonOrderFeeSyncService
 
         $http = new GuzzleClient();
         $url = $host . '/finances/2024-06-19/transactions';
-        $nextToken = null;
         $events = 0;
+        $marketplaceIds = array_values(array_filter(array_map(
+            static fn ($v) => trim((string) $v),
+            (array) ($config['marketplace_ids'] ?? [])
+        )));
+        if (empty($marketplaceIds)) {
+            $marketplaceIds = [null];
+        }
 
-        do {
-            $params = $nextToken
-                ? ['nextToken' => $nextToken]
-                : [
-                    'postedAfter' => $from->copy()->utc()->format('Y-m-d\TH:i:s\Z'),
-                    'postedBefore' => $to->copy()->utc()->format('Y-m-d\TH:i:s\Z'),
-                ];
-
-            $request = new Psr7Request('GET', $url . '?' . http_build_query($params), ['accept' => 'application/json']);
-            $response = $this->callSignedJsonWithRetries(
-                fn () => $http->send($officialConfig->sign($request)),
-                'finances.v2024.listTransactions'
-            );
-
-            if (!$response || ($response['status'] ?? 500) >= 400) {
-                Log::warning('Fee sync: v2024 transactions call failed', [
-                    'region' => $region,
-                    'status' => $response['status'] ?? null,
-                ]);
-                break;
-            }
-
-            $payload = (array) (($response['json']['payload'] ?? null) ?: []);
-            $transactions = (array) ($payload['transactions'] ?? []);
-            $events += count($transactions);
-
-            foreach ($transactions as $txn) {
-                if (!is_array($txn)) {
-                    continue;
-                }
-                $orderId = $this->extractOrderIdFromTransaction($txn);
-                if ($orderId === '') {
-                    continue;
+        foreach ($marketplaceIds as $marketplaceId) {
+            $nextToken = null;
+            do {
+                $params = $nextToken
+                    ? ['nextToken' => $nextToken]
+                    : [
+                        'postedAfter' => $from->copy()->utc()->format('Y-m-d\TH:i:s\Z'),
+                        'postedBefore' => $to->copy()->utc()->format('Y-m-d\TH:i:s\Z'),
+                    ];
+                if ($marketplaceId !== null) {
+                    $params['marketplaceId'] = $marketplaceId;
                 }
 
-                $feeRows = $this->extractNetFeeRowsFromTransaction($txn, $orderId, $region);
-                if (empty($feeRows)) {
-                    continue;
+                $request = new Psr7Request('GET', $url . '?' . http_build_query($params), ['accept' => 'application/json']);
+                $response = $this->callSignedJsonWithRetries(
+                    fn () => $http->send($officialConfig->sign($request)),
+                    'finances.v2024.listTransactions'
+                );
+
+                if (!$response || ($response['status'] ?? 500) >= 400) {
+                    Log::warning('Fee sync: v2024 transactions call failed', [
+                        'region' => $region,
+                        'marketplace_id' => $marketplaceId,
+                        'status' => $response['status'] ?? null,
+                    ]);
+                    break;
                 }
 
-                $orderIdsWithV2024Fees[$orderId] = true;
-                foreach ($feeRows as $row) {
-                    $feeLineRows[] = $row;
-                }
-            }
+                $payload = (array) (($response['json']['payload'] ?? null) ?: []);
+                $transactions = (array) ($payload['transactions'] ?? []);
+                $events += count($transactions);
 
-            $nextToken = trim((string) ($payload['nextToken'] ?? ''));
-            if ($nextToken === '') {
-                $nextToken = null;
-            }
-        } while ($nextToken !== null);
+                foreach ($transactions as $txn) {
+                    if (!is_array($txn)) {
+                        continue;
+                    }
+                    $orderId = $this->extractOrderIdFromTransaction($txn);
+                    if ($orderId === '') {
+                        continue;
+                    }
+
+                    $feeRows = $this->extractNetFeeRowsFromTransaction($txn, $orderId, $region);
+                    if (empty($feeRows)) {
+                        continue;
+                    }
+
+                    $orderIdsWithV2024Fees[$orderId] = true;
+                    foreach ($feeRows as $row) {
+                        $feeLineRows[] = $row;
+                    }
+                }
+
+                $nextToken = trim((string) ($payload['nextToken'] ?? ''));
+                if ($nextToken === '') {
+                    $nextToken = null;
+                }
+            } while ($nextToken !== null);
+        }
 
         return $events;
     }
 
-    private function recalculateOrderFeesFromLines(string $region): int
+    private function recalculateOrderFeesFromLines(string $region, Carbon $from, Carbon $to): int
     {
         if (!DB::getSchemaBuilder()->hasTable('amazon_order_fee_lines')) {
             return 0;
         }
 
+        $fromDate = $from->toDateString();
+        $toDate = $to->toDateString();
+
         $targetOrderIds = DB::table('orders')
             ->whereIn('marketplace_id', $this->marketplaceIdsForRegion($region))
+            ->whereRaw("COALESCE(purchase_date_local_date, DATE(purchase_date)) >= ?", [$fromDate])
+            ->whereRaw("COALESCE(purchase_date_local_date, DATE(purchase_date)) <= ?", [$toDate])
             ->pluck('amazon_order_id')
             ->filter()
             ->values()
@@ -188,10 +206,6 @@ class AmazonOrderFeeSyncService
             ->groupBy('amazon_order_id', 'currency')
             ->get();
 
-        if ($lines->isEmpty()) {
-            return 0;
-        }
-
         $byOrder = [];
         foreach ($lines as $line) {
             $orderId = (string) ($line->amazon_order_id ?? '');
@@ -205,18 +219,21 @@ class AmazonOrderFeeSyncService
             $byOrder[$orderId][$currency] = (float) ($line->fee_total ?? 0);
         }
 
-        if (empty($byOrder)) {
-            return 0;
-        }
-
         $updated = 0;
         $orders = Order::query()
-            ->whereIn('amazon_order_id', array_keys($byOrder))
-            ->get(['id', 'amazon_order_id', 'order_total_currency']);
+            ->whereIn('amazon_order_id', $targetOrderIds)
+            ->get(['id', 'amazon_order_id', 'order_total_currency', 'amazon_fee_total', 'amazon_fee_currency', 'amazon_fee_last_synced_at']);
 
         foreach ($orders as $order) {
             $currencyMap = $byOrder[$order->amazon_order_id] ?? [];
             if (empty($currencyMap)) {
+                if ($order->amazon_fee_total !== null || $order->amazon_fee_currency !== null || $order->amazon_fee_last_synced_at !== null) {
+                    $order->amazon_fee_total = null;
+                    $order->amazon_fee_currency = null;
+                    $order->amazon_fee_last_synced_at = null;
+                    $order->save();
+                    $updated++;
+                }
                 continue;
             }
             $preferredCurrency = strtoupper(trim((string) ($order->order_total_currency ?? '')));
