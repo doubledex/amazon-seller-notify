@@ -290,7 +290,7 @@ class UsFcInventorySyncService
                 'fnsku' => $fnsku !== '' ? $fnsku : null,
                 'item_condition' => $condition !== '' ? $condition : null,
                 'quantity_available' => $normalized['quantity_available'],
-                'raw_row' => $row,
+                'raw_row' => json_encode($row, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
                 'report_id' => $reportId,
                 'report_type' => $reportType,
                 'report_date' => $reportDate,
