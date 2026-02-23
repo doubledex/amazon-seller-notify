@@ -263,6 +263,43 @@ class AmazonOrderFeeSyncV2Service
             }
         }
 
+        // Fallback: walk full payload for ORDER_ID identifier pairs.
+        $fallback = $this->findOrderIdRecursive($txn);
+        if ($fallback !== '') {
+            return $fallback;
+        }
+
+        return '';
+    }
+
+    private function findOrderIdRecursive($node): string
+    {
+        if (!is_array($node)) {
+            return '';
+        }
+
+        $name = strtoupper(trim((string) $this->firstValue($node, ['relatedIdentifierName', 'RelatedIdentifierName'])));
+        if ($name === 'ORDER_ID') {
+            $value = trim((string) $this->firstValue($node, ['relatedIdentifierValue', 'RelatedIdentifierValue']));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        $directOrder = trim((string) $this->firstValue($node, ['orderId', 'OrderId', 'amazonOrderId', 'AmazonOrderId']));
+        if ($directOrder !== '') {
+            return $directOrder;
+        }
+
+        foreach ($node as $value) {
+            if (is_array($value)) {
+                $found = $this->findOrderIdRecursive($value);
+                if ($found !== '') {
+                    return $found;
+                }
+            }
+        }
+
         return '';
     }
 
