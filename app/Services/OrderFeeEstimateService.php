@@ -311,7 +311,12 @@ class OrderFeeEstimateService
             ->whereNull('orders.amazon_fee_total')
             ->where(function ($q) use ($staleCutoff) {
                 $q->whereNull('orders.amazon_fee_estimated_at')
-                    ->orWhere('orders.amazon_fee_estimated_at', '<=', $staleCutoff);
+                    ->orWhere('orders.amazon_fee_estimated_at', '<=', $staleCutoff)
+                    ->orWhereNotExists(function ($sq) {
+                        $sq->select(DB::raw(1))
+                            ->from('order_fee_estimate_lines')
+                            ->whereColumn('order_fee_estimate_lines.amazon_order_id', 'orders.amazon_order_id');
+                    });
             })
             ->whereRaw("TRIM(COALESCE(order_items.asin, '')) <> ''")
             ->whereRaw("TRIM(COALESCE(orders.marketplace_id, '')) <> ''")
