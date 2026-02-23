@@ -91,6 +91,8 @@ class OrderFeeEstimateService
 
             $itemBasis[] = [
                 'order_id' => (string) $row->amazon_order_id,
+                'asin' => (string) $asin,
+                'marketplace_id' => (string) $marketplaceId,
                 'lookup_key' => $lookupKey,
                 'qty' => max(0, (int) ($row->quantity_ordered ?? 0)),
                 'order_currency' => strtoupper(trim((string) ($row->order_total_currency ?? ''))),
@@ -143,6 +145,7 @@ class OrderFeeEstimateService
         }
 
         $orderCurrencyTotals = [];
+        $orderLineRows = [];
         foreach ($itemBasis as $row) {
             $lookupKey = $row['lookup_key'];
             if (!isset($lookupResults[$lookupKey])) {
@@ -164,7 +167,83 @@ class OrderFeeEstimateService
             if (!isset($orderCurrencyTotals[$orderId])) {
                 $orderCurrencyTotals[$orderId] = [];
             }
-            $orderCurrencyTotals[$orderId][$currency] = ($orderCurrencyTotals[$orderId][$currency] ?? 0.0) + round($feePerUnit * $qty, 2);
+            $lineTotal = round($feePerUnit * $qty, 2);
+            $orderCurrencyTotals[$orderId][$currency] = ($orderCurrencyTotals[$orderId][$currency] ?? 0.0) + $lineTotal;
+
+            $breakdown = (array) ($lookupResults[$lookupKey]['breakdown'] ?? []);
+            if (!empty($breakdown)) {
+                foreach ($breakdown as $detail) {
+                    $detailAmount = (float) ($detail['amount'] ?? 0);
+                    $detailCurrency = strtoupper(trim((string) ($detail['currency'] ?? '')));
+                    if ($detailAmount == 0.0 || $detailCurrency === '') {
+                        continue;
+                    }
+
+                    $detailLineTotal = round($detailAmount * $qty, 2);
+                    $feeType = trim((string) ($detail['fee_type'] ?? ''));
+                    $description = $feeType !== '' ? $feeType : 'Estimated fee component';
+                    $rawLine = $detail['raw'] ?? null;
+                    $hashBase = implode('|', [
+                        $orderId,
+                        (string) ($row['asin'] ?? ''),
+                        (string) ($row['marketplace_id'] ?? ''),
+                        $feeType,
+                        number_format($detailLineTotal, 2, '.', ''),
+                        $detailCurrency,
+                        json_encode($rawLine, JSON_UNESCAPED_SLASHES),
+                    ]);
+
+                    $orderLineRows[] = [
+                        'line_hash' => sha1($hashBase),
+                        'amazon_order_id' => $orderId,
+                        'asin' => (string) ($row['asin'] ?? ''),
+                        'marketplace_id' => (string) ($row['marketplace_id'] ?? ''),
+                        'fee_type' => $feeType !== '' ? $feeType : null,
+                        'description' => $description,
+                        'amount' => $detailLineTotal,
+                        'currency' => $detailCurrency,
+                        'source' => 'spapi_product_fees',
+                        'estimated_at' => now(),
+                        'raw_line' => json_encode($rawLine),
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ];
+                }
+            } else {
+                $hashBase = implode('|', [
+                    $orderId,
+                    (string) ($row['asin'] ?? ''),
+                    (string) ($row['marketplace_id'] ?? ''),
+                    'TotalEstimatedFees',
+                    number_format($lineTotal, 2, '.', ''),
+                    $currency,
+                ]);
+                $orderLineRows[] = [
+                    'line_hash' => sha1($hashBase),
+                    'amazon_order_id' => $orderId,
+                    'asin' => (string) ($row['asin'] ?? ''),
+                    'marketplace_id' => (string) ($row['marketplace_id'] ?? ''),
+                    'fee_type' => 'TotalEstimatedFees',
+                    'description' => 'Total estimated fees',
+                    'amount' => $lineTotal,
+                    'currency' => $currency,
+                    'source' => 'spapi_product_fees',
+                    'estimated_at' => now(),
+                    'raw_line' => null,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
+            }
+        }
+
+        if (!empty($orderLineRows) && DB::getSchemaBuilder()->hasTable('order_fee_estimate_lines')) {
+            foreach (array_chunk($orderLineRows, 500) as $chunk) {
+                DB::table('order_fee_estimate_lines')->upsert(
+                    $chunk,
+                    ['line_hash'],
+                    ['fee_type', 'description', 'amount', 'currency', 'source', 'estimated_at', 'raw_line', 'updated_at']
+                );
+            }
         }
 
         $updated = 0;
@@ -350,6 +429,40 @@ class OrderFeeEstimateService
 
     private function extractEstimatedFeeFromPayload(array $json): ?array
     {
+        $breakdown = [];
+        $detailLists = [
+            data_get($json, 'payload.FeesEstimateResult.FeesEstimate.FeeDetailList'),
+            data_get($json, 'payload.FeesEstimateResult.feesEstimate.feeDetailList'),
+            data_get($json, 'payload.feesEstimateResult.FeesEstimate.FeeDetailList'),
+            data_get($json, 'payload.feesEstimateResult.feesEstimate.feeDetailList'),
+        ];
+        foreach ($detailLists as $details) {
+            if (!is_array($details)) {
+                continue;
+            }
+            foreach ($details as $detail) {
+                if (!is_array($detail)) {
+                    continue;
+                }
+                $feeType = $detail['FeeType'] ?? $detail['feeType'] ?? null;
+                $amountNode = $detail['FinalFee'] ?? $detail['finalFee'] ?? null;
+                $amount = is_array($amountNode) ? ($amountNode['Amount'] ?? $amountNode['amount'] ?? null) : null;
+                $currency = is_array($amountNode) ? ($amountNode['CurrencyCode'] ?? $amountNode['currencyCode'] ?? null) : null;
+                if (!is_numeric($amount) || trim((string) $currency) === '') {
+                    continue;
+                }
+                $breakdown[] = [
+                    'fee_type' => (string) $feeType,
+                    'amount' => (float) $amount,
+                    'currency' => strtoupper(trim((string) $currency)),
+                    'raw' => $detail,
+                ];
+            }
+            if (!empty($breakdown)) {
+                break;
+            }
+        }
+
         $candidates = [
             data_get($json, 'payload.FeesEstimateResult.FeesEstimate.TotalFeesEstimate'),
             data_get($json, 'payload.FeesEstimateResult.feesEstimate.totalFeesEstimate'),
@@ -370,6 +483,7 @@ class OrderFeeEstimateService
                 return [
                     'amount' => $amount,
                     'currency' => $currency,
+                    'breakdown' => $breakdown,
                 ];
             }
         }
@@ -389,4 +503,3 @@ class OrderFeeEstimateService
         return 'EU';
     }
 }
-

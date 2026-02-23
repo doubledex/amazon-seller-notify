@@ -14,6 +14,7 @@ use App\Models\CityGeo;
 use App\Models\PostalCodeGeo;
 use App\Models\OrderShipAddress;
 use App\Models\AmazonOrderFeeLine;
+use App\Models\OrderFeeEstimateLine;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Services\OrderQueryService;
@@ -517,6 +518,14 @@ class OrderController extends Controller
             ->orderBy('posted_date')
             ->orderBy('id')
             ->get();
+        $estimatedFeeLines = collect();
+        if (Schema::hasTable('order_fee_estimate_lines')) {
+            $estimatedFeeLines = OrderFeeEstimateLine::query()
+                ->where('amazon_order_id', $order_id)
+                ->orderBy('estimated_at')
+                ->orderBy('id')
+                ->get();
+        }
 
         return view('orders.show', [
             'order' => $orderArray,
@@ -524,6 +533,7 @@ class OrderController extends Controller
             'items' => $itemsArray,
             'address' => $addressArray,
             'feeLines' => $feeLines,
+            'estimatedFeeLines' => $estimatedFeeLines,
             'marketplaces' => $marketplacesUi,
         ]);
     }
