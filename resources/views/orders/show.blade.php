@@ -180,6 +180,34 @@
                         </table>
                     </div>
                     <div class="text-xs text-gray-500 mt-2">Duplicate identical finance fee rows are collapsed; Count shows occurrences.</div>
+
+                    <details class="mt-3">
+                        <summary class="cursor-pointer text-sm font-semibold">Raw Amazon Fee Nodes (Debug)</summary>
+                        @php
+                            $rawAmazonFeePayloads = collect($feeLines ?? [])
+                                ->map(function ($line) {
+                                    $raw = $line->raw_line ?? null;
+                                    if (is_string($raw)) {
+                                        $decoded = json_decode($raw, true);
+                                        $raw = is_array($decoded) ? $decoded : null;
+                                    }
+                                    return [
+                                        'description' => $line->description ?? null,
+                                        'fee_type' => $line->fee_type ?? null,
+                                        'amount' => $line->amount ?? null,
+                                        'currency' => $line->currency ?? null,
+                                        'posted_date' => !empty($line->posted_date) ? $line->posted_date->format('Y-m-d H:i:s') : null,
+                                        'source_path' => data_get($raw, 'source_path'),
+                                        'transaction_id' => data_get($raw, 'transaction.transactionId'),
+                                        'canonical_transaction_id' => data_get($raw, 'transaction.canonicalTransactionId'),
+                                        'raw_line' => $raw,
+                                    ];
+                                })
+                                ->values()
+                                ->all();
+                        @endphp
+                        <pre class="text-xs mt-3 bg-gray-50 p-3 rounded overflow-x-auto">{{ json_encode($rawAmazonFeePayloads, JSON_PRETTY_PRINT) }}</pre>
+                    </details>
                 @else
                     <div class="text-sm text-gray-600">No fee line items synced yet for this order.</div>
                 @endif
