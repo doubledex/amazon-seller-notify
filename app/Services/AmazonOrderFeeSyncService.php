@@ -3,9 +3,13 @@
 namespace App\Services;
 
 use App\Models\Order;
+use GuzzleHttp\Client as GuzzleClient;
+use GuzzleHttp\Psr7\Request as Psr7Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use SpApi\AuthAndAuth\LWAAuthorizationCredentials;
+use SpApi\Configuration as OfficialSpApiConfiguration;
 use SellingPartnerApi\SellingPartnerApi;
 use Saloon\Exceptions\Request\Statuses\TooManyRequestsException;
 use Saloon\Http\Response;
@@ -49,7 +53,17 @@ class AmazonOrderFeeSyncService
             $nextToken = null;
             $feeLineRows = [];
             $seenShipmentFeeFingerprints = [];
+            $orderIdsWithV2024Fees = [];
             $events = 0;
+
+            $events += $this->accumulateFeesFromTransactionsV20240619(
+                region: $configuredRegion,
+                config: $config,
+                from: $from,
+                to: $to,
+                feeLineRows: $feeLineRows,
+                orderIdsWithV2024Fees: $orderIdsWithV2024Fees
+            );
 
             do {
                 $response = $this->callWithRetries(
@@ -78,7 +92,8 @@ class AmazonOrderFeeSyncService
                     $financialEvents,
                     $feeLineRows,
                     $configuredRegion,
-                    $seenShipmentFeeFingerprints
+                    $seenShipmentFeeFingerprints,
+                    $orderIdsWithV2024Fees
                 );
                 $nextToken = $payload['NextToken'] ?? null;
             } while (!empty($nextToken));
@@ -92,11 +107,113 @@ class AmazonOrderFeeSyncService
         return $summary;
     }
 
+    private function accumulateFeesFromTransactionsV20240619(
+        string $region,
+        array $config,
+        Carbon $from,
+        Carbon $to,
+        array &$feeLineRows,
+        array &$orderIdsWithV2024Fees
+    ): int {
+        if (!class_exists(LWAAuthorizationCredentials::class) || !class_exists(OfficialSpApiConfiguration::class)) {
+            return 0;
+        }
+
+        $host = $this->officialHostForRegion($region);
+        if ($host === null) {
+            return 0;
+        }
+
+        $clientId = trim((string) ($config['client_id'] ?? ''));
+        $clientSecret = trim((string) ($config['client_secret'] ?? ''));
+        $refreshToken = trim((string) ($config['refresh_token'] ?? ''));
+        if ($clientId === '' || $clientSecret === '' || $refreshToken === '') {
+            return 0;
+        }
+
+        try {
+            $lwa = new LWAAuthorizationCredentials([
+                'clientId' => $clientId,
+                'clientSecret' => $clientSecret,
+                'refreshToken' => $refreshToken,
+                'endpoint' => 'https://api.amazon.com/auth/o2/token',
+            ]);
+            $officialConfig = new OfficialSpApiConfiguration([], $lwa);
+            $officialConfig->setHost($host);
+        } catch (\Throwable $e) {
+            Log::warning('Fee sync: unable to initialize official SP-API configuration', [
+                'region' => $region,
+                'error' => $e->getMessage(),
+            ]);
+            return 0;
+        }
+
+        $http = new GuzzleClient();
+        $url = $host . '/finances/2024-06-19/transactions';
+        $nextToken = null;
+        $events = 0;
+
+        do {
+            $params = $nextToken
+                ? ['nextToken' => $nextToken]
+                : [
+                    'postedAfter' => $from->copy()->utc()->format('Y-m-d\TH:i:s\Z'),
+                    'postedBefore' => $to->copy()->utc()->format('Y-m-d\TH:i:s\Z'),
+                ];
+
+            $request = new Psr7Request('GET', $url . '?' . http_build_query($params), ['accept' => 'application/json']);
+            $response = $this->callSignedJsonWithRetries(
+                fn () => $http->send($officialConfig->sign($request)),
+                'finances.v2024.listTransactions'
+            );
+
+            if (!$response || ($response['status'] ?? 500) >= 400) {
+                Log::warning('Fee sync: v2024 transactions call failed', [
+                    'region' => $region,
+                    'status' => $response['status'] ?? null,
+                ]);
+                break;
+            }
+
+            $payload = (array) (($response['json']['payload'] ?? null) ?: []);
+            $transactions = (array) ($payload['transactions'] ?? []);
+            $events += count($transactions);
+
+            foreach ($transactions as $txn) {
+                if (!is_array($txn)) {
+                    continue;
+                }
+                $orderId = $this->extractOrderIdFromTransaction($txn);
+                if ($orderId === '') {
+                    continue;
+                }
+
+                $feeRows = $this->extractNetFeeRowsFromTransaction($txn, $orderId, $region);
+                if (empty($feeRows)) {
+                    continue;
+                }
+
+                $orderIdsWithV2024Fees[$orderId] = true;
+                foreach ($feeRows as $row) {
+                    $feeLineRows[] = $row;
+                }
+            }
+
+            $nextToken = trim((string) ($payload['nextToken'] ?? ''));
+            if ($nextToken === '') {
+                $nextToken = null;
+            }
+        } while ($nextToken !== null);
+
+        return $events;
+    }
+
     private function accumulateFeesFromFinancialEvents(
         array $financialEvents,
         array &$feeLineRows,
         string $region,
-        array &$seenShipmentFeeFingerprints
+        array &$seenShipmentFeeFingerprints,
+        array $skipOrderIds = []
     ): int
     {
         $events = 0;
@@ -112,6 +229,9 @@ class AmazonOrderFeeSyncService
                 $events++;
                 $orderId = trim((string) ($event['AmazonOrderId'] ?? ''));
                 if ($orderId === '') {
+                    continue;
+                }
+                if (isset($skipOrderIds[$orderId])) {
                     continue;
                 }
                 $eventType = preg_replace('/List$/', '', $key) ?: $key;
@@ -312,6 +432,26 @@ class AmazonOrderFeeSyncService
             return;
         }
 
+        $orderIdsByRegion = [];
+        foreach ($rows as $row) {
+            $region = strtoupper(trim((string) ($row['region'] ?? '')));
+            $orderId = trim((string) ($row['amazon_order_id'] ?? ''));
+            if ($region === '' || $orderId === '') {
+                continue;
+            }
+            $orderIdsByRegion[$region][$orderId] = true;
+        }
+
+        foreach ($orderIdsByRegion as $region => $orderIdsAssoc) {
+            $orderIds = array_keys($orderIdsAssoc);
+            foreach (array_chunk($orderIds, 500) as $chunk) {
+                DB::table('amazon_order_fee_lines')
+                    ->where('region', $region)
+                    ->whereIn('amazon_order_id', $chunk)
+                    ->delete();
+            }
+        }
+
         foreach (array_chunk($rows, 500) as $chunk) {
             DB::table('amazon_order_fee_lines')->upsert(
                 $chunk,
@@ -381,6 +521,39 @@ class AmazonOrderFeeSyncService
         return 10;
     }
 
+    private function callSignedJsonWithRetries(callable $callback, string $operation): ?array
+    {
+        $last = null;
+
+        for ($attempt = 0; $attempt < self::MAX_ATTEMPTS; $attempt++) {
+            try {
+                $response = $callback();
+                $status = (int) $response->getStatusCode();
+                $body = (string) $response->getBody();
+                $json = json_decode($body, true);
+                $last = ['status' => $status, 'json' => is_array($json) ? $json : null, 'body' => $body];
+
+                if ($status < 400) {
+                    return $last;
+                }
+                if ($status !== 429 && $status < 500) {
+                    return $last;
+                }
+
+                $retryAfter = $response->getHeaderLine('Retry-After');
+                sleep(is_numeric($retryAfter) ? max(1, (int) $retryAfter) : 10);
+            } catch (\Throwable $e) {
+                Log::warning('Fee sync API exception', [
+                    'operation' => $operation,
+                    'attempt' => $attempt,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $last;
+    }
+
     private function moneyAmount($money): ?float
     {
         if (!is_array($money)) {
@@ -418,5 +591,156 @@ class AmazonOrderFeeSyncService
             ->filter()
             ->values()
             ->all();
+    }
+
+    private function officialHostForRegion(string $region): ?string
+    {
+        return match (strtoupper(trim($region))) {
+            'NA' => 'https://sellingpartnerapi-na.amazon.com',
+            'EU' => 'https://sellingpartnerapi-eu.amazon.com',
+            'FE' => 'https://sellingpartnerapi-fe.amazon.com',
+            default => null,
+        };
+    }
+
+    private function extractOrderIdFromTransaction(array $txn): string
+    {
+        $related = (array) ($txn['relatedIdentifiers'] ?? []);
+        foreach ($related as $identifier) {
+            if (!is_array($identifier)) {
+                continue;
+            }
+            $name = strtoupper(trim((string) ($identifier['relatedIdentifierName'] ?? '')));
+            if ($name !== 'ORDER_ID') {
+                continue;
+            }
+            $value = trim((string) ($identifier['relatedIdentifierValue'] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return '';
+    }
+
+    private function extractNetFeeRowsFromTransaction(array $txn, string $orderId, string $region): array
+    {
+        $postedDate = $this->normalizePostedDate($txn['postedDate'] ?? $txn['transactionDate'] ?? null);
+        $transactionType = trim((string) ($txn['transactionType'] ?? 'Transaction'));
+        $transactionId = trim((string) ($txn['transactionId'] ?? ''));
+
+        $topBreakdowns = (array) ($txn['breakdowns'] ?? []);
+        if (empty($topBreakdowns)) {
+            return [];
+        }
+
+        $rows = [];
+        foreach ($topBreakdowns as $index => $breakdown) {
+            if (!is_array($breakdown)) {
+                continue;
+            }
+
+            $type = trim((string) ($breakdown['breakdownType'] ?? 'Fee'));
+            $grossAmount = $this->moneyAmount($breakdown['breakdownAmount'] ?? null);
+            $grossCurrency = $this->moneyCurrency($breakdown['breakdownAmount'] ?? null);
+
+            $baseLeaves = [];
+            $taxLeaves = [];
+            $this->collectBreakdownLeaves($breakdown, $baseLeaves, $taxLeaves);
+
+            $netAmount = null;
+            $currency = $grossCurrency;
+            if (!empty($baseLeaves)) {
+                $netAmount = 0.0;
+                foreach ($baseLeaves as $leaf) {
+                    $leafAmount = (float) ($leaf['amount'] ?? 0);
+                    $leafCurrency = (string) ($leaf['currency'] ?? '');
+                    if ($leafCurrency === '') {
+                        continue;
+                    }
+                    if ($currency === null || $currency === '') {
+                        $currency = $leafCurrency;
+                    }
+                    if ($leafCurrency !== $currency) {
+                        continue;
+                    }
+                    $netAmount += $leafAmount;
+                }
+            } elseif ($grossAmount !== null && $grossCurrency !== null) {
+                $netAmount = (float) $grossAmount;
+                $taxTotal = 0.0;
+                foreach ($taxLeaves as $leaf) {
+                    $leafCurrency = (string) ($leaf['currency'] ?? '');
+                    if ($leafCurrency !== $grossCurrency) {
+                        continue;
+                    }
+                    $taxTotal += (float) ($leaf['amount'] ?? 0);
+                }
+                $netAmount -= $taxTotal;
+            }
+
+            $currency = strtoupper(trim((string) $currency));
+            if ($netAmount === null || $currency === '' || round((float) $netAmount, 2) == 0.0) {
+                continue;
+            }
+
+            $hashBase = implode('|', [
+                $orderId,
+                strtoupper(trim($region)),
+                'FinancesTransactionV20240619',
+                $transactionId,
+                $transactionType,
+                $type,
+                number_format((float) $netAmount, 2, '.', ''),
+                $currency,
+                (string) $postedDate,
+                (string) $index,
+            ]);
+
+            $rows[] = [
+                'fee_hash' => sha1($hashBase),
+                'amazon_order_id' => $orderId,
+                'region' => strtoupper(trim($region)),
+                'event_type' => 'FinancesTransactionV20240619',
+                'fee_type' => $type !== '' ? $type : null,
+                'description' => $type !== '' ? $type : 'Fee',
+                'amount' => round((float) $netAmount, 2),
+                'currency' => $currency,
+                'posted_date' => $postedDate,
+                'raw_line' => json_encode([
+                    'transaction_id' => $transactionId,
+                    'transaction_type' => $transactionType,
+                    'breakdown' => $breakdown,
+                ]),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+        }
+
+        return $rows;
+    }
+
+    private function collectBreakdownLeaves(array $node, array &$baseLeaves, array &$taxLeaves): void
+    {
+        $type = strtoupper(trim((string) ($node['breakdownType'] ?? '')));
+        $amount = $this->moneyAmount($node['breakdownAmount'] ?? null);
+        $currency = $this->moneyCurrency($node['breakdownAmount'] ?? null);
+        $children = (array) ($node['breakdowns'] ?? []);
+        $hasChildren = !empty($children);
+
+        if (!$hasChildren && $amount !== null && $currency !== null) {
+            if ($type === 'BASE') {
+                $baseLeaves[] = ['amount' => (float) $amount, 'currency' => (string) $currency];
+            } elseif ($type === 'TAX') {
+                $taxLeaves[] = ['amount' => (float) $amount, 'currency' => (string) $currency];
+            }
+            return;
+        }
+
+        foreach ($children as $child) {
+            if (is_array($child)) {
+                $this->collectBreakdownLeaves($child, $baseLeaves, $taxLeaves);
+            }
+        }
     }
 }
