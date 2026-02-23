@@ -130,7 +130,17 @@ class OrderController extends Controller
             }
 
             $feeFallbackRows = [];
-            if (!empty($orderIdsOnPage) && Schema::hasTable('amazon_order_fee_lines')) {
+            if (!empty($orderIdsOnPage) && Schema::hasTable('amazon_order_fee_lines_v2')) {
+                $feeFallbackRows = DB::table('amazon_order_fee_lines_v2')
+                    ->selectRaw("
+                        amazon_order_id,
+                        MAX(COALESCE(currency, '')) as fee_currency,
+                        SUM(COALESCE(net_ex_tax_amount, 0)) as fee_total
+                    ")
+                    ->whereIn('amazon_order_id', $orderIdsOnPage)
+                    ->groupBy('amazon_order_id')
+                    ->get();
+            } elseif (!empty($orderIdsOnPage) && Schema::hasTable('amazon_order_fee_lines')) {
                 $feeFallbackRows = DB::table('amazon_order_fee_lines')
                     ->selectRaw("
                         amazon_order_id,
@@ -195,9 +205,9 @@ class OrderController extends Controller
                     $netCurrency = $fallbackNet['currency'] ?: $netCurrency;
                     $netSource = $fallbackNet['source'];
                 }
-                $feeAmount = $order->amazon_fee_total;
-                $feeCurrency = $order->amazon_fee_currency ?: $netCurrency;
-                $feeSource = 'finance_total';
+                $feeAmount = $order->amazon_fee_total_v2 ?? $order->amazon_fee_total;
+                $feeCurrency = ($order->amazon_fee_currency_v2 ?: $order->amazon_fee_currency) ?: $netCurrency;
+                $feeSource = $order->amazon_fee_total_v2 !== null ? 'finance_total_v2' : 'finance_total';
                 if ($feeAmount === null && $order->amazon_fee_estimated_total !== null) {
                     $feeAmount = $order->amazon_fee_estimated_total;
                     $feeCurrency = $order->amazon_fee_estimated_currency ?: $feeCurrency;
@@ -514,29 +524,55 @@ class OrderController extends Controller
         }
 
         $marketplacesUi = $this->marketplaceService->getMarketplacesForUi($this->connector);
-        $feeLines = AmazonOrderFeeLine::query()
-            ->where('amazon_order_id', $order_id)
-            ->where('event_type', 'FinancesTransactionV20240619')
-            ->orderBy('posted_date')
-            ->orderBy('id')
-            ->get()
-            ->groupBy(function ($line) {
-                $posted = $line->posted_date ? $line->posted_date->format('Y-m-d H:i:s') : '';
-                return implode('|', [
-                    (string) ($line->event_type ?? ''),
-                    (string) ($line->fee_type ?? ''),
-                    (string) ($line->description ?? ''),
-                    number_format((float) ($line->amount ?? 0), 2, '.', ''),
-                    (string) ($line->currency ?? ''),
-                    $posted,
-                ]);
-            })
-            ->map(function ($group) {
-                $first = $group->first();
-                $first->duplicate_count = $group->count();
-                return $first;
-            })
-            ->values();
+        $feeLines = collect();
+        if (Schema::hasTable('amazon_order_fee_lines_v2')) {
+            $feeLines = DB::table('amazon_order_fee_lines_v2')
+                ->where('amazon_order_id', $order_id)
+                ->orderBy('posted_date')
+                ->orderBy('id')
+                ->get([
+                    'id',
+                    'transaction_type as event_type',
+                    'fee_type',
+                    'description',
+                    'net_ex_tax_amount as amount',
+                    'currency',
+                    'posted_date',
+                    'raw_line',
+                ])
+                ->map(function ($line) {
+                    $line->duplicate_count = 1;
+                    if (!empty($line->posted_date)) {
+                        $line->posted_date = Carbon::parse($line->posted_date);
+                    }
+                    return $line;
+                })
+                ->values();
+        } elseif (Schema::hasTable('amazon_order_fee_lines')) {
+            $feeLines = AmazonOrderFeeLine::query()
+                ->where('amazon_order_id', $order_id)
+                ->where('event_type', 'FinancesTransactionV20240619')
+                ->orderBy('posted_date')
+                ->orderBy('id')
+                ->get()
+                ->groupBy(function ($line) {
+                    $posted = $line->posted_date ? $line->posted_date->format('Y-m-d H:i:s') : '';
+                    return implode('|', [
+                        (string) ($line->event_type ?? ''),
+                        (string) ($line->fee_type ?? ''),
+                        (string) ($line->description ?? ''),
+                        number_format((float) ($line->amount ?? 0), 2, '.', ''),
+                        (string) ($line->currency ?? ''),
+                        $posted,
+                    ]);
+                })
+                ->map(function ($group) {
+                    $first = $group->first();
+                    $first->duplicate_count = $group->count();
+                    return $first;
+                })
+                ->values();
+        }
         $estimatedFeeLines = collect();
         if (Schema::hasTable('order_fee_estimate_lines')) {
             $estimatedFeeLines = OrderFeeEstimateLine::query()

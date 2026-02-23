@@ -26,9 +26,9 @@
                 $totalCurrency = $order['OrderTotal']['CurrencyCode'] ?? null;
                 $netAmount = $orderRecord?->order_net_ex_tax;
                 $netCurrency = $orderRecord?->order_net_ex_tax_currency ?: $totalCurrency;
-                $feeAmount = $orderRecord?->amazon_fee_total;
-                $feeCurrency = $orderRecord?->amazon_fee_currency ?: $netCurrency;
-                $feeSource = 'finance_total';
+                $feeAmount = $orderRecord?->amazon_fee_total_v2 ?? $orderRecord?->amazon_fee_total;
+                $feeCurrency = ($orderRecord?->amazon_fee_currency_v2 ?: $orderRecord?->amazon_fee_currency) ?: $netCurrency;
+                $feeSource = $orderRecord?->amazon_fee_total_v2 !== null ? 'finance_total_v2' : 'finance_total';
                 if ($feeAmount === null && $orderRecord?->amazon_fee_estimated_total !== null) {
                     $feeAmount = $orderRecord?->amazon_fee_estimated_total;
                     $feeCurrency = $orderRecord?->amazon_fee_estimated_currency ?: $feeCurrency;
