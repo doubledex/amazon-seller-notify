@@ -54,7 +54,12 @@ class AmazonOrderFeeSyncService
             );
 
             $this->persistFeeLines($feeLineRows);
-            $updated = $this->recalculateOrderFeesFromLines($configuredRegion, $from, $to);
+            $updated = $this->recalculateOrderFeesFromLines(
+                $configuredRegion,
+                $from,
+                $to,
+                array_keys($orderIdsWithV2024Fees)
+            );
             $summary['events'] += $events;
             $summary['orders_updated'] += $updated;
         }
@@ -176,7 +181,7 @@ class AmazonOrderFeeSyncService
         return $events;
     }
 
-    private function recalculateOrderFeesFromLines(string $region, Carbon $from, Carbon $to): int
+    private function recalculateOrderFeesFromLines(string $region, Carbon $from, Carbon $to, array $processedOrderIds = []): int
     {
         if (!DB::getSchemaBuilder()->hasTable('amazon_order_fee_lines')) {
             return 0;
@@ -185,7 +190,7 @@ class AmazonOrderFeeSyncService
         $fromDate = $from->toDateString();
         $toDate = $to->toDateString();
 
-        $targetOrderIds = DB::table('orders')
+        $windowOrderIds = DB::table('orders')
             ->whereIn('marketplace_id', $this->marketplaceIdsForRegion($region))
             ->whereRaw("COALESCE(purchase_date_local_date, DATE(purchase_date)) >= ?", [$fromDate])
             ->whereRaw("COALESCE(purchase_date_local_date, DATE(purchase_date)) <= ?", [$toDate])
@@ -193,6 +198,11 @@ class AmazonOrderFeeSyncService
             ->filter()
             ->values()
             ->all();
+
+        $targetOrderIds = array_values(array_unique(array_filter(array_merge(
+            $windowOrderIds,
+            array_map(static fn ($v) => trim((string) $v), $processedOrderIds)
+        ))));
 
         if (empty($targetOrderIds)) {
             return 0;
