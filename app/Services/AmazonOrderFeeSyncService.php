@@ -191,11 +191,21 @@ class AmazonOrderFeeSyncService
                     if (!is_array($entry)) {
                         continue;
                     }
-                    $amount = $entry['FeeAmount']['CurrencyAmount'] ?? $entry['FeeAmount']['Amount'] ?? null;
-                    $currency = $entry['FeeAmount']['CurrencyCode'] ?? null;
-                    if ($amount === null || $currency === null) {
+                    $feeAmount = $this->moneyAmount($entry['FeeAmount'] ?? null);
+                    $feeCurrency = $this->moneyCurrency($entry['FeeAmount'] ?? null);
+                    if ($feeAmount === null || $feeCurrency === null) {
                         continue;
                     }
+
+                    $amount = $feeAmount;
+                    $currency = $feeCurrency;
+
+                    $taxAmount = $this->moneyAmount($entry['TaxAmount'] ?? null);
+                    $taxCurrency = $this->moneyCurrency($entry['TaxAmount'] ?? null);
+                    if ($taxAmount !== null && $taxCurrency !== null && strtoupper($taxCurrency) === strtoupper($feeCurrency)) {
+                        $amount = (float) $feeAmount - (float) $taxAmount;
+                    }
+
                     $out[] = [
                         'amount' => (float) $amount,
                         'currency' => (string) $currency,
@@ -369,6 +379,26 @@ class AmazonOrderFeeSyncService
         }
 
         return 10;
+    }
+
+    private function moneyAmount($money): ?float
+    {
+        if (!is_array($money)) {
+            return null;
+        }
+
+        $amount = $money['CurrencyAmount'] ?? $money['Amount'] ?? $money['amount'] ?? null;
+        return is_numeric($amount) ? (float) $amount : null;
+    }
+
+    private function moneyCurrency($money): ?string
+    {
+        if (!is_array($money)) {
+            return null;
+        }
+
+        $currency = trim((string) ($money['CurrencyCode'] ?? $money['currencyCode'] ?? ''));
+        return $currency !== '' ? strtoupper($currency) : null;
     }
 
     private function marketplaceIdsForRegion(string $region): array
