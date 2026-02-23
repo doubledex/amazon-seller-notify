@@ -10,13 +10,11 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use SpApi\AuthAndAuth\LWAAuthorizationCredentials;
 use SpApi\Configuration as OfficialSpApiConfiguration;
-use SellingPartnerApi\SellingPartnerApi;
-use Saloon\Exceptions\Request\Statuses\TooManyRequestsException;
-use Saloon\Http\Response;
 
 class AmazonOrderFeeSyncService
 {
     private const MAX_ATTEMPTS = 6;
+    private const EVENT_TYPE_V20240619 = 'FinancesTransactionV20240619';
 
     public function sync(Carbon $from, Carbon $to, ?string $region = null): array
     {
@@ -42,17 +40,7 @@ class AmazonOrderFeeSyncService
 
         foreach ($regions as $configuredRegion) {
             $config = $regionService->spApiConfig($configuredRegion);
-            $connector = SellingPartnerApi::seller(
-                clientId: (string) $config['client_id'],
-                clientSecret: (string) $config['client_secret'],
-                refreshToken: (string) $config['refresh_token'],
-                endpoint: $regionService->spApiEndpointEnum($configuredRegion)
-            );
-            $api = $connector->financesV0();
-
-            $nextToken = null;
             $feeLineRows = [];
-            $seenShipmentFeeFingerprints = [];
             $orderIdsWithV2024Fees = [];
             $events = 0;
 
@@ -64,39 +52,6 @@ class AmazonOrderFeeSyncService
                 feeLineRows: $feeLineRows,
                 orderIdsWithV2024Fees: $orderIdsWithV2024Fees
             );
-
-            do {
-                $response = $this->callWithRetries(
-                    fn () => $nextToken
-                        ? $api->listFinancialEvents(nextToken: $nextToken)
-                        : $api->listFinancialEvents(
-                            maxResultsPerPage: 100,
-                            postedAfter: $from,
-                            postedBefore: $to
-                        ),
-                    'finances.listFinancialEvents'
-                );
-
-                if (!$response || $response->status() >= 400) {
-                    Log::warning('Fee sync: finances call failed', [
-                        'region' => $configuredRegion,
-                        'status' => $response?->status(),
-                        'body' => $response?->body(),
-                    ]);
-                    break;
-                }
-
-                $payload = (array) ($response->json('payload') ?? []);
-                $financialEvents = (array) ($payload['FinancialEvents'] ?? []);
-                $events += $this->accumulateFeesFromFinancialEvents(
-                    $financialEvents,
-                    $feeLineRows,
-                    $configuredRegion,
-                    $seenShipmentFeeFingerprints,
-                    $orderIdsWithV2024Fees
-                );
-                $nextToken = $payload['NextToken'] ?? null;
-            } while (!empty($nextToken));
 
             $this->persistFeeLines($feeLineRows);
             $updated = $this->recalculateOrderFeesFromLines($configuredRegion);
@@ -184,7 +139,7 @@ class AmazonOrderFeeSyncService
                     continue;
                 }
                 $transactionStatus = strtoupper(trim((string) ($txn['transactionStatus'] ?? '')));
-                if ($transactionStatus !== '' && !in_array($transactionStatus, ['RELEASED', 'DEFERRED_RELEASED'], true)) {
+                if ($transactionStatus !== '' && $transactionStatus !== 'RELEASED') {
                     continue;
                 }
                 $orderId = $this->extractOrderIdFromTransaction($txn);
@@ -212,141 +167,6 @@ class AmazonOrderFeeSyncService
         return $events;
     }
 
-    private function accumulateFeesFromFinancialEvents(
-        array $financialEvents,
-        array &$feeLineRows,
-        string $region,
-        array &$seenShipmentFeeFingerprints,
-        array $skipOrderIds = []
-    ): int
-    {
-        $events = 0;
-        foreach ($financialEvents as $key => $eventList) {
-            if (!is_string($key) || !str_ends_with($key, 'EventList') || !is_array($eventList)) {
-                continue;
-            }
-
-            foreach ($eventList as $eventIndex => $event) {
-                if (!is_array($event)) {
-                    continue;
-                }
-                $events++;
-                $orderId = trim((string) ($event['AmazonOrderId'] ?? ''));
-                if ($orderId === '') {
-                    continue;
-                }
-                if (isset($skipOrderIds[$orderId])) {
-                    continue;
-                }
-                $eventType = preg_replace('/List$/', '', $key) ?: $key;
-                $postedDate = $this->normalizePostedDate($event['PostedDate'] ?? null);
-                $isShipmentOrSettle = in_array($eventType, ['ShipmentEvent', 'ShipmentSettleEvent'], true);
-
-                $fees = [];
-                $this->extractFeeListAmounts($event, '', $fees);
-                foreach ($fees as $feeIndex => $fee) {
-                    $amount = (float) ($fee['amount'] ?? 0);
-                    $currency = strtoupper(trim((string) ($fee['currency'] ?? '')));
-                    if ($currency === '' || $amount == 0.0) {
-                        continue;
-                    }
-
-                    if ($isShipmentOrSettle) {
-                        $fingerprint = sha1(json_encode([
-                            'order_id' => $orderId,
-                            'posted_date' => $postedDate,
-                            'fee_type' => (string) ($fee['fee_type'] ?? ''),
-                            'amount' => number_format($amount, 2, '.', ''),
-                            'currency' => $currency,
-                            'raw_entry' => $fee['raw_entry'] ?? null,
-                        ]));
-                        if (isset($seenShipmentFeeFingerprints[$fingerprint])) {
-                            continue;
-                        }
-                        $seenShipmentFeeFingerprints[$fingerprint] = $eventType;
-                    }
-
-                    $feeType = trim((string) ($fee['fee_type'] ?? ''));
-                    $description = $feeType !== '' ? $feeType : (string) ($fee['path'] ?? 'Fee');
-                    $rawEntryJson = json_encode($fee['raw_entry'] ?? null, JSON_UNESCAPED_SLASHES);
-                    $hashBase = implode('|', [
-                        $orderId,
-                        $region,
-                        (string) ($postedDate ?? ''),
-                        $feeType,
-                        number_format($amount, 2, '.', ''),
-                        $currency,
-                        (string) ($rawEntryJson ?? ''),
-                    ]);
-
-                    $feeLineRows[] = [
-                        'fee_hash' => sha1($hashBase),
-                        'amazon_order_id' => $orderId,
-                        'region' => $region,
-                        'event_type' => $eventType,
-                        'fee_type' => $feeType !== '' ? $feeType : null,
-                        'description' => $description,
-                        'amount' => round($amount, 2),
-                        'currency' => $currency,
-                        'posted_date' => $postedDate,
-                        'raw_line' => json_encode([
-                            'event_type' => $eventType,
-                            'path' => $fee['path'] ?? null,
-                            'entry' => $fee['raw_entry'] ?? null,
-                            'event' => $event,
-                        ]),
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ];
-                }
-            }
-        }
-
-        return $events;
-    }
-
-    private function extractFeeListAmounts(array $node, string $path, array &$out): void
-    {
-        foreach ($node as $key => $value) {
-            $childPath = $path === '' ? (string) $key : $path . '.' . (string) $key;
-
-            if (is_array($value) && is_string($key) && str_ends_with($key, 'FeeList')) {
-                foreach ($value as $entryIndex => $entry) {
-                    if (!is_array($entry)) {
-                        continue;
-                    }
-                    $feeAmount = $this->moneyAmount($entry['FeeAmount'] ?? null);
-                    $feeCurrency = $this->moneyCurrency($entry['FeeAmount'] ?? null);
-                    if ($feeAmount === null || $feeCurrency === null) {
-                        continue;
-                    }
-
-                    $amount = $feeAmount;
-                    $currency = $feeCurrency;
-
-                    $taxAmount = $this->moneyAmount($entry['TaxAmount'] ?? null);
-                    $taxCurrency = $this->moneyCurrency($entry['TaxAmount'] ?? null);
-                    if ($taxAmount !== null && $taxCurrency !== null && strtoupper($taxCurrency) === strtoupper($feeCurrency)) {
-                        $amount = (float) $feeAmount - (float) $taxAmount;
-                    }
-
-                    $out[] = [
-                        'amount' => (float) $amount,
-                        'currency' => (string) $currency,
-                        'path' => $childPath . '[' . $entryIndex . ']',
-                        'fee_type' => $entry['FeeType'] ?? null,
-                        'raw_entry' => $entry,
-                    ];
-                }
-                continue;
-            }
-
-            if (is_array($value)) {
-                $this->extractFeeListAmounts($value, $childPath, $out);
-            }
-        }
-    }
-
     private function recalculateOrderFeesFromLines(string $region): int
     {
         if (!DB::getSchemaBuilder()->hasTable('amazon_order_fee_lines')) {
@@ -367,6 +187,7 @@ class AmazonOrderFeeSyncService
         $lines = DB::table('amazon_order_fee_lines')
             ->select('amazon_order_id', 'currency', DB::raw('SUM(amount) as fee_total'))
             ->where('region', $region)
+            ->where('event_type', self::EVENT_TYPE_V20240619)
             ->whereIn('amazon_order_id', $targetOrderIds)
             ->groupBy('amazon_order_id', 'currency')
             ->get();
@@ -476,53 +297,6 @@ class AmazonOrderFeeSyncService
         } catch (\Throwable) {
             return null;
         }
-    }
-
-    private function callWithRetries(callable $callback, string $operation): ?Response
-    {
-        $lastResponse = null;
-
-        for ($attempt = 0; $attempt < self::MAX_ATTEMPTS; $attempt++) {
-            try {
-                /** @var Response $response */
-                $response = $callback();
-                $lastResponse = $response;
-                if ($response->status() < 400) {
-                    return $response;
-                }
-                if ($response->status() !== 429 && $response->status() < 500) {
-                    return $response;
-                }
-
-                sleep($this->retryAfterSeconds($response));
-            } catch (TooManyRequestsException $e) {
-                $response = $e->getResponse();
-                $lastResponse = $response;
-                sleep($this->retryAfterSeconds($response));
-            } catch (\Throwable $e) {
-                Log::warning('Fee sync API exception', [
-                    'operation' => $operation,
-                    'attempt' => $attempt,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
-
-        return $lastResponse;
-    }
-
-    private function retryAfterSeconds(?Response $response): int
-    {
-        if (!$response) {
-            return 10;
-        }
-
-        $retryAfter = $response->header('Retry-After');
-        if (is_numeric($retryAfter)) {
-            return max(1, (int) $retryAfter);
-        }
-
-        return 10;
     }
 
     private function callSignedJsonWithRetries(callable $callback, string $operation): ?array
@@ -641,12 +415,16 @@ class AmazonOrderFeeSyncService
         foreach ($breakdownSources as $source) {
             $sourcePath = (string) ($source['path'] ?? 'transaction.breakdowns');
             $breakdowns = (array) ($source['breakdowns'] ?? []);
-            foreach ($breakdowns as $index => $breakdown) {
+            $candidateNodes = [];
+            foreach ($breakdowns as $breakdown) {
                 if (!is_array($breakdown)) {
                     continue;
                 }
+                $this->collectCandidateFeeBreakdowns($breakdown, $candidateNodes);
+            }
 
-                $type = trim((string) ($breakdown['breakdownType'] ?? 'Fee'));
+            foreach ($candidateNodes as $index => $breakdown) {
+                $type = trim((string) ($breakdown['breakdownType'] ?? 'AmazonFee'));
                 $grossAmount = $this->moneyAmount($breakdown['breakdownAmount'] ?? null);
                 $grossCurrency = $this->moneyCurrency($breakdown['breakdownAmount'] ?? null);
 
@@ -693,7 +471,7 @@ class AmazonOrderFeeSyncService
                 $hashBase = implode('|', [
                     $orderId,
                     strtoupper(trim($region)),
-                    'FinancesTransactionV20240619',
+                    self::EVENT_TYPE_V20240619,
                     $transactionId,
                     $transactionType,
                     $sourcePath,
@@ -708,9 +486,9 @@ class AmazonOrderFeeSyncService
                     'fee_hash' => sha1($hashBase),
                     'amazon_order_id' => $orderId,
                     'region' => strtoupper(trim($region)),
-                    'event_type' => 'FinancesTransactionV20240619',
+                    'event_type' => self::EVENT_TYPE_V20240619,
                     'fee_type' => $type !== '' ? $type : null,
-                    'description' => $type !== '' ? $type : 'Fee',
+                    'description' => $type !== '' ? $type : 'AmazonFee',
                     'amount' => round((float) $netAmount, 2),
                     'currency' => $currency,
                     'posted_date' => $postedDate,
@@ -738,6 +516,10 @@ class AmazonOrderFeeSyncService
             $sources[] = ['path' => 'transaction.breakdowns', 'breakdowns' => $top];
         }
 
+        if (!empty($sources)) {
+            return $sources;
+        }
+
         foreach ((array) ($txn['items'] ?? []) as $itemIndex => $item) {
             if (!is_array($item)) {
                 continue;
@@ -752,6 +534,51 @@ class AmazonOrderFeeSyncService
         }
 
         return $sources;
+    }
+
+    private function collectCandidateFeeBreakdowns(array $node, array &$out): void
+    {
+        $type = strtoupper(trim((string) ($node['breakdownType'] ?? '')));
+        $children = (array) ($node['breakdowns'] ?? []);
+
+        if ($type === 'AMAZONFEES' && !empty($children)) {
+            foreach ($children as $child) {
+                if (is_array($child)) {
+                    $this->collectCandidateFeeBreakdowns($child, $out);
+                }
+            }
+            return;
+        }
+
+        if ($this->isFeeBreakdownType($type)) {
+            $out[] = $node;
+            return;
+        }
+
+        foreach ($children as $child) {
+            if (is_array($child)) {
+                $this->collectCandidateFeeBreakdowns($child, $out);
+            }
+        }
+    }
+
+    private function isFeeBreakdownType(string $type): bool
+    {
+        if ($type === '') {
+            return false;
+        }
+
+        if (str_contains($type, 'FEE')) {
+            return true;
+        }
+
+        return in_array($type, [
+            'COMMISSION',
+            'VARIABLECLOSINGFEE',
+            'FIXEDCLOSINGFEE',
+            'DIGITALSERVICESFEE',
+            'PERUNITFULFILLMENTFEE',
+        ], true);
     }
 
     private function collectBreakdownLeaves(array $node, array &$baseLeaves, array &$taxLeaves): void

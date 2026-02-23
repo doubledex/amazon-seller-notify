@@ -137,6 +137,7 @@ class OrderController extends Controller
                         MAX(COALESCE(currency, '')) as fee_currency,
                         SUM(COALESCE(amount, 0)) as fee_total
                     ")
+                    ->where('event_type', 'FinancesTransactionV20240619')
                     ->whereIn('amazon_order_id', $orderIdsOnPage)
                     ->groupBy('amazon_order_id')
                     ->get();
@@ -515,6 +516,7 @@ class OrderController extends Controller
         $marketplacesUi = $this->marketplaceService->getMarketplacesForUi($this->connector);
         $feeLines = AmazonOrderFeeLine::query()
             ->where('amazon_order_id', $order_id)
+            ->where('event_type', 'FinancesTransactionV20240619')
             ->orderBy('posted_date')
             ->orderBy('id')
             ->get()
