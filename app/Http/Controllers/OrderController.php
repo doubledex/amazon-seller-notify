@@ -131,17 +131,7 @@ class OrderController extends Controller
             }
 
             $feeFallbackRows = [];
-            if (!empty($orderIdsOnPage) && Schema::hasTable('amazon_order_fee_lines_v2')) {
-                $feeFallbackRows = DB::table('amazon_order_fee_lines_v2')
-                    ->selectRaw("
-                        amazon_order_id,
-                        MAX(COALESCE(currency, '')) as fee_currency,
-                        SUM(COALESCE(net_ex_tax_amount, 0)) as fee_total
-                    ")
-                    ->whereIn('amazon_order_id', $orderIdsOnPage)
-                    ->groupBy('amazon_order_id')
-                    ->get();
-            } elseif (!empty($orderIdsOnPage) && Schema::hasTable('amazon_order_fee_lines')) {
+            if (!empty($orderIdsOnPage) && Schema::hasTable('amazon_order_fee_lines')) {
                 $feeFallbackRows = DB::table('amazon_order_fee_lines')
                     ->selectRaw("
                         amazon_order_id,
@@ -152,6 +142,20 @@ class OrderController extends Controller
                     ->whereIn('amazon_order_id', $orderIdsOnPage)
                     ->groupBy('amazon_order_id')
                     ->get();
+            }
+            if (!empty($orderIdsOnPage) && Schema::hasTable('amazon_order_fee_lines_v2')) {
+                $feeFallbackRowsV2 = DB::table('amazon_order_fee_lines_v2')
+                    ->selectRaw("
+                        amazon_order_id,
+                        MAX(COALESCE(currency, '')) as fee_currency,
+                        SUM(COALESCE(net_ex_tax_amount, 0)) as fee_total
+                    ")
+                    ->whereIn('amazon_order_id', $orderIdsOnPage)
+                    ->groupBy('amazon_order_id')
+                    ->get();
+                foreach ($feeFallbackRowsV2 as $row) {
+                    $feeFallbackRows[] = $row;
+                }
             }
 
             $itemNetFallbackMap = [];
@@ -549,7 +553,8 @@ class OrderController extends Controller
                     return $line;
                 })
                 ->values();
-        } elseif (Schema::hasTable('amazon_order_fee_lines')) {
+        }
+        if ($feeLines->isEmpty() && Schema::hasTable('amazon_order_fee_lines')) {
             $feeLines = AmazonOrderFeeLine::query()
                 ->where('amazon_order_id', $order_id)
                 ->where('event_type', 'FinancesTransactionV20240619')
