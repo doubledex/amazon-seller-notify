@@ -216,6 +216,33 @@
             </div>
 
             <div class="p-4 rounded-lg border border-gray-200 bg-white shadow-sm mb-6">
+                <details>
+                    <summary class="cursor-pointer text-sm font-semibold">Raw Estimated Fee Payloads (Debug)</summary>
+                    @php
+                        $estimatedRawPayloads = collect($estimatedFeeLines ?? [])
+                            ->map(function ($line) {
+                                $raw = $line->raw_line;
+                                if (is_string($raw)) {
+                                    $decoded = json_decode($raw, true);
+                                    $raw = is_array($decoded) ? $decoded : null;
+                                }
+                                return [
+                                    'order_id' => $line->amazon_order_id ?? null,
+                                    'asin' => $line->asin ?? null,
+                                    'fee_type' => $line->fee_type ?? null,
+                                    'amount' => $line->amount ?? null,
+                                    'currency' => $line->currency ?? null,
+                                    'raw_line' => $raw,
+                                ];
+                            })
+                            ->values()
+                            ->all();
+                    @endphp
+                    <pre class="text-xs mt-3 bg-gray-50 p-3 rounded overflow-x-auto">{{ json_encode($estimatedRawPayloads, JSON_PRETTY_PRINT) }}</pre>
+                </details>
+            </div>
+
+            <div class="p-4 rounded-lg border border-gray-200 bg-white shadow-sm mb-6">
                 <div class="text-sm font-semibold mb-3">Items</div>
                 @if (!empty($items))
                     <div class="overflow-x-auto">

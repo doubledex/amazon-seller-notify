@@ -182,7 +182,10 @@ class OrderFeeEstimateService
                     $detailLineTotal = round($detailAmount * $qty, 2);
                     $feeType = trim((string) ($detail['fee_type'] ?? ''));
                     $description = $feeType !== '' ? $feeType : 'Estimated fee component';
-                    $rawLine = $detail['raw'] ?? null;
+                    $rawLine = [
+                        'detail' => $detail['raw'] ?? null,
+                        'payload' => $lookupResults[$lookupKey]['raw_payload'] ?? null,
+                    ];
                     $hashBase = implode('|', [
                         $orderId,
                         (string) ($row['asin'] ?? ''),
@@ -229,7 +232,10 @@ class OrderFeeEstimateService
                     'currency' => $currency,
                     'source' => 'spapi_product_fees',
                     'estimated_at' => now(),
-                    'raw_line' => null,
+                    'raw_line' => json_encode([
+                        'detail' => null,
+                        'payload' => $lookupResults[$lookupKey]['raw_payload'] ?? null,
+                    ]),
                     'created_at' => now(),
                     'updated_at' => now(),
                 ];
@@ -406,9 +412,11 @@ class OrderFeeEstimateService
                 }
 
                 $json = $response->json();
-                $parsed = $this->extractEstimatedFeeFromPayload(is_array($json) ? $json : []);
+                $jsonPayload = is_array($json) ? $json : [];
+                $parsed = $this->extractEstimatedFeeFromPayload($jsonPayload);
                 if ($parsed !== null) {
                     $stats['api_success']++;
+                    $parsed['raw_payload'] = $jsonPayload;
                     return $parsed;
                 }
                 $stats['payload_missing']++;
