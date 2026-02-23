@@ -138,10 +138,6 @@ class AmazonOrderFeeSyncService
                 if (!is_array($txn)) {
                     continue;
                 }
-                $transactionStatus = strtoupper(trim((string) ($txn['transactionStatus'] ?? '')));
-                if ($transactionStatus !== '' && $transactionStatus !== 'RELEASED') {
-                    continue;
-                }
                 $orderId = $this->extractOrderIdFromTransaction($txn);
                 if ($orderId === '') {
                     continue;
@@ -401,11 +397,34 @@ class AmazonOrderFeeSyncService
         return '';
     }
 
+    private function canonicalTransactionId(array $txn): string
+    {
+        $transactionId = trim((string) ($txn['transactionId'] ?? ''));
+        $related = (array) ($txn['relatedIdentifiers'] ?? []);
+        foreach ($related as $identifier) {
+            if (!is_array($identifier)) {
+                continue;
+            }
+            $name = strtoupper(trim((string) ($identifier['relatedIdentifierName'] ?? '')));
+            if ($name !== 'RELEASE_TRANSACTION_ID') {
+                continue;
+            }
+            $value = trim((string) ($identifier['relatedIdentifierValue'] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return $transactionId !== '' ? $transactionId : sha1(json_encode($txn));
+    }
+
     private function extractNetFeeRowsFromTransaction(array $txn, string $orderId, string $region): array
     {
         $postedDate = $this->normalizePostedDate($txn['postedDate'] ?? $txn['transactionDate'] ?? null);
         $transactionType = trim((string) ($txn['transactionType'] ?? 'Transaction'));
         $transactionId = trim((string) ($txn['transactionId'] ?? ''));
+        $canonicalTransactionId = $this->canonicalTransactionId($txn);
+        $transactionStatus = trim((string) ($txn['transactionStatus'] ?? ''));
         $breakdownSources = $this->transactionBreakdownSources($txn);
         if (empty($breakdownSources)) {
             return [];
@@ -472,13 +491,12 @@ class AmazonOrderFeeSyncService
                     $orderId,
                     strtoupper(trim($region)),
                     self::EVENT_TYPE_V20240619,
-                    $transactionId,
+                    $canonicalTransactionId,
                     $transactionType,
                     $sourcePath,
                     $type,
                     number_format((float) $netAmount, 2, '.', ''),
                     $currency,
-                    (string) $postedDate,
                     (string) $index,
                 ]);
 
@@ -494,6 +512,8 @@ class AmazonOrderFeeSyncService
                     'posted_date' => $postedDate,
                     'raw_line' => json_encode([
                         'transaction_id' => $transactionId,
+                        'canonical_transaction_id' => $canonicalTransactionId,
+                        'transaction_status' => $transactionStatus,
                         'transaction_type' => $transactionType,
                         'source_path' => $sourcePath,
                         'breakdown' => $breakdown,
