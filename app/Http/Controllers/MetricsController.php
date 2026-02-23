@@ -102,14 +102,34 @@ class MetricsController extends Controller
             ->groupByRaw("{$metricDateExpr}, marketplaces.country_code")
             ->get();
 
+        $feeCurrencyExpr = "COALESCE(
+                NULLIF(orders.amazon_fee_currency_v2, ''),
+                NULLIF(orders.amazon_fee_currency, ''),
+                NULLIF(orders.amazon_fee_estimated_currency, ''),
+                NULLIF(orders.order_net_ex_tax_currency, ''),
+                NULLIF(orders.order_total_currency, ''),
+                'GBP'
+            )";
+        $feeAmountExpr = "CASE
+                WHEN orders.amazon_fee_total_v2 IS NOT NULL THEN orders.amazon_fee_total_v2
+                WHEN orders.amazon_fee_total IS NOT NULL THEN orders.amazon_fee_total
+                ELSE COALESCE(orders.amazon_fee_estimated_total, 0)
+            END";
+        $estimatedFeeOrderExpr = "CASE
+                WHEN orders.amazon_fee_total_v2 IS NULL
+                    AND orders.amazon_fee_total IS NULL
+                    AND COALESCE(orders.amazon_fee_estimated_total, 0) <> 0 THEN 1
+                ELSE 0
+            END";
+
         $feeRows = DB::table('orders')
             ->join('marketplaces', 'marketplaces.id', '=', 'orders.marketplace_id')
             ->selectRaw("
                 {$metricDateExpr} as metric_date,
                 marketplaces.country_code as country_code,
-                COALESCE(NULLIF(orders.amazon_fee_currency, ''), NULLIF(orders.amazon_fee_estimated_currency, ''), NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(orders.order_total_currency, ''), 'GBP') as currency,
-                SUM(CASE WHEN orders.amazon_fee_total IS NOT NULL THEN orders.amazon_fee_total ELSE COALESCE(orders.amazon_fee_estimated_total, 0) END) as fee_amount,
-                SUM(CASE WHEN orders.amazon_fee_total IS NULL AND COALESCE(orders.amazon_fee_estimated_total, 0) <> 0 THEN 1 ELSE 0 END) as estimated_fee_order_count
+                {$feeCurrencyExpr} as currency,
+                SUM({$feeAmountExpr}) as fee_amount,
+                SUM({$estimatedFeeOrderExpr}) as estimated_fee_order_count
             ")
             ->whereRaw("{$metricDateExpr} >= ?", [$from])
             ->whereRaw("{$metricDateExpr} <= ?", [$to])
@@ -117,7 +137,7 @@ class MetricsController extends Controller
             ->groupByRaw("
                 {$metricDateExpr},
                 marketplaces.country_code,
-                COALESCE(NULLIF(orders.amazon_fee_currency, ''), NULLIF(orders.amazon_fee_estimated_currency, ''), NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(orders.order_total_currency, ''), 'GBP')
+                {$feeCurrencyExpr}
             ")
             ->get();
 
