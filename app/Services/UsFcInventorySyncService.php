@@ -210,6 +210,7 @@ class UsFcInventorySyncService
             $debugPayload['get_report_document'] = $documentPayload;
         }
         $documentUrl = trim((string) ($documentPayload['url'] ?? ''));
+        $documentUrlSha256 = $documentUrl !== '' ? hash('sha256', $documentUrl) : null;
         $compression = strtoupper(trim((string) ($documentPayload['compressionAlgorithm'] ?? '')));
 
         if ($documentUrl === '') {
@@ -220,6 +221,7 @@ class UsFcInventorySyncService
                 'rows' => 0,
                 'report_type' => $reportType,
                 'debug_payload' => $debugJson ? $debugPayload : null,
+                'report_document_url_sha256' => $documentUrlSha256,
             ];
         }
 
@@ -232,6 +234,7 @@ class UsFcInventorySyncService
                 'rows' => 0,
                 'report_type' => $reportType,
                 'debug_payload' => $debugJson ? $debugPayload : null,
+                'report_document_url_sha256' => $documentUrlSha256,
             ];
         }
 
@@ -246,12 +249,14 @@ class UsFcInventorySyncService
                     'rows' => 0,
                     'report_type' => $reportType,
                     'debug_payload' => $debugJson ? $debugPayload : null,
+                    'report_document_url_sha256' => $documentUrlSha256,
                 ];
             }
             $raw = $decoded;
         }
 
         $rows = $this->parseDelimitedText($raw);
+        $parsedRowPreview = array_slice($rows, 0, 2);
         $upsertRows = [];
         $missingFcRows = 0;
         $missingSkuRows = 0;
@@ -319,9 +324,11 @@ class UsFcInventorySyncService
             'rows_missing_fc' => $missingFcRows,
             'rows_missing_sku' => $missingSkuRows,
             'sample_row_keys' => $sampleKeys,
+            'parsed_row_preview' => $parsedRowPreview,
             'report_type' => $reportType,
             'report_date' => $reportDate,
             'debug_payload' => $debugJson ? $debugPayload : null,
+            'report_document_url_sha256' => $documentUrlSha256,
         ];
     }
 

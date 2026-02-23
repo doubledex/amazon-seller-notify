@@ -45,6 +45,9 @@ class SyncUsFcInventory extends Command
 
         if (!($result['ok'] ?? false)) {
             $this->error((string) ($result['message'] ?? 'US FC inventory sync failed.'));
+            if (!empty($result['report_document_url_sha256'])) {
+                $this->line('Report document URL SHA-256: ' . (string) $result['report_document_url_sha256']);
+            }
             if ((bool) $this->option('debug-json')) {
                 $this->line('Debug payload:');
                 $json = json_encode($result['debug_payload'] ?? null, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -63,6 +66,9 @@ class SyncUsFcInventory extends Command
         if (!empty($result['attempted_report_types']) && is_array($result['attempted_report_types'])) {
             $this->line('Report types attempted: ' . implode(', ', array_map('strval', $result['attempted_report_types'])));
         }
+        if (!empty($result['report_document_url_sha256'])) {
+            $this->line('Report document URL SHA-256: ' . (string) $result['report_document_url_sha256']);
+        }
         $this->line('Rows upserted: ' . (int) ($result['rows'] ?? 0));
         $this->line('Rows parsed: ' . (int) ($result['rows_parsed'] ?? 0));
         $this->line('Rows missing FC ID: ' . (int) ($result['rows_missing_fc'] ?? 0));
@@ -77,6 +83,12 @@ class SyncUsFcInventory extends Command
                 }
                 $this->line(' - ' . implode(', ', array_map('strval', $keys)));
             }
+        }
+        $parsedPreview = $result['parsed_row_preview'] ?? [];
+        if (is_array($parsedPreview) && !empty($parsedPreview)) {
+            $this->line('Parsed row preview:');
+            $json = json_encode($parsedPreview, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            $this->line($json !== false ? $json : '[]');
         }
 
         if ((bool) $this->option('debug-json')) {
