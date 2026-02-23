@@ -248,14 +248,16 @@ class AmazonOrderFeeSyncV2Service
 
     private function extractOrderId(array $txn): string
     {
-        foreach ((array) ($txn['relatedIdentifiers'] ?? []) as $identifier) {
+        $relatedIdentifiers = $this->firstArray($txn, ['relatedIdentifiers', 'RelatedIdentifiers']);
+        foreach ($relatedIdentifiers as $identifier) {
             if (!is_array($identifier)) {
                 continue;
             }
-            if (strtoupper(trim((string) ($identifier['relatedIdentifierName'] ?? ''))) !== 'ORDER_ID') {
+            $name = strtoupper(trim((string) $this->firstValue($identifier, ['relatedIdentifierName', 'RelatedIdentifierName'])));
+            if ($name !== 'ORDER_ID') {
                 continue;
             }
-            $value = trim((string) ($identifier['relatedIdentifierValue'] ?? ''));
+            $value = trim((string) $this->firstValue($identifier, ['relatedIdentifierValue', 'RelatedIdentifierValue']));
             if ($value !== '') {
                 return $value;
             }
@@ -266,12 +268,13 @@ class AmazonOrderFeeSyncV2Service
 
     private function extractFeeRows(array $txn, string $orderId, string $region): array
     {
-        $marketplaceId = trim((string) data_get($txn, 'sellingPartnerMetadata.marketplaceId', ''));
-        $transactionId = trim((string) ($txn['transactionId'] ?? ''));
+        $marketplaceMetadata = $this->firstArray($txn, ['sellingPartnerMetadata', 'SellingPartnerMetadata']);
+        $marketplaceId = trim((string) $this->firstValue($marketplaceMetadata, ['marketplaceId', 'MarketplaceId']));
+        $transactionId = trim((string) $this->firstValue($txn, ['transactionId', 'TransactionId']));
         $canonicalTransactionId = $this->canonicalTransactionId($txn);
-        $transactionStatus = trim((string) ($txn['transactionStatus'] ?? ''));
-        $transactionType = trim((string) ($txn['transactionType'] ?? ''));
-        $postedDate = $this->normalizePostedDate($txn['postedDate'] ?? $txn['transactionDate'] ?? null);
+        $transactionStatus = trim((string) $this->firstValue($txn, ['transactionStatus', 'TransactionStatus']));
+        $transactionType = trim((string) $this->firstValue($txn, ['transactionType', 'TransactionType']));
+        $postedDate = $this->normalizePostedDate($this->firstValue($txn, ['postedDate', 'PostedDate', 'transactionDate', 'TransactionDate']));
 
         $sources = $this->transactionBreakdownSources($txn);
         $rows = [];
@@ -349,16 +352,17 @@ class AmazonOrderFeeSyncV2Service
 
     private function canonicalTransactionId(array $txn): string
     {
-        $transactionId = trim((string) ($txn['transactionId'] ?? ''));
-        foreach ((array) ($txn['relatedIdentifiers'] ?? []) as $identifier) {
+        $transactionId = trim((string) $this->firstValue($txn, ['transactionId', 'TransactionId']));
+        $relatedIdentifiers = $this->firstArray($txn, ['relatedIdentifiers', 'RelatedIdentifiers']);
+        foreach ($relatedIdentifiers as $identifier) {
             if (!is_array($identifier)) {
                 continue;
             }
-            $name = strtoupper(trim((string) ($identifier['relatedIdentifierName'] ?? '')));
+            $name = strtoupper(trim((string) $this->firstValue($identifier, ['relatedIdentifierName', 'RelatedIdentifierName'])));
             if ($name !== 'RELEASE_TRANSACTION_ID' && $name !== 'DEFERRED_TRANSACTION_ID') {
                 continue;
             }
-            $value = trim((string) ($identifier['relatedIdentifierValue'] ?? ''));
+            $value = trim((string) $this->firstValue($identifier, ['relatedIdentifierValue', 'RelatedIdentifierValue']));
             if ($value !== '') {
                 return $value;
             }
@@ -370,15 +374,16 @@ class AmazonOrderFeeSyncV2Service
     private function transactionBreakdownSources(array $txn): array
     {
         $sources = [];
-        $top = (array) ($txn['breakdowns'] ?? []);
+        $top = $this->firstArray($txn, ['breakdowns', 'Breakdowns']);
         if (!empty($top)) {
             $sources[] = ['path' => 'transaction.breakdowns', 'breakdowns' => $top];
         }
-        foreach ((array) ($txn['items'] ?? []) as $itemIndex => $item) {
+        $items = $this->firstArray($txn, ['items', 'Items']);
+        foreach ($items as $itemIndex => $item) {
             if (!is_array($item)) {
                 continue;
             }
-            $itemBreakdowns = (array) ($item['breakdowns'] ?? []);
+            $itemBreakdowns = $this->firstArray($item, ['breakdowns', 'Breakdowns']);
             if (!empty($itemBreakdowns)) {
                 $sources[] = [
                     'path' => 'transaction.items[' . $itemIndex . '].breakdowns',
@@ -392,8 +397,8 @@ class AmazonOrderFeeSyncV2Service
 
     private function collectCandidateFeeBreakdowns(array $node, array &$out): void
     {
-        $type = strtoupper(trim((string) ($node['breakdownType'] ?? '')));
-        $children = (array) ($node['breakdowns'] ?? []);
+        $type = strtoupper(trim((string) $this->firstValue($node, ['breakdownType', 'BreakdownType'])));
+        $children = $this->firstArray($node, ['breakdowns', 'Breakdowns']);
 
         if ($type === 'AMAZONFEES' && !empty($children)) {
             foreach ($children as $child) {
@@ -431,10 +436,11 @@ class AmazonOrderFeeSyncV2Service
 
     private function collectBreakdownLeaves(array $node, array &$baseLeaves, array &$taxLeaves): void
     {
-        $type = strtoupper(trim((string) ($node['breakdownType'] ?? '')));
-        $amount = $this->moneyAmount($node['breakdownAmount'] ?? null);
-        $currency = $this->moneyCurrency($node['breakdownAmount'] ?? null);
-        $children = (array) ($node['breakdowns'] ?? []);
+        $type = strtoupper(trim((string) $this->firstValue($node, ['breakdownType', 'BreakdownType'])));
+        $amountNode = $this->firstArray($node, ['breakdownAmount', 'BreakdownAmount']);
+        $amount = $this->moneyAmount($amountNode);
+        $currency = $this->moneyCurrency($amountNode);
+        $children = $this->firstArray($node, ['breakdowns', 'Breakdowns']);
         if (empty($children) && $amount !== null && $currency !== null) {
             if ($type === 'BASE') {
                 $baseLeaves[] = ['amount' => (float) $amount, 'currency' => $currency];
@@ -534,5 +540,27 @@ class AmazonOrderFeeSyncV2Service
 
         return $last;
     }
-}
 
+    private function firstArray(array $source, array $keys): array
+    {
+        foreach ($keys as $key) {
+            $value = $source[$key] ?? null;
+            if (is_array($value)) {
+                return $value;
+            }
+        }
+
+        return [];
+    }
+
+    private function firstValue(array $source, array $keys)
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $source)) {
+                return $source[$key];
+            }
+        }
+
+        return null;
+    }
+}
