@@ -183,6 +183,10 @@ class AmazonOrderFeeSyncService
                 if (!is_array($txn)) {
                     continue;
                 }
+                $transactionStatus = strtoupper(trim((string) ($txn['transactionStatus'] ?? '')));
+                if ($transactionStatus !== '' && !in_array($transactionStatus, ['RELEASED', 'DEFERRED_RELEASED'], true)) {
+                    continue;
+                }
                 $orderId = $this->extractOrderIdFromTransaction($txn);
                 if ($orderId === '') {
                     continue;
@@ -628,96 +632,126 @@ class AmazonOrderFeeSyncService
         $postedDate = $this->normalizePostedDate($txn['postedDate'] ?? $txn['transactionDate'] ?? null);
         $transactionType = trim((string) ($txn['transactionType'] ?? 'Transaction'));
         $transactionId = trim((string) ($txn['transactionId'] ?? ''));
-
-        $topBreakdowns = (array) ($txn['breakdowns'] ?? []);
-        if (empty($topBreakdowns)) {
+        $breakdownSources = $this->transactionBreakdownSources($txn);
+        if (empty($breakdownSources)) {
             return [];
         }
 
         $rows = [];
-        foreach ($topBreakdowns as $index => $breakdown) {
-            if (!is_array($breakdown)) {
-                continue;
-            }
-
-            $type = trim((string) ($breakdown['breakdownType'] ?? 'Fee'));
-            $grossAmount = $this->moneyAmount($breakdown['breakdownAmount'] ?? null);
-            $grossCurrency = $this->moneyCurrency($breakdown['breakdownAmount'] ?? null);
-
-            $baseLeaves = [];
-            $taxLeaves = [];
-            $this->collectBreakdownLeaves($breakdown, $baseLeaves, $taxLeaves);
-
-            $netAmount = null;
-            $currency = $grossCurrency;
-            if (!empty($baseLeaves)) {
-                $netAmount = 0.0;
-                foreach ($baseLeaves as $leaf) {
-                    $leafAmount = (float) ($leaf['amount'] ?? 0);
-                    $leafCurrency = (string) ($leaf['currency'] ?? '');
-                    if ($leafCurrency === '') {
-                        continue;
-                    }
-                    if ($currency === null || $currency === '') {
-                        $currency = $leafCurrency;
-                    }
-                    if ($leafCurrency !== $currency) {
-                        continue;
-                    }
-                    $netAmount += $leafAmount;
+        foreach ($breakdownSources as $source) {
+            $sourcePath = (string) ($source['path'] ?? 'transaction.breakdowns');
+            $breakdowns = (array) ($source['breakdowns'] ?? []);
+            foreach ($breakdowns as $index => $breakdown) {
+                if (!is_array($breakdown)) {
+                    continue;
                 }
-            } elseif ($grossAmount !== null && $grossCurrency !== null) {
-                $netAmount = (float) $grossAmount;
-                $taxTotal = 0.0;
-                foreach ($taxLeaves as $leaf) {
-                    $leafCurrency = (string) ($leaf['currency'] ?? '');
-                    if ($leafCurrency !== $grossCurrency) {
-                        continue;
+
+                $type = trim((string) ($breakdown['breakdownType'] ?? 'Fee'));
+                $grossAmount = $this->moneyAmount($breakdown['breakdownAmount'] ?? null);
+                $grossCurrency = $this->moneyCurrency($breakdown['breakdownAmount'] ?? null);
+
+                $baseLeaves = [];
+                $taxLeaves = [];
+                $this->collectBreakdownLeaves($breakdown, $baseLeaves, $taxLeaves);
+
+                $netAmount = null;
+                $currency = $grossCurrency;
+                if (!empty($baseLeaves)) {
+                    $netAmount = 0.0;
+                    foreach ($baseLeaves as $leaf) {
+                        $leafAmount = (float) ($leaf['amount'] ?? 0);
+                        $leafCurrency = (string) ($leaf['currency'] ?? '');
+                        if ($leafCurrency === '') {
+                            continue;
+                        }
+                        if ($currency === null || $currency === '') {
+                            $currency = $leafCurrency;
+                        }
+                        if ($leafCurrency !== $currency) {
+                            continue;
+                        }
+                        $netAmount += $leafAmount;
                     }
-                    $taxTotal += (float) ($leaf['amount'] ?? 0);
+                } elseif ($grossAmount !== null && $grossCurrency !== null) {
+                    $netAmount = (float) $grossAmount;
+                    $taxTotal = 0.0;
+                    foreach ($taxLeaves as $leaf) {
+                        $leafCurrency = (string) ($leaf['currency'] ?? '');
+                        if ($leafCurrency !== $grossCurrency) {
+                            continue;
+                        }
+                        $taxTotal += (float) ($leaf['amount'] ?? 0);
+                    }
+                    $netAmount -= $taxTotal;
                 }
-                $netAmount -= $taxTotal;
+
+                $currency = strtoupper(trim((string) $currency));
+                if ($netAmount === null || $currency === '' || round((float) $netAmount, 2) == 0.0) {
+                    continue;
+                }
+
+                $hashBase = implode('|', [
+                    $orderId,
+                    strtoupper(trim($region)),
+                    'FinancesTransactionV20240619',
+                    $transactionId,
+                    $transactionType,
+                    $sourcePath,
+                    $type,
+                    number_format((float) $netAmount, 2, '.', ''),
+                    $currency,
+                    (string) $postedDate,
+                    (string) $index,
+                ]);
+
+                $rows[] = [
+                    'fee_hash' => sha1($hashBase),
+                    'amazon_order_id' => $orderId,
+                    'region' => strtoupper(trim($region)),
+                    'event_type' => 'FinancesTransactionV20240619',
+                    'fee_type' => $type !== '' ? $type : null,
+                    'description' => $type !== '' ? $type : 'Fee',
+                    'amount' => round((float) $netAmount, 2),
+                    'currency' => $currency,
+                    'posted_date' => $postedDate,
+                    'raw_line' => json_encode([
+                        'transaction_id' => $transactionId,
+                        'transaction_type' => $transactionType,
+                        'source_path' => $sourcePath,
+                        'breakdown' => $breakdown,
+                    ]),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
             }
-
-            $currency = strtoupper(trim((string) $currency));
-            if ($netAmount === null || $currency === '' || round((float) $netAmount, 2) == 0.0) {
-                continue;
-            }
-
-            $hashBase = implode('|', [
-                $orderId,
-                strtoupper(trim($region)),
-                'FinancesTransactionV20240619',
-                $transactionId,
-                $transactionType,
-                $type,
-                number_format((float) $netAmount, 2, '.', ''),
-                $currency,
-                (string) $postedDate,
-                (string) $index,
-            ]);
-
-            $rows[] = [
-                'fee_hash' => sha1($hashBase),
-                'amazon_order_id' => $orderId,
-                'region' => strtoupper(trim($region)),
-                'event_type' => 'FinancesTransactionV20240619',
-                'fee_type' => $type !== '' ? $type : null,
-                'description' => $type !== '' ? $type : 'Fee',
-                'amount' => round((float) $netAmount, 2),
-                'currency' => $currency,
-                'posted_date' => $postedDate,
-                'raw_line' => json_encode([
-                    'transaction_id' => $transactionId,
-                    'transaction_type' => $transactionType,
-                    'breakdown' => $breakdown,
-                ]),
-                'created_at' => now(),
-                'updated_at' => now(),
-            ];
         }
 
         return $rows;
+    }
+
+    private function transactionBreakdownSources(array $txn): array
+    {
+        $sources = [];
+
+        $top = (array) ($txn['breakdowns'] ?? []);
+        if (!empty($top)) {
+            $sources[] = ['path' => 'transaction.breakdowns', 'breakdowns' => $top];
+        }
+
+        foreach ((array) ($txn['items'] ?? []) as $itemIndex => $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $itemBreakdowns = (array) ($item['breakdowns'] ?? []);
+            if (!empty($itemBreakdowns)) {
+                $sources[] = [
+                    'path' => 'transaction.items[' . $itemIndex . '].breakdowns',
+                    'breakdowns' => $itemBreakdowns,
+                ];
+            }
+        }
+
+        return $sources;
     }
 
     private function collectBreakdownLeaves(array $node, array &$baseLeaves, array &$taxLeaves): void
