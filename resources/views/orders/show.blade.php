@@ -28,6 +28,12 @@
                 $netCurrency = $orderRecord?->order_net_ex_tax_currency ?: $totalCurrency;
                 $feeAmount = $orderRecord?->amazon_fee_total;
                 $feeCurrency = $orderRecord?->amazon_fee_currency ?: $netCurrency;
+                $feeSource = 'finance_total';
+                if ($feeAmount === null && $orderRecord?->amazon_fee_estimated_total !== null) {
+                    $feeAmount = $orderRecord?->amazon_fee_estimated_total;
+                    $feeCurrency = $orderRecord?->amazon_fee_estimated_currency ?: $feeCurrency;
+                    $feeSource = 'estimated_product_fees';
+                }
                 $buyerEmail = $order['BuyerInfo']['BuyerEmail']
                     ?? $order['BuyerEmail']
                     ?? null;
@@ -135,8 +141,12 @@
                 <div class="mt-2 flex items-baseline gap-2">
                     <div class="text-xs text-gray-500">Amazon Fees</div>
                     <div class="text-sm font-semibold">
+                        @if($feeSource === 'estimated_product_fees')* @endif
                         {{ $feeAmount ?? 'N/A' }} {{ $feeCurrency ?? '' }}
                     </div>
+                    @if($feeSource === 'estimated_product_fees')
+                        <div class="text-xs text-gray-500">(estimated fallback)</div>
+                    @endif
                 </div>
             </div>
 

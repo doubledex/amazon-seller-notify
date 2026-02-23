@@ -152,17 +152,15 @@ class AmazonOrderFeeSyncService
 
                     $feeType = trim((string) ($fee['fee_type'] ?? ''));
                     $description = $feeType !== '' ? $feeType : (string) ($fee['path'] ?? 'Fee');
+                    $rawEntryJson = json_encode($fee['raw_entry'] ?? null, JSON_UNESCAPED_SLASHES);
                     $hashBase = implode('|', [
                         $orderId,
                         $region,
-                        $eventType,
-                        $eventIndex,
-                        $feeIndex,
-                        $fee['path'] ?? '',
+                        (string) ($postedDate ?? ''),
                         $feeType,
                         number_format($amount, 2, '.', ''),
                         $currency,
-                        (string) ($postedDate ?? ''),
+                        (string) ($rawEntryJson ?? ''),
                     ]);
 
                     $feeLineRows[] = [

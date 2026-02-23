@@ -517,6 +517,9 @@
                     <td>{{ $order['PaymentMethodDetails'][0] ?? 'N/A' }}</td>
                     <td dir="rtl">{{ $order['OrderNetExTax']['Amount'] ?? 'N/A' }}</td>
                     <td dir="rtl">
+                        @if(($order['AmazonFees']['Source'] ?? '') === 'estimated_product_fees')
+                            *
+                        @endif
                         {{ $order['AmazonFees']['Amount'] ?? 'N/A' }}
                         {{ $order['AmazonFees']['CurrencyCode'] ?? '' }}
                     </td>

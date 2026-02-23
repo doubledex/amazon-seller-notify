@@ -195,12 +195,19 @@ class OrderController extends Controller
                 }
                 $feeAmount = $order->amazon_fee_total;
                 $feeCurrency = $order->amazon_fee_currency ?: $netCurrency;
+                $feeSource = 'finance_total';
+                if ($feeAmount === null && $order->amazon_fee_estimated_total !== null) {
+                    $feeAmount = $order->amazon_fee_estimated_total;
+                    $feeCurrency = $order->amazon_fee_estimated_currency ?: $feeCurrency;
+                    $feeSource = 'estimated_product_fees';
+                }
                 if ($feeAmount === null && isset($feeFallbackMap[$order->amazon_order_id])) {
                     $feeAmount = $feeFallbackMap[$order->amazon_order_id]['amount'];
                     $fallbackCurrency = $feeFallbackMap[$order->amazon_order_id]['currency'];
                     if ($fallbackCurrency !== '') {
                         $feeCurrency = $fallbackCurrency;
                     }
+                    $feeSource = 'finance_lines_fallback';
                 }
 
                 if (!is_array($raw) || empty($raw)) {
@@ -224,6 +231,7 @@ class OrderController extends Controller
                         'AmazonFees' => [
                             'Amount' => $feeAmount,
                             'CurrencyCode' => $feeCurrency,
+                            'Source' => $feeSource,
                         ],
                         'SalesChannel' => $order->sales_channel,
                         'MarketplaceId' => $order->marketplace_id,
@@ -250,6 +258,7 @@ class OrderController extends Controller
                         'Amount' => $feeAmount,
                         'CurrencyCode' => $feeCurrency
                             ?: ($raw['AmazonFees']['CurrencyCode'] ?? $netCurrency ?? $order->order_total_currency ?? null),
+                        'Source' => $feeSource,
                     ];
                 }
                 return $raw;

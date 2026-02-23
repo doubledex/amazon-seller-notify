@@ -24,6 +24,10 @@ class Order extends Model
         'order_net_ex_tax_currency',
         'order_net_ex_tax_source',
         'amazon_fee_total',
+        'amazon_fee_estimated_total',
+        'amazon_fee_estimated_currency',
+        'amazon_fee_estimated_source',
+        'amazon_fee_estimated_at',
         'amazon_fee_currency',
         'amazon_fee_last_synced_at',
         'order_total_currency',
@@ -43,6 +47,7 @@ class Order extends Model
         'purchase_date' => 'datetime',
         'purchase_date_local' => 'datetime',
         'purchase_date_local_date' => 'date',
+        'amazon_fee_estimated_at' => 'datetime',
         'amazon_fee_last_synced_at' => 'datetime',
         'last_synced_at' => 'datetime',
     ];

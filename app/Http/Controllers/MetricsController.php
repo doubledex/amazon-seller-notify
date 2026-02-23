@@ -107,8 +107,9 @@ class MetricsController extends Controller
             ->selectRaw("
                 {$metricDateExpr} as metric_date,
                 marketplaces.country_code as country_code,
-                COALESCE(NULLIF(orders.amazon_fee_currency, ''), NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(orders.order_total_currency, ''), 'GBP') as currency,
-                SUM(COALESCE(orders.amazon_fee_total, 0)) as fee_amount
+                COALESCE(NULLIF(orders.amazon_fee_currency, ''), NULLIF(orders.amazon_fee_estimated_currency, ''), NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(orders.order_total_currency, ''), 'GBP') as currency,
+                SUM(CASE WHEN orders.amazon_fee_total IS NOT NULL THEN orders.amazon_fee_total ELSE COALESCE(orders.amazon_fee_estimated_total, 0) END) as fee_amount,
+                SUM(CASE WHEN orders.amazon_fee_total IS NULL AND COALESCE(orders.amazon_fee_estimated_total, 0) <> 0 THEN 1 ELSE 0 END) as estimated_fee_order_count
             ")
             ->whereRaw("{$metricDateExpr} >= ?", [$from])
             ->whereRaw("{$metricDateExpr} <= ?", [$to])
@@ -116,7 +117,7 @@ class MetricsController extends Controller
             ->groupByRaw("
                 {$metricDateExpr},
                 marketplaces.country_code,
-                COALESCE(NULLIF(orders.amazon_fee_currency, ''), NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(orders.order_total_currency, ''), 'GBP')
+                COALESCE(NULLIF(orders.amazon_fee_currency, ''), NULLIF(orders.amazon_fee_estimated_currency, ''), NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(orders.order_total_currency, ''), 'GBP')
             ")
             ->get();
 
@@ -176,6 +177,7 @@ class MetricsController extends Controller
                     'ad_gbp' => 0.0,
                     'fees_local' => 0.0,
                     'fees_gbp' => 0.0,
+                    'estimated_fee_data' => false,
                     'pending_sales_data' => false,
                     'estimated_sales_data' => false,
                 ];
@@ -211,6 +213,7 @@ class MetricsController extends Controller
                     'ad_gbp' => 0.0,
                     'fees_local' => 0.0,
                     'fees_gbp' => 0.0,
+                    'estimated_fee_data' => false,
                     'pending_sales_data' => false,
                     'estimated_sales_data' => false,
                 ];
@@ -240,6 +243,7 @@ class MetricsController extends Controller
                     'ad_gbp' => 0.0,
                     'fees_local' => 0.0,
                     'fees_gbp' => 0.0,
+                    'estimated_fee_data' => false,
                     'pending_sales_data' => false,
                     'estimated_sales_data' => false,
                 ];
@@ -271,6 +275,7 @@ class MetricsController extends Controller
                     'ad_gbp' => 0.0,
                     'fees_local' => 0.0,
                     'fees_gbp' => 0.0,
+                    'estimated_fee_data' => false,
                     'pending_sales_data' => false,
                     'estimated_sales_data' => false,
                 ];
@@ -305,6 +310,7 @@ class MetricsController extends Controller
                     'ad_gbp' => 0.0,
                     'fees_local' => 0.0,
                     'fees_gbp' => 0.0,
+                    'estimated_fee_data' => false,
                     'pending_sales_data' => false,
                     'estimated_sales_data' => false,
                 ];
@@ -312,6 +318,8 @@ class MetricsController extends Controller
 
             $breakdown[$key]['fees_local'] += $amount;
             $breakdown[$key]['fees_gbp'] += $fxRateService->convert($amount, $currency, 'GBP', $date) ?? 0.0;
+            $breakdown[$key]['estimated_fee_data'] = $breakdown[$key]['estimated_fee_data']
+                || ((int) ($row->estimated_fee_order_count ?? 0) > 0);
         }
 
         $dailyRows = [];
@@ -327,6 +335,7 @@ class MetricsController extends Controller
             $totalUnits = 0;
             $hasPendingSalesData = false;
             $hasEstimatedSalesData = false;
+            $hasEstimatedFeeData = false;
 
             foreach ($breakdown as $entry) {
                 if ($entry['date'] !== $date) {
@@ -344,6 +353,7 @@ class MetricsController extends Controller
                 $totalUnits += (int) ($entry['units'] ?? 0);
                 $hasPendingSalesData = $hasPendingSalesData || (bool) ($entry['pending_sales_data'] ?? false);
                 $hasEstimatedSalesData = $hasEstimatedSalesData || (bool) ($entry['estimated_sales_data'] ?? false);
+                $hasEstimatedFeeData = $hasEstimatedFeeData || (bool) ($entry['estimated_fee_data'] ?? false);
             }
 
             usort($items, fn ($a, $b) => strcmp($a['country'], $b['country']));
@@ -357,6 +367,7 @@ class MetricsController extends Controller
                 'acos_percent' => $totalSalesGbp > 0 ? ($totalAdGbp / $totalSalesGbp) * 100 : null,
                 'pending_sales_data' => $hasPendingSalesData,
                 'estimated_sales_data' => $hasEstimatedSalesData,
+                'estimated_fee_data' => $hasEstimatedFeeData,
                 'items' => $items,
             ];
         }
@@ -376,6 +387,7 @@ class MetricsController extends Controller
                     'units' => 0,
                     'pending_sales_data' => false,
                     'estimated_sales_data' => false,
+                    'estimated_fee_data' => false,
                     'days' => [],
                 ];
             }
@@ -387,6 +399,7 @@ class MetricsController extends Controller
             $weekly[$weekStart]['units'] += (int) ($day['units'] ?? 0);
             $weekly[$weekStart]['pending_sales_data'] = $weekly[$weekStart]['pending_sales_data'] || (bool) ($day['pending_sales_data'] ?? false);
             $weekly[$weekStart]['estimated_sales_data'] = $weekly[$weekStart]['estimated_sales_data'] || (bool) ($day['estimated_sales_data'] ?? false);
+            $weekly[$weekStart]['estimated_fee_data'] = $weekly[$weekStart]['estimated_fee_data'] || (bool) ($day['estimated_fee_data'] ?? false);
             $weekly[$weekStart]['days'][] = $day;
         }
 
