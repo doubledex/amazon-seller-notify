@@ -162,6 +162,7 @@
                                     <th>Event</th>
                                     <th>Amount</th>
                                     <th>Posted</th>
+                                    <th>Count</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -172,11 +173,13 @@
                                         <td>{{ $feeLine->event_type ?: 'N/A' }}</td>
                                         <td dir="rtl">{{ number_format((float) $feeLine->amount, 2) }} {{ $feeLine->currency }}</td>
                                         <td>{{ $feeLine->posted_date ? $feeLine->posted_date->format('Y-m-d H:i:s') : 'N/A' }}</td>
+                                        <td>{{ (int) ($feeLine->duplicate_count ?? 1) }}</td>
                                     </tr>
                                 @endforeach
                             </tbody>
                         </table>
                     </div>
+                    <div class="text-xs text-gray-500 mt-2">Duplicate identical finance fee rows are collapsed; Count shows occurrences.</div>
                 @else
                     <div class="text-sm text-gray-600">No fee line items synced yet for this order.</div>
                 @endif

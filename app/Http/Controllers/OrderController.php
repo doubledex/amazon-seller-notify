@@ -517,7 +517,24 @@ class OrderController extends Controller
             ->where('amazon_order_id', $order_id)
             ->orderBy('posted_date')
             ->orderBy('id')
-            ->get();
+            ->get()
+            ->groupBy(function ($line) {
+                $posted = $line->posted_date ? $line->posted_date->format('Y-m-d H:i:s') : '';
+                return implode('|', [
+                    (string) ($line->event_type ?? ''),
+                    (string) ($line->fee_type ?? ''),
+                    (string) ($line->description ?? ''),
+                    number_format((float) ($line->amount ?? 0), 2, '.', ''),
+                    (string) ($line->currency ?? ''),
+                    $posted,
+                ]);
+            })
+            ->map(function ($group) {
+                $first = $group->first();
+                $first->duplicate_count = $group->count();
+                return $first;
+            })
+            ->values();
         $estimatedFeeLines = collect();
         if (Schema::hasTable('order_fee_estimate_lines')) {
             $estimatedFeeLines = OrderFeeEstimateLine::query()

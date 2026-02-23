@@ -443,6 +443,8 @@ class OrderFeeEstimateService
     private function extractEstimatedFeeFromPayload(array $json): ?array
     {
         $breakdown = [];
+        $detailTotal = 0.0;
+        $detailCurrency = '';
         $detailLists = [
             data_get($json, 'payload.FeesEstimateResult.FeesEstimate.FeeDetailList'),
             data_get($json, 'payload.FeesEstimateResult.feesEstimate.feeDetailList'),
@@ -458,22 +460,42 @@ class OrderFeeEstimateService
                     continue;
                 }
                 $feeType = $detail['FeeType'] ?? $detail['feeType'] ?? null;
-                $amountNode = $detail['FinalFee'] ?? $detail['finalFee'] ?? null;
+                $amountNode = $detail['FeeAmount'] ?? $detail['feeAmount'] ?? null;
+                $finalNode = $detail['FinalFee'] ?? $detail['finalFee'] ?? null;
+                $taxNode = $detail['TaxAmount'] ?? $detail['taxAmount'] ?? null;
                 $amount = is_array($amountNode) ? ($amountNode['Amount'] ?? $amountNode['amount'] ?? null) : null;
                 $currency = is_array($amountNode) ? ($amountNode['CurrencyCode'] ?? $amountNode['currencyCode'] ?? null) : null;
+                $finalAmount = is_array($finalNode) ? ($finalNode['Amount'] ?? $finalNode['amount'] ?? null) : null;
+                $taxAmount = is_array($taxNode) ? ($taxNode['Amount'] ?? $taxNode['amount'] ?? null) : null;
                 if (!is_numeric($amount) || trim((string) $currency) === '') {
                     continue;
                 }
+                $amount = (float) $amount;
+                $currency = strtoupper(trim((string) $currency));
                 $breakdown[] = [
                     'fee_type' => (string) $feeType,
-                    'amount' => (float) $amount,
-                    'currency' => strtoupper(trim((string) $currency)),
+                    'amount' => $amount, // ex-tax component
+                    'currency' => $currency,
+                    'final_amount' => is_numeric($finalAmount) ? (float) $finalAmount : null,
+                    'tax_amount' => is_numeric($taxAmount) ? (float) $taxAmount : null,
                     'raw' => $detail,
                 ];
+                $detailTotal += $amount;
+                if ($detailCurrency === '') {
+                    $detailCurrency = $currency;
+                }
             }
             if (!empty($breakdown)) {
                 break;
             }
+        }
+
+        if (!empty($breakdown) && $detailCurrency !== '') {
+            return [
+                'amount' => round($detailTotal, 2), // ex-tax total from fee detail components
+                'currency' => $detailCurrency,
+                'breakdown' => $breakdown,
+            ];
         }
 
         $candidates = [
