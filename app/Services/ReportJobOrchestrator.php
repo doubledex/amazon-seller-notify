@@ -170,6 +170,7 @@ class ReportJobOrchestrator
                 $job->document_url_sha256 = $download['report_document_url_sha256'] ?? null;
                 $job->debug_payload = [
                     'document_payload' => $download['document_payload'] ?? null,
+                    'row_preview' => array_slice($rows, 0, 2),
                 ];
 
                 $ingested = $this->ingestRows($job, $rows);

@@ -114,11 +114,18 @@
                         <th class="text-right">Rows Ingested</th>
                         <th class="text-left">Next Poll</th>
                         <th class="text-left">Completed</th>
+                        <th class="text-left">Row Preview</th>
                         <th class="text-left">Last Error</th>
                     </tr>
                     </thead>
                     <tbody>
                     @forelse($rows as $row)
+                        @php
+                            $rowPreview = null;
+                            if (is_array($row->debug_payload ?? null)) {
+                                $rowPreview = $row->debug_payload['row_preview'] ?? null;
+                            }
+                        @endphp
                         <tr>
                             <td>{{ $row->id }}</td>
                             <td>{{ $row->provider }}</td>
@@ -134,10 +141,17 @@
                             <td class="text-right">{{ (int) $row->rows_ingested }}</td>
                             <td>{{ optional($row->next_poll_at)->format('Y-m-d H:i:s') }}</td>
                             <td>{{ optional($row->completed_at)->format('Y-m-d H:i:s') }}</td>
+                            <td class="max-w-xs">
+                                @if(!empty($rowPreview))
+                                    <pre class="text-xs whitespace-pre-wrap break-words">{{ json_encode($rowPreview, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) }}</pre>
+                                @else
+                                    <span class="text-gray-500">n/a</span>
+                                @endif
+                            </td>
                             <td>{{ $row->last_error }}</td>
                         </tr>
                     @empty
-                        <tr><td colspan="15">No matching report jobs.</td></tr>
+                        <tr><td colspan="16">No matching report jobs.</td></tr>
                     @endforelse
                     </tbody>
                 </table>
