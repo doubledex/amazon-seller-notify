@@ -40,6 +40,7 @@ class ReportJobOrchestrator
         $region = $this->normalizeRegion($region, $processor);
         $reportType = strtoupper(trim($reportType));
         $reportOptions = $this->normalizeReportOptions($reportType, $reportOptions);
+        [$dataStartTime, $dataEndTime] = $this->normalizeDateRange($reportType, $dataStartTime, $dataEndTime);
         $marketplaceIds = $this->resolveMarketplaceIds($marketplaceIds, $processor);
         if (empty($marketplaceIds)) {
             return ['created' => 0, 'jobs' => []];
@@ -298,9 +299,29 @@ class ReportJobOrchestrator
         $normalized = is_array($reportOptions) ? $reportOptions : [];
         if ($reportType === 'GET_LEDGER_SUMMARY_VIEW_DATA') {
             $normalized['aggregateByLocation'] = 'LOCAL';
+            $normalized['aggregateByTimePeriod'] = 'DAILY';
         }
 
         return !empty($normalized) ? $normalized : null;
+    }
+
+    private function normalizeDateRange(
+        string $reportType,
+        ?\DateTimeInterface $dataStartTime,
+        ?\DateTimeInterface $dataEndTime
+    ): array {
+        if ($reportType !== 'GET_LEDGER_SUMMARY_VIEW_DATA') {
+            return [$dataStartTime, $dataEndTime];
+        }
+
+        $end = $dataEndTime ? Carbon::instance($dataEndTime) : Carbon::now('UTC')->subDays(3)->endOfDay();
+        $start = $dataStartTime ? Carbon::instance($dataStartTime) : $end->copy()->subDays(30)->startOfDay();
+
+        if ($end->lessThan($start)) {
+            $start = $end->copy()->subDays(30)->startOfDay();
+        }
+
+        return [$start, $end];
     }
 
     private function buildDateWindows(
