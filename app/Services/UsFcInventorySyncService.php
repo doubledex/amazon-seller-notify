@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Models\UsFcInventory;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use SellingPartnerApi\Seller\ReportsV20210630\Dto\CreateReportSpecification;
 use SellingPartnerApi\SellingPartnerApi;
@@ -17,8 +16,9 @@ class UsFcInventorySyncService
         'GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA',
         'GET_LEDGER_SUMMARY_VIEW_DATA',
     ];
-    private const CREATE_REPORT_MAX_RETRIES = 8;
-    private const CREATE_REPORT_BASE_BACKOFF_SECONDS = 15;
+    public function __construct(private readonly SpApiReportLifecycleService $reportLifecycle)
+    {
+    }
 
     public function sync(
         string $region = 'NA',
@@ -59,7 +59,7 @@ class UsFcInventorySyncService
             $last = $result;
             $attempted[] = $candidateType;
 
-            if (($result['ok'] ?? false) && (int) ($result['rows_parsed'] ?? 0) > 0) {
+            if (($result['ok'] ?? false) && (int) ($result['rows'] ?? 0) > 0) {
                 $result['report_type_used'] = $candidateType;
                 return $result;
             }
@@ -96,104 +96,88 @@ class UsFcInventorySyncService
             'get_report_polls' => [],
             'get_report_document' => null,
         ];
-        $reportId = '';
-        $lastCreateError = null;
-        for ($attempt = 0; $attempt < self::CREATE_REPORT_MAX_RETRIES; $attempt++) {
-            try {
-                $createResponse = $reportsApi->createReport(
-                    new CreateReportSpecification(
-                        reportType: $reportType,
-                        marketplaceIds: [$marketplaceId],
-                        reportOptions: $this->reportOptionsForType($reportType),
-                        dataStartTime: $dataStartTime,
-                        dataEndTime: $dataEndTime,
-                    )
-                );
-                if ($debugJson) {
-                    $debugPayload['create_report'] = $createResponse->json();
-                }
-                $reportId = trim((string) ($createResponse->json('reportId') ?? ''));
-                if ($reportId !== '') {
-                    break;
-                }
-
-                $lastCreateError = 'No reportId returned from createReport.';
-            } catch (\Throwable $e) {
-                $lastCreateError = $e->getMessage();
-                if (!$this->isQuotaExceededError($e)) {
-                    break;
-                }
-
-                $delay = $this->retryDelaySeconds($attempt);
-                Log::warning('US FC inventory createReport quota retry', [
-                    'attempt' => $attempt,
-                    'sleep_seconds' => $delay,
-                    'report_type' => $reportType,
-                    'marketplace_id' => $marketplaceId,
-                    'error' => $e->getMessage(),
-                ]);
-                sleep($delay);
-                continue;
-            }
+        $createResult = $this->reportLifecycle->createReportWithRetry(
+            $reportsApi,
+            new CreateReportSpecification(
+                reportType: $reportType,
+                marketplaceIds: [$marketplaceId],
+                reportOptions: $this->reportOptionsForType($reportType),
+                dataStartTime: $dataStartTime,
+                dataEndTime: $dataEndTime,
+            ),
+            [
+                'report_type' => $reportType,
+                'marketplace_id' => $marketplaceId,
+            ]
+        );
+        if ($debugJson) {
+            $debugPayload['create_report'] = $createResult['create_payload'] ?? null;
         }
 
+        $reportId = trim((string) ($createResult['report_id'] ?? ''));
         if ($reportId === '') {
             return [
                 'ok' => false,
-                'message' => 'Unable to create inventory report. ' . ($lastCreateError ? 'Last error: ' . $lastCreateError : ''),
+                'message' => 'Unable to create inventory report. '
+                    . (!empty($createResult['error']) ? 'Last error: ' . (string) $createResult['error'] : ''),
                 'rows' => 0,
                 'report_type' => $reportType,
                 'debug_payload' => $debugJson ? $debugPayload : null,
             ];
         }
 
-        $status = 'IN_QUEUE';
-        $reportDocumentId = '';
-        $reportDate = null;
-        for ($i = 0; $i < $maxAttempts; $i++) {
-            $poll = $reportsApi->getReport($reportId);
-            $pollPayload = $poll->json();
-            if ($debugJson && count($debugPayload['get_report_polls']) < 20) {
-                $debugPayload['get_report_polls'][] = $pollPayload;
-            }
-            $status = strtoupper((string) ($pollPayload['processingStatus'] ?? 'IN_QUEUE'));
-            $reportDocumentId = trim((string) ($pollPayload['reportDocumentId'] ?? ''));
-
-            $completedAt = trim((string) ($pollPayload['processingEndTime'] ?? ''));
-            if ($completedAt !== '') {
-                try {
-                    $reportDate = Carbon::parse($completedAt)->toDateString();
-                } catch (\Throwable) {
-                    $reportDate = null;
-                }
-            }
-
-            if ($status === 'DONE' && $reportDocumentId !== '') {
-                break;
-            }
-
-            if (in_array($status, ['DONE_NO_DATA', 'CANCELLED', 'FATAL'], true)) {
-                $ok = $status === 'DONE_NO_DATA';
-                return [
-                    'ok' => $ok,
-                    'message' => "Inventory report ended with status {$status}.",
-                    'rows' => 0,
-                    'rows_parsed' => 0,
-                    'rows_missing_fc' => 0,
-                    'rows_missing_sku' => 0,
-                    'sample_row_keys' => [],
-                    'report_id' => $reportId,
-                    'report_type' => $reportType,
-                    'report_date' => $reportDate,
-                    'processing_status' => $status,
-                    'debug_payload' => $debugJson ? $debugPayload : null,
-                ];
-            }
-
-            sleep($sleepSeconds);
+        $pollResult = $this->reportLifecycle->pollReportUntilTerminal(
+            $reportsApi,
+            $reportId,
+            $maxAttempts,
+            $sleepSeconds,
+            $debugJson
+        );
+        if ($debugJson) {
+            $debugPayload['get_report_polls'] = is_array($pollResult['polls'] ?? null)
+                ? $pollResult['polls']
+                : [];
         }
 
-        if ($status !== 'DONE' || $reportDocumentId === '') {
+        $status = strtoupper((string) ($pollResult['processing_status'] ?? 'IN_QUEUE'));
+        $reportDate = $pollResult['report_date'] ?? null;
+        $reportDocumentId = trim((string) ($pollResult['report_document_id'] ?? ''));
+
+        if ($status === 'DONE_NO_DATA') {
+            return [
+                'ok' => true,
+                'message' => "Inventory report ended with status {$status}.",
+                'rows' => 0,
+                'rows_parsed' => 0,
+                'rows_missing_fc' => 0,
+                'rows_missing_sku' => 0,
+                'sample_row_keys' => [],
+                'report_id' => $reportId,
+                'report_type' => $reportType,
+                'report_date' => $reportDate,
+                'processing_status' => $status,
+                'debug_payload' => $debugJson ? $debugPayload : null,
+            ];
+        }
+
+        if (in_array($status, ['CANCELLED', 'FATAL'], true)) {
+            return [
+                'ok' => false,
+                'message' => "Inventory report ended with status {$status}.",
+                'rows' => 0,
+                'rows_parsed' => 0,
+                'rows_missing_fc' => 0,
+                'rows_missing_sku' => 0,
+                'sample_row_keys' => [],
+                'report_id' => $reportId,
+                'report_type' => $reportType,
+                'report_date' => $reportDate,
+                'processing_status' => $status,
+                'debug_payload' => $debugJson ? $debugPayload : null,
+            ];
+        }
+
+        if ($status !== 'DONE' || $reportDocumentId === '' || !($pollResult['ok'] ?? false)) {
             return [
                 'ok' => false,
                 'message' => "Inventory report not ready. Last status {$status}.",
@@ -204,58 +188,29 @@ class UsFcInventorySyncService
             ];
         }
 
-        $documentResponse = $reportsApi->getReportDocument($reportDocumentId, $reportType);
-        $documentPayload = $documentResponse->json();
+        $downloadResult = $this->reportLifecycle->downloadReportRows(
+            $reportsApi,
+            $reportDocumentId,
+            $reportType
+        );
         if ($debugJson) {
-            $debugPayload['get_report_document'] = $documentPayload;
+            $debugPayload['get_report_document'] = $downloadResult['document_payload'] ?? null;
         }
-        $documentUrl = trim((string) ($documentPayload['url'] ?? ''));
-        $documentUrlSha256 = $documentUrl !== '' ? hash('sha256', $documentUrl) : null;
-        $compression = strtoupper(trim((string) ($documentPayload['compressionAlgorithm'] ?? '')));
-
-        if ($documentUrl === '') {
+        if (!($downloadResult['ok'] ?? false)) {
             return [
                 'ok' => false,
-                'message' => 'Report document URL missing.',
+                'message' => 'Failed downloading report document via SDK. Last error: '
+                    . (string) ($downloadResult['error'] ?? 'Unknown error'),
                 'report_id' => $reportId,
                 'rows' => 0,
                 'report_type' => $reportType,
                 'debug_payload' => $debugJson ? $debugPayload : null,
-                'report_document_url_sha256' => $documentUrlSha256,
+                'report_document_url_sha256' => $downloadResult['report_document_url_sha256'] ?? null,
             ];
         }
+        $rows = is_array($downloadResult['rows'] ?? null) ? $downloadResult['rows'] : [];
+        $documentUrlSha256 = $downloadResult['report_document_url_sha256'] ?? null;
 
-        $download = Http::timeout(120)->retry(2, 500)->get($documentUrl);
-        if (!$download->successful()) {
-            return [
-                'ok' => false,
-                'message' => 'Failed downloading report document.',
-                'report_id' => $reportId,
-                'rows' => 0,
-                'report_type' => $reportType,
-                'debug_payload' => $debugJson ? $debugPayload : null,
-                'report_document_url_sha256' => $documentUrlSha256,
-            ];
-        }
-
-        $raw = (string) $download->body();
-        if ($compression === 'GZIP') {
-            $decoded = @gzdecode($raw);
-            if ($decoded === false) {
-                return [
-                    'ok' => false,
-                    'message' => 'Failed to decode GZIP report document.',
-                    'report_id' => $reportId,
-                    'rows' => 0,
-                    'report_type' => $reportType,
-                    'debug_payload' => $debugJson ? $debugPayload : null,
-                    'report_document_url_sha256' => $documentUrlSha256,
-                ];
-            }
-            $raw = $decoded;
-        }
-
-        $rows = $this->parseDelimitedText($raw);
         $parsedRowPreview = array_slice($rows, 0, 2);
         $upsertRows = [];
         $missingFcRows = 0;
@@ -343,37 +298,6 @@ class UsFcInventorySyncService
             refreshToken: (string) $config['refresh_token'],
             endpoint: $regionService->spApiEndpointEnum($region)
         );
-    }
-
-    private function parseDelimitedText(string $text): array
-    {
-        $lines = preg_split('/\r\n|\n|\r/', trim($text));
-        if (!$lines || count($lines) < 2) {
-            return [];
-        }
-
-        $delimiter = str_contains($lines[0], "\t") ? "\t" : ',';
-        $headers = str_getcsv($lines[0], $delimiter);
-        $headers = array_map(fn ($h) => trim((string) $h), $headers);
-
-        $rows = [];
-        for ($i = 1; $i < count($lines); $i++) {
-            $line = trim((string) $lines[$i]);
-            if ($line === '') {
-                continue;
-            }
-            $values = str_getcsv($line, $delimiter);
-            $row = [];
-            foreach ($headers as $index => $header) {
-                if ($header === '') {
-                    $header = 'col_' . ($index + 1);
-                }
-                $row[$header] = (string) ($values[$index] ?? '');
-            }
-            $rows[] = $row;
-        }
-
-        return $rows;
     }
 
     private function normalizeRow(array $row): array
@@ -500,18 +424,4 @@ class UsFcInventorySyncService
         return [$start, $end];
     }
 
-    private function isQuotaExceededError(\Throwable $e): bool
-    {
-        $msg = strtoupper($e->getMessage());
-        return str_contains($msg, '429')
-            || str_contains($msg, 'QUOTAEXCEEDED')
-            || str_contains($msg, 'TOO MANY REQUESTS');
-    }
-
-    private function retryDelaySeconds(int $attempt): int
-    {
-        $exp = self::CREATE_REPORT_BASE_BACKOFF_SECONDS * (2 ** $attempt);
-        $cap = min(300, $exp);
-        return max(1, $cap + random_int(0, 7));
-    }
 }
