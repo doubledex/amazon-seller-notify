@@ -7,6 +7,7 @@ use App\Models\ReportJob;
 use App\Services\ReportJobs\MarketplaceListingsReportJobProcessor;
 use App\Services\ReportJobs\ReportJobProcessor;
 use App\Services\ReportJobs\UsFcInventoryReportJobProcessor;
+use Illuminate\Support\Carbon;
 use SellingPartnerApi\Seller\ReportsV20210630\Dto\CreateReportSpecification;
 use SellingPartnerApi\SellingPartnerApi;
 
@@ -37,29 +38,34 @@ class ReportJobOrchestrator
         int $pollAfterSeconds = 0
     ): array {
         $region = $this->normalizeRegion($region, $processor);
+        $reportType = strtoupper(trim($reportType));
+        $reportOptions = $this->normalizeReportOptions($reportType, $reportOptions);
         $marketplaceIds = $this->resolveMarketplaceIds($marketplaceIds, $processor);
         if (empty($marketplaceIds)) {
             return ['created' => 0, 'jobs' => []];
         }
+        $windows = $this->buildDateWindows($reportType, $reportOptions, $dataStartTime, $dataEndTime);
 
         $jobs = [];
         foreach ($marketplaceIds as $marketplaceId) {
-            $job = ReportJob::create([
-                'provider' => self::PROVIDER_SP_API_SELLER,
-                'processor' => $processor,
-                'region' => $region,
-                'marketplace_id' => $marketplaceId,
-                'report_type' => strtoupper(trim($reportType)),
-                'status' => $externalReportId ? 'requested' : 'queued',
-                'scope' => $scope,
-                'report_options' => $reportOptions,
-                'data_start_time' => $dataStartTime,
-                'data_end_time' => $dataEndTime,
-                'external_report_id' => $externalReportId,
-                'external_document_id' => $externalDocumentId,
-                'next_poll_at' => now()->addSeconds(max(0, $pollAfterSeconds)),
-            ]);
-            $jobs[] = $job;
+            foreach ($windows as [$windowStart, $windowEnd]) {
+                $job = ReportJob::create([
+                    'provider' => self::PROVIDER_SP_API_SELLER,
+                    'processor' => $processor,
+                    'region' => $region,
+                    'marketplace_id' => $marketplaceId,
+                    'report_type' => $reportType,
+                    'status' => $externalReportId ? 'requested' : 'queued',
+                    'scope' => $scope,
+                    'report_options' => $reportOptions,
+                    'data_start_time' => $windowStart,
+                    'data_end_time' => $windowEnd,
+                    'external_report_id' => $externalReportId,
+                    'external_document_id' => $externalDocumentId,
+                    'next_poll_at' => now()->addSeconds(max(0, $pollAfterSeconds)),
+                ]);
+                $jobs[] = $job;
+            }
         }
 
         return [
@@ -285,5 +291,52 @@ class ReportJobOrchestrator
             'us_fc_inventory' => 'NA',
             default => 'NA',
         };
+    }
+
+    private function normalizeReportOptions(string $reportType, ?array $reportOptions): ?array
+    {
+        $normalized = is_array($reportOptions) ? $reportOptions : [];
+        if ($reportType === 'GET_LEDGER_SUMMARY_VIEW_DATA') {
+            $normalized['aggregateByLocation'] = 'LOCAL';
+        }
+
+        return !empty($normalized) ? $normalized : null;
+    }
+
+    private function buildDateWindows(
+        string $reportType,
+        ?array $reportOptions,
+        ?\DateTimeInterface $dataStartTime,
+        ?\DateTimeInterface $dataEndTime
+    ): array {
+        if ($dataStartTime === null || $dataEndTime === null) {
+            return [[$dataStartTime, $dataEndTime]];
+        }
+
+        $aggregateByLocation = strtoupper(trim((string) ($reportOptions['aggregateByLocation'] ?? '')));
+        $requiresChunking = $reportType === 'GET_LEDGER_SUMMARY_VIEW_DATA' && $aggregateByLocation === 'LOCAL';
+        if (!$requiresChunking) {
+            return [[$dataStartTime, $dataEndTime]];
+        }
+
+        $start = Carbon::instance($dataStartTime)->startOfDay();
+        $end = Carbon::instance($dataEndTime)->endOfDay();
+        if ($end->lessThan($start)) {
+            return [[$dataStartTime, $dataEndTime]];
+        }
+
+        $windows = [];
+        $cursor = $start->copy();
+        while ($cursor->lessThanOrEqualTo($end)) {
+            $windowStart = $cursor->copy();
+            $windowEnd = $cursor->copy()->addDays(30)->endOfDay();
+            if ($windowEnd->greaterThan($end)) {
+                $windowEnd = $end->copy();
+            }
+            $windows[] = [$windowStart, $windowEnd];
+            $cursor = $windowEnd->copy()->addSecond();
+        }
+
+        return !empty($windows) ? $windows : [[$dataStartTime, $dataEndTime]];
     }
 }
