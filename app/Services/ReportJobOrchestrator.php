@@ -36,6 +36,7 @@ class ReportJobOrchestrator
         ?array $scope = null,
         int $pollAfterSeconds = 0
     ): array {
+        $region = $this->normalizeRegion($region, $processor);
         $marketplaceIds = $this->resolveMarketplaceIds($marketplaceIds, $processor);
         if (empty($marketplaceIds)) {
             return ['created' => 0, 'jobs' => []];
@@ -46,7 +47,7 @@ class ReportJobOrchestrator
             $job = ReportJob::create([
                 'provider' => self::PROVIDER_SP_API_SELLER,
                 'processor' => $processor,
-                'region' => $region ? strtoupper(trim($region)) : null,
+                'region' => $region,
                 'marketplace_id' => $marketplaceId,
                 'report_type' => strtoupper(trim($reportType)),
                 'status' => $externalReportId ? 'requested' : 'queued',
@@ -108,7 +109,7 @@ class ReportJobOrchestrator
             $job->attempt_count = (int) $job->attempt_count + 1;
             $job->last_polled_at = now();
 
-            $connector = $this->makeConnector($job->region ?: 'NA');
+            $connector = $this->makeConnector($this->normalizeRegion($job->region, $job->processor));
             $reportsApi = $connector->reportsV20210630();
 
             if (trim((string) $job->external_report_id) === '') {
@@ -269,5 +270,19 @@ class ReportJobOrchestrator
             refreshToken: (string) $config['refresh_token'],
             endpoint: $this->regionConfig->spApiEndpointEnum($region),
         );
+    }
+
+    private function normalizeRegion(?string $region, ?string $processor): string
+    {
+        $region = strtoupper(trim((string) $region));
+        if ($region !== '') {
+            return $region;
+        }
+
+        return match (trim((string) $processor)) {
+            'marketplace_listings' => 'EU',
+            'us_fc_inventory' => 'NA',
+            default => 'NA',
+        };
     }
 }

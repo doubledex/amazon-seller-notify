@@ -7,7 +7,7 @@ use Illuminate\Console\Command;
 
 class PollMarketplaceListingReports extends Command
 {
-    protected $signature = 'listings:poll-reports {--limit=100} {--marketplace=* : Optional marketplace IDs} {--report-type=GET_MERCHANT_LISTINGS_ALL_DATA : SP-API report type} {--region= : Optional SP-API region (EU|NA|FE)}';
+    protected $signature = 'listings:poll-reports {--limit=100} {--marketplace=* : Optional marketplace IDs} {--report-type=GET_MERCHANT_LISTINGS_ALL_DATA : SP-API report type} {--region=EU : Optional SP-API region (EU|NA|FE)}';
     protected $description = 'Poll queued SP-API listing reports and ingest completed report documents.';
 
     public function handle(ReportJobOrchestrator $orchestrator): int

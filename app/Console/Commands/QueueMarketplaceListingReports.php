@@ -7,7 +7,7 @@ use Illuminate\Console\Command;
 
 class QueueMarketplaceListingReports extends Command
 {
-    protected $signature = 'listings:queue-reports {--marketplace=* : Optional marketplace IDs to sync} {--report-type=GET_MERCHANT_LISTINGS_ALL_DATA : SP-API report type} {--region= : Optional SP-API region (EU|NA|FE)}';
+    protected $signature = 'listings:queue-reports {--marketplace=* : Optional marketplace IDs to sync} {--report-type=GET_MERCHANT_LISTINGS_ALL_DATA : SP-API report type} {--region=EU : Optional SP-API region (EU|NA|FE)}';
     protected $description = 'Queue SP-API listing reports for background polling.';
 
     public function handle(ReportJobOrchestrator $orchestrator): int
