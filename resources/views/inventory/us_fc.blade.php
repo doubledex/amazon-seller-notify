@@ -44,6 +44,9 @@
                 @php
                     $mapPoints = $fcMapPoints ?? [];
                 @endphp
+                <div class="mb-2 text-sm text-gray-700 dark:text-gray-200">
+                    Map points computed: <strong>{{ count($mapPoints) }}</strong>
+                </div>
                 @if (count($mapPoints) > 0)
                     <div id="us-fc-map" style="height: 520px; width: 100%; border-radius: 8px; overflow: hidden;"></div>
                 @else
@@ -160,6 +163,7 @@
         <script>
             (function () {
                 const points = @json($mapPoints);
+                console.log('[US FC MAP] points', points.length, points.slice(0, 5));
                 const map = L.map('us-fc-map', { zoomControl: true }).setView([39.8283, -98.5795], 4);
                 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                     maxZoom: 18,
@@ -190,6 +194,8 @@
 
                     bounds.push([p.lat, p.lng]);
                 }
+
+                console.log('[US FC MAP] bounds count', bounds.length);
 
                 if (bounds.length > 1) {
                     map.fitBounds(bounds, { padding: [24, 24] });
