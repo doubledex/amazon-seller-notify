@@ -15,7 +15,16 @@
                     </div>
                     <div>
                         <label for="sku" class="block text-sm font-medium mb-1">SKU</label>
-                        <input id="sku" name="sku" value="{{ $sku ?? '' }}" class="border rounded px-2 py-1" placeholder="seller sku">
+                        <select id="sku" name="sku[]" multiple size="6" class="border rounded px-2 py-1 min-w-[280px]">
+                            @foreach(($skuOptions ?? []) as $optSku)
+                                <option value="{{ $optSku }}" {{ in_array($optSku, ($skuSelection ?? []), true) ? 'selected' : '' }}>
+                                    {{ $optSku }}
+                                </option>
+                            @endforeach
+                        </select>
+                        <div class="text-xs text-gray-600 mt-1">
+                            Default (none selected) = all SKUs. Hold Ctrl/Cmd to select multiple.
+                        </div>
                     </div>
                     <div>
                         <label for="asin" class="block text-sm font-medium mb-1">ASIN</label>
@@ -28,6 +37,16 @@
                     <div>
                         <label for="report_date" class="block text-sm font-medium mb-1">Report Date</label>
                         <input id="report_date" name="report_date" value="{{ $reportDate }}" class="border rounded px-2 py-1" placeholder="YYYY-MM-DD">
+                    </div>
+                    <div>
+                        <label for="per_page" class="block text-sm font-medium mb-1">Rows</label>
+                        <select id="per_page" name="per_page" class="border rounded px-2 py-1">
+                            @foreach (['100', '250', '500', '1000', 'all'] as $size)
+                                <option value="{{ $size }}" {{ ($perPage ?? '100') === $size ? 'selected' : '' }}>
+                                    {{ strtoupper($size) === 'ALL' ? 'All' : $size }}
+                                </option>
+                            @endforeach
+                        </select>
                     </div>
                     <button type="submit" class="px-3 py-2 rounded-md border text-sm border-gray-300 bg-white text-gray-700">Apply</button>
                     <a href="{{ route('inventory.us_fc') }}" class="px-3 py-2 rounded-md border text-sm border-gray-300 bg-white text-gray-700">Clear</a>
@@ -57,63 +76,18 @@
             </div>
 
             <div class="bg-white dark:bg-gray-800 shadow-sm sm:rounded-lg p-4 overflow-x-auto">
-                <h3 class="font-semibold mb-2">Quantity by FC (Granular)</h3>
+                <h3 class="font-semibold mb-2">Inventory Hierarchy (State → FC → Detail)</h3>
+                <div class="mb-2 text-sm text-gray-700 dark:text-gray-200">
+                    States on this page: <strong>{{ count($hierarchy ?? []) }}</strong>
+                    <span class="mx-2">|</span>
+                    Detail rows on this page: <strong>{{ count($rows) }}</strong>
+                    <span class="mx-2">|</span>
+                    Total filtered rows: <strong>{{ number_format($rows->total()) }}</strong>
+                </div>
                 <table class="w-full text-sm border-collapse" border="1" cellpadding="6" cellspacing="0">
                     <thead>
                     <tr>
-                        <th class="text-left">FC ID</th>
-                        <th class="text-left">City</th>
-                        <th class="text-left">State</th>
-                        <th class="text-left">Data Date</th>
-                        <th class="text-right">Rows</th>
-                        <th class="text-right">Quantity</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    @forelse($fcSummary as $row)
-                        <tr>
-                            <td>{{ $row->fc }}</td>
-                            <td>{{ $row->city }}</td>
-                            <td>{{ $row->state }}</td>
-                            <td>{{ $row->data_date ?? 'N/A' }}</td>
-                            <td class="text-right">{{ number_format((int) $row->row_count) }}</td>
-                            <td class="text-right">{{ number_format((int) $row->qty) }}</td>
-                        </tr>
-                    @empty
-                        <tr><td colspan="6">No data.</td></tr>
-                    @endforelse
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="bg-white dark:bg-gray-800 shadow-sm sm:rounded-lg p-4 overflow-x-auto">
-                <h3 class="font-semibold mb-2">Quantity by State</h3>
-                <table class="w-full text-sm border-collapse" border="1" cellpadding="6" cellspacing="0">
-                    <thead>
-                    <tr>
-                        <th class="text-left">State</th>
-                        <th class="text-left">Data Date</th>
-                        <th class="text-right">Quantity</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    @forelse($summary as $row)
-                        <tr>
-                            <td>{{ $row->state }}</td>
-                            <td>{{ $row->data_date ?? 'N/A' }}</td>
-                            <td class="text-right">{{ number_format((int) $row->qty) }}</td>
-                        </tr>
-                    @empty
-                        <tr><td colspan="3">No data.</td></tr>
-                    @endforelse
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="bg-white dark:bg-gray-800 shadow-sm sm:rounded-lg p-4 overflow-x-auto">
-                <table class="w-full text-sm border-collapse" border="1" cellpadding="6" cellspacing="0">
-                    <thead>
-                    <tr>
+                        <th class="text-left">Level</th>
                         <th class="text-left">FC ID</th>
                         <th class="text-left">City</th>
                         <th class="text-left">State</th>
@@ -127,21 +101,64 @@
                     </tr>
                     </thead>
                     <tbody>
-                    @forelse($rows as $row)
-                        <tr>
-                            <td>{{ $row->fulfillment_center_id }}</td>
-                            <td>{{ $row->fc_city ?? 'Unknown' }}</td>
-                            <td>{{ $row->fc_state ?? 'Unknown' }}</td>
-                            <td>{{ $row->seller_sku }}</td>
-                            <td>{{ $row->asin }}</td>
-                            <td>{{ $row->fnsku }}</td>
-                            <td>{{ $row->item_condition }}</td>
-                            <td class="text-right">{{ number_format((int) $row->quantity_available) }}</td>
-                            <td>{{ $row->report_date }}</td>
-                            <td>{{ optional($row->updated_at)->format('Y-m-d H:i') }}</td>
+                    @php $stateIndex = 0; @endphp
+                    @forelse($hierarchy as $stateNode)
+                        @php
+                            $stateId = 'state-' . $stateIndex;
+                            $stateIndex++;
+                        @endphp
+                        <tr class="bg-gray-100 dark:bg-gray-700">
+                            <td>
+                                <button type="button" class="toggle-state font-mono text-xs px-2 py-1 border rounded" data-state-id="{{ $stateId }}">+</button>
+                                <strong class="ml-2">State</strong>
+                            </td>
+                            <td></td>
+                            <td></td>
+                            <td><strong>{{ $stateNode['state'] }}</strong></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td class="text-right"></td>
+                            <td>{{ $stateNode['data_date'] ?: 'N/A' }}</td>
+                            <td class="text-right"><strong>{{ number_format((int) $stateNode['qty']) }}</strong></td>
+                            <td></td>
                         </tr>
+                        @foreach($stateNode['fcs'] as $fcNode)
+                            @php $fcId = $stateId . '-fc-' . $loop->index; @endphp
+                            <tr class="fc-row hidden bg-gray-50 dark:bg-gray-800" data-state-parent="{{ $stateId }}">
+                                <td class="pl-6">
+                                    <button type="button" class="toggle-fc font-mono text-xs px-2 py-1 border rounded" data-fc-id="{{ $fcId }}">+</button>
+                                    <strong class="ml-2">FC</strong>
+                                </td>
+                                <td><strong>{{ $fcNode['fc'] }}</strong></td>
+                                <td>{{ $fcNode['city'] }}</td>
+                                <td>{{ $fcNode['state'] }}</td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                                <td class="text-right">{{ number_format((int) $fcNode['row_count']) }}</td>
+                                <td>{{ $fcNode['data_date'] ?: 'N/A' }}</td>
+                                <td class="text-right"><strong>{{ number_format((int) $fcNode['qty']) }}</strong></td>
+                                <td></td>
+                            </tr>
+                            @foreach($fcNode['details'] as $detailRow)
+                                <tr class="detail-row hidden" data-state-parent="{{ $stateId }}" data-fc-parent="{{ $fcId }}">
+                                    <td class="pl-12">Detail</td>
+                                    <td>{{ $detailRow->fulfillment_center_id }}</td>
+                                    <td>{{ $detailRow->fc_city ?? 'Unknown' }}</td>
+                                    <td>{{ $detailRow->fc_state ?? 'Unknown' }}</td>
+                                    <td>{{ $detailRow->seller_sku }}</td>
+                                    <td>{{ $detailRow->asin }}</td>
+                                    <td>{{ $detailRow->fnsku }}</td>
+                                    <td class="text-right">1</td>
+                                    <td>{{ $detailRow->report_date }}</td>
+                                    <td class="text-right">{{ number_format((int) $detailRow->quantity_available) }}</td>
+                                    <td>{{ optional($detailRow->updated_at)->format('Y-m-d H:i') }}</td>
+                                </tr>
+                            @endforeach
+                        @endforeach
                     @empty
-                        <tr><td colspan="10">No US FC inventory rows found. Run <code>php artisan inventory:sync-us-fc</code>.</td></tr>
+                        <tr><td colspan="11">No US FC inventory rows found. Run <code>php artisan inventory:sync-us-fc</code>.</td></tr>
                     @endforelse
                     </tbody>
                 </table>
@@ -151,6 +168,46 @@
             </div>
         </div>
     </div>
+
+    <script>
+        (function () {
+            const hideAllForState = (stateId) => {
+                document.querySelectorAll(`.fc-row[data-state-parent="${stateId}"]`).forEach((row) => {
+                    row.classList.add('hidden');
+                });
+                document.querySelectorAll(`.detail-row[data-state-parent="${stateId}"]`).forEach((row) => {
+                    row.classList.add('hidden');
+                });
+                document.querySelectorAll(`.toggle-fc[data-fc-id^="${stateId}-fc-"]`).forEach((btn) => {
+                    btn.textContent = '+';
+                });
+            };
+
+            document.querySelectorAll('.toggle-state').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const stateId = btn.dataset.stateId;
+                    const fcRows = document.querySelectorAll(`.fc-row[data-state-parent="${stateId}"]`);
+                    const isOpening = btn.textContent === '+';
+                    btn.textContent = isOpening ? '-' : '+';
+                    if (!isOpening) {
+                        hideAllForState(stateId);
+                        return;
+                    }
+                    fcRows.forEach((row) => row.classList.remove('hidden'));
+                });
+            });
+
+            document.querySelectorAll('.toggle-fc').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const fcId = btn.dataset.fcId;
+                    const detailRows = document.querySelectorAll(`.detail-row[data-fc-parent="${fcId}"]`);
+                    const isOpening = btn.textContent === '+';
+                    btn.textContent = isOpening ? '-' : '+';
+                    detailRows.forEach((row) => row.classList.toggle('hidden', !isOpening));
+                });
+            });
+        })();
+    </script>
 
     @if (count($mapPoints) > 0)
         <link

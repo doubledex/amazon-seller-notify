@@ -12,9 +12,13 @@ class UsFcInventoryController extends Controller
     public function index(Request $request)
     {
         $q = trim((string) $request->query('q', ''));
-        $sku = trim((string) $request->query('sku', ''));
+        $skuSelection = array_values(array_filter(array_map(
+            static fn ($v) => trim((string) $v),
+            (array) $request->query('sku', [])
+        ), static fn ($v) => $v !== ''));
         $asin = strtoupper(trim((string) $request->query('asin', '')));
         $state = strtoupper(trim((string) $request->query('state', '')));
+        $perPageInput = strtolower(trim((string) $request->query('per_page', '100')));
         $latestReportDate = UsFcInventory::query()->max('report_date');
         $reportDate = trim((string) $request->query('report_date', $latestReportDate ?? ''));
 
@@ -50,8 +54,8 @@ class UsFcInventoryController extends Controller
                     ->orWhere('loc.state', 'like', '%' . $q . '%');
             });
         }
-        if ($sku !== '') {
-            $query->where('us_fc_inventories.seller_sku', 'like', '%' . $sku . '%');
+        if (!empty($skuSelection)) {
+            $query->whereIn('us_fc_inventories.seller_sku', $skuSelection);
         }
         if ($asin !== '') {
             $query->where('us_fc_inventories.asin', 'like', '%' . $asin . '%');
@@ -61,13 +65,68 @@ class UsFcInventoryController extends Controller
             $query->whereRaw('upper(coalesce(loc.state, "")) = ?', [$state]);
         }
 
+        $countQuery = clone $query;
+        $totalRows = (int) $countQuery->count();
+        $perPage = match ($perPageInput) {
+            'all' => max(1, $totalRows),
+            default => max(25, min(1000, (int) $perPageInput ?: 100)),
+        };
+
         $rows = $query
             ->orderByRaw('coalesce(loc.state, "ZZ") asc')
             ->orderByRaw('coalesce(loc.city, "ZZZZZZ") asc')
             ->orderBy('us_fc_inventories.fulfillment_center_id')
             ->orderByDesc('us_fc_inventories.quantity_available')
-            ->paginate(100)
+            ->paginate($perPage)
             ->appends($request->query());
+
+        $hierarchy = [];
+        foreach ($rows->items() as $row) {
+            $state = trim((string) ($row->fc_state ?? ''));
+            $state = $state !== '' ? strtoupper($state) : 'Unknown';
+            $fc = trim((string) ($row->fulfillment_center_id ?? ''));
+            $fc = $fc !== '' ? $fc : 'Unknown';
+            $city = trim((string) ($row->fc_city ?? ''));
+            $city = $city !== '' ? $city : 'Unknown';
+            $qty = (int) ($row->quantity_available ?? 0);
+            $dataDate = (string) ($row->report_date ?? '');
+
+            if (!isset($hierarchy[$state])) {
+                $hierarchy[$state] = [
+                    'state' => $state,
+                    'qty' => 0,
+                    'data_date' => $dataDate,
+                    'fcs' => [],
+                ];
+            }
+            $hierarchy[$state]['qty'] += $qty;
+            if ($dataDate !== '' && ($hierarchy[$state]['data_date'] === '' || strcmp($dataDate, $hierarchy[$state]['data_date']) > 0)) {
+                $hierarchy[$state]['data_date'] = $dataDate;
+            }
+
+            if (!isset($hierarchy[$state]['fcs'][$fc])) {
+                $hierarchy[$state]['fcs'][$fc] = [
+                    'fc' => $fc,
+                    'city' => $city,
+                    'state' => $state,
+                    'qty' => 0,
+                    'row_count' => 0,
+                    'data_date' => $dataDate,
+                    'details' => [],
+                ];
+            }
+            $hierarchy[$state]['fcs'][$fc]['qty'] += $qty;
+            $hierarchy[$state]['fcs'][$fc]['row_count']++;
+            if ($dataDate !== '' && ($hierarchy[$state]['fcs'][$fc]['data_date'] === '' || strcmp($dataDate, $hierarchy[$state]['fcs'][$fc]['data_date']) > 0)) {
+                $hierarchy[$state]['fcs'][$fc]['data_date'] = $dataDate;
+            }
+            $hierarchy[$state]['fcs'][$fc]['details'][] = $row;
+        }
+
+        $hierarchy = array_values(array_map(static function (array $stateNode): array {
+            $stateNode['fcs'] = array_values($stateNode['fcs']);
+            return $stateNode;
+        }, $hierarchy));
 
         $summary = UsFcInventory::query()
             ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
@@ -75,7 +134,7 @@ class UsFcInventoryController extends Controller
             ->selectRaw('sum(us_fc_inventories.quantity_available) as qty')
             ->selectRaw('max(us_fc_inventories.report_date) as data_date')
             ->when($reportDate !== '', fn ($q) => $q->whereDate('us_fc_inventories.report_date', '=', $reportDate))
-            ->when($sku !== '', fn ($q) => $q->where('us_fc_inventories.seller_sku', 'like', '%' . $sku . '%'))
+            ->when(!empty($skuSelection), fn ($q) => $q->whereIn('us_fc_inventories.seller_sku', $skuSelection))
             ->when($asin !== '', fn ($q) => $q->where('us_fc_inventories.asin', 'like', '%' . $asin . '%'))
             ->groupBy(DB::raw('coalesce(loc.state, "Unknown")'))
             ->orderBy('state')
@@ -90,7 +149,7 @@ class UsFcInventoryController extends Controller
             ->selectRaw('count(*) as row_count')
             ->selectRaw('max(us_fc_inventories.report_date) as data_date')
             ->when($reportDate !== '', fn ($q) => $q->whereDate('us_fc_inventories.report_date', '=', $reportDate))
-            ->when($sku !== '', fn ($q) => $q->where('us_fc_inventories.seller_sku', 'like', '%' . $sku . '%'))
+            ->when(!empty($skuSelection), fn ($q) => $q->whereIn('us_fc_inventories.seller_sku', $skuSelection))
             ->when($asin !== '', fn ($q) => $q->where('us_fc_inventories.asin', 'like', '%' . $asin . '%'))
             ->when($state !== '', fn ($q) => $q->whereRaw('upper(coalesce(loc.state, "")) = ?', [$state]))
             ->when($q !== '', function ($query) use ($q) {
@@ -108,6 +167,29 @@ class UsFcInventoryController extends Controller
             ->orderByRaw('coalesce(loc.city, "ZZZZZZ") asc')
             ->orderBy('us_fc_inventories.fulfillment_center_id')
             ->get();
+
+        $skuOptionsQuery = UsFcInventory::query()
+            ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
+            ->select('us_fc_inventories.seller_sku')
+            ->whereNotNull('us_fc_inventories.seller_sku')
+            ->whereRaw('trim(us_fc_inventories.seller_sku) <> ""');
+
+        if ($reportDate !== '') {
+            $skuOptionsQuery->whereDate('us_fc_inventories.report_date', '=', $reportDate);
+        }
+        if ($asin !== '') {
+            $skuOptionsQuery->where('us_fc_inventories.asin', 'like', '%' . $asin . '%');
+        }
+        if ($state !== '') {
+            $skuOptionsQuery->whereRaw('upper(coalesce(loc.state, "")) = ?', [$state]);
+        }
+
+        $skuOptions = $skuOptionsQuery
+            ->distinct()
+            ->orderBy('us_fc_inventories.seller_sku')
+            ->pluck('us_fc_inventories.seller_sku')
+            ->values()
+            ->all();
 
         $hashByFc = [];
         foreach ($fcSummary as $row) {
@@ -165,13 +247,16 @@ class UsFcInventoryController extends Controller
 
         return view('inventory.us_fc', [
             'rows' => $rows,
+            'hierarchy' => $hierarchy,
             'summary' => $summary,
             'fcSummary' => $fcSummary,
             'fcMapPoints' => $fcMapPoints,
             'search' => $q,
-            'sku' => $sku,
+            'skuSelection' => $skuSelection,
+            'skuOptions' => $skuOptions,
             'asin' => $asin,
             'state' => $state,
+            'perPage' => $perPageInput === 'all' ? 'all' : (string) $perPage,
             'reportDate' => $reportDate,
             'latestReportDate' => $latestReportDate,
         ]);
