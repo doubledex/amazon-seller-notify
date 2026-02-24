@@ -153,6 +153,65 @@
     </div>
 
     @if (count($mapPoints) > 0)
+        <style>
+            /* Leaflet fallback styles in case CDN stylesheet is restricted by browser tracking protection. */
+            .leaflet-container { overflow: hidden; position: relative; outline: 0; }
+            .leaflet-pane,
+            .leaflet-tile,
+            .leaflet-marker-icon,
+            .leaflet-marker-shadow,
+            .leaflet-tile-container,
+            .leaflet-pane > svg,
+            .leaflet-pane > canvas,
+            .leaflet-zoom-box,
+            .leaflet-image-layer,
+            .leaflet-layer { position: absolute; left: 0; top: 0; }
+            .leaflet-pane > svg { overflow: hidden; }
+            .leaflet-tile,
+            .leaflet-marker-icon,
+            .leaflet-marker-shadow { user-select: none; -webkit-user-drag: none; }
+            .leaflet-tile::selection { background: transparent; }
+            .leaflet-tile { visibility: inherit; }
+            .leaflet-map-pane { z-index: 400; }
+            .leaflet-tile-pane { z-index: 200; }
+            .leaflet-overlay-pane { z-index: 400; }
+            .leaflet-shadow-pane { z-index: 500; }
+            .leaflet-marker-pane { z-index: 600; }
+            .leaflet-tooltip-pane { z-index: 650; }
+            .leaflet-popup-pane { z-index: 700; }
+            .leaflet-control { position: relative; z-index: 800; pointer-events: auto; }
+            .leaflet-top, .leaflet-bottom { position: absolute; z-index: 1000; pointer-events: none; }
+            .leaflet-top { top: 0; }
+            .leaflet-right { right: 0; }
+            .leaflet-bottom { bottom: 0; }
+            .leaflet-left { left: 0; }
+            .leaflet-control-zoom a {
+                display: block;
+                width: 26px;
+                height: 26px;
+                line-height: 26px;
+                text-align: center;
+                text-decoration: none;
+                color: #222;
+                background: #fff;
+                border-bottom: 1px solid #ccc;
+            }
+            .leaflet-control-zoom a:last-child { border-bottom: 0; }
+            .leaflet-control-zoom {
+                border: 1px solid rgba(0,0,0,0.2);
+                border-radius: 4px;
+                box-shadow: 0 1px 5px rgba(0,0,0,0.65);
+                background: #fff;
+                margin: 10px;
+            }
+            .leaflet-popup-content-wrapper {
+                background: #fff;
+                color: #333;
+                box-shadow: 0 3px 14px rgba(0,0,0,0.4);
+                border-radius: 12px;
+            }
+            .leaflet-popup-content { margin: 12px 14px; }
+        </style>
         <link
             rel="stylesheet"
             href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -172,11 +231,19 @@
 
                 const maxQty = points.reduce((max, p) => Math.max(max, Number(p.qty || 0)), 1);
                 const bounds = [];
+                let invalidPoints = 0;
 
                 for (const p of points) {
+                    const lat = Number(p.lat);
+                    const lng = Number(p.lng);
+                    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+                        invalidPoints++;
+                        continue;
+                    }
+
                     const qty = Number(p.qty || 0);
                     const radius = Math.max(6, Math.min(24, 6 + (qty / maxQty) * 18));
-                    const marker = L.circleMarker([p.lat, p.lng], {
+                    const marker = L.circleMarker([lat, lng], {
                         radius,
                         weight: 1,
                         color: '#0b2a4a',
@@ -192,10 +259,11 @@
                         `Data Date: ${p.data_date || 'N/A'}`
                     );
 
-                    bounds.push([p.lat, p.lng]);
+                    bounds.push([lat, lng]);
                 }
 
                 console.log('[US FC MAP] bounds count', bounds.length);
+                console.log('[US FC MAP] invalid points skipped', invalidPoints);
 
                 if (bounds.length > 1) {
                     map.fitBounds(bounds, { padding: [24, 24] });
