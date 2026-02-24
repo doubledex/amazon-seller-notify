@@ -64,6 +64,7 @@ class UsFcInventoryController extends Controller
             ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
             ->selectRaw('coalesce(loc.state, "Unknown") as state')
             ->selectRaw('sum(us_fc_inventories.quantity_available) as qty')
+            ->selectRaw('max(us_fc_inventories.report_date) as data_date')
             ->when($reportDate !== '', fn ($q) => $q->whereDate('us_fc_inventories.report_date', '=', $reportDate))
             ->groupBy(DB::raw('coalesce(loc.state, "Unknown")'))
             ->orderBy('state')
@@ -76,6 +77,7 @@ class UsFcInventoryController extends Controller
             ->selectRaw('coalesce(loc.state, "Unknown") as state')
             ->selectRaw('sum(us_fc_inventories.quantity_available) as qty')
             ->selectRaw('count(*) as row_count')
+            ->selectRaw('max(us_fc_inventories.report_date) as data_date')
             ->when($reportDate !== '', fn ($q) => $q->whereDate('us_fc_inventories.report_date', '=', $reportDate))
             ->when($state !== '', fn ($q) => $q->whereRaw('upper(coalesce(loc.state, "")) = ?', [$state]))
             ->when($q !== '', function ($query) use ($q) {

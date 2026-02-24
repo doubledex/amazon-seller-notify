@@ -298,7 +298,12 @@ class ReportJobOrchestrator
     {
         $normalized = is_array($reportOptions) ? $reportOptions : [];
         if ($reportType === 'GET_LEDGER_SUMMARY_VIEW_DATA') {
-            $normalized['aggregateByLocation'] = 'LOCAL';
+            // Canonicalize report option keys expected by SP-API.
+            if (array_key_exists('aggregateByLocation', $normalized) && !array_key_exists('aggregatedByLocation', $normalized)) {
+                $normalized['aggregatedByLocation'] = $normalized['aggregateByLocation'];
+            }
+            $normalized['aggregatedByLocation'] = 'LOCAL';
+            unset($normalized['aggregateByLocation']);
             unset($normalized['aggregateByTimePeriod']);
             $normalized['aggregatedByTimePeriod'] = 'DAILY';
         }
@@ -335,8 +340,8 @@ class ReportJobOrchestrator
             return [[$dataStartTime, $dataEndTime]];
         }
 
-        $aggregateByLocation = strtoupper(trim((string) ($reportOptions['aggregateByLocation'] ?? '')));
-        $requiresChunking = $reportType === 'GET_LEDGER_SUMMARY_VIEW_DATA' && $aggregateByLocation === 'LOCAL';
+        $aggregatedByLocation = strtoupper(trim((string) ($reportOptions['aggregatedByLocation'] ?? '')));
+        $requiresChunking = $reportType === 'GET_LEDGER_SUMMARY_VIEW_DATA' && $aggregatedByLocation === 'LOCAL';
         if (!$requiresChunking) {
             return [[$dataStartTime, $dataEndTime]];
         }

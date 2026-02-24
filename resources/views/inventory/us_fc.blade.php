@@ -39,6 +39,7 @@
                         <th class="text-left">FC ID</th>
                         <th class="text-left">City</th>
                         <th class="text-left">State</th>
+                        <th class="text-left">Data Date</th>
                         <th class="text-right">Rows</th>
                         <th class="text-right">Quantity</th>
                     </tr>
@@ -49,11 +50,12 @@
                             <td>{{ $row->fc }}</td>
                             <td>{{ $row->city }}</td>
                             <td>{{ $row->state }}</td>
+                            <td>{{ $row->data_date ?? 'N/A' }}</td>
                             <td class="text-right">{{ number_format((int) $row->row_count) }}</td>
                             <td class="text-right">{{ number_format((int) $row->qty) }}</td>
                         </tr>
                     @empty
-                        <tr><td colspan="5">No data.</td></tr>
+                        <tr><td colspan="6">No data.</td></tr>
                     @endforelse
                     </tbody>
                 </table>
@@ -65,6 +67,7 @@
                     <thead>
                     <tr>
                         <th class="text-left">State</th>
+                        <th class="text-left">Data Date</th>
                         <th class="text-right">Quantity</th>
                     </tr>
                     </thead>
@@ -72,10 +75,11 @@
                     @forelse($summary as $row)
                         <tr>
                             <td>{{ $row->state }}</td>
+                            <td>{{ $row->data_date ?? 'N/A' }}</td>
                             <td class="text-right">{{ number_format((int) $row->qty) }}</td>
                         </tr>
                     @empty
-                        <tr><td colspan="2">No data.</td></tr>
+                        <tr><td colspan="3">No data.</td></tr>
                     @endforelse
                     </tbody>
                 </table>
