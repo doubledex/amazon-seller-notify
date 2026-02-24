@@ -8,12 +8,15 @@ use App\Services\ReportJobs\MarketplaceListingsReportJobProcessor;
 use App\Services\ReportJobs\ReportJobProcessor;
 use App\Services\ReportJobs\UsFcInventoryReportJobProcessor;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use SellingPartnerApi\Seller\ReportsV20210630\Dto\CreateReportSpecification;
 use SellingPartnerApi\SellingPartnerApi;
 
 class ReportJobOrchestrator
 {
     public const PROVIDER_SP_API_SELLER = 'sp_api_seller';
+    private const US_FC_SUMMARY_TYPE = 'GET_LEDGER_SUMMARY_VIEW_DATA';
+    private const US_FC_SUMMARY_MAX_BACKFILL_DAYS = 14;
 
     private const DEFAULT_POLL_DELAY_SECONDS = 30;
     private const EU_COUNTRY_CODES = ['BE', 'DE', 'ES', 'FR', 'GB', 'IE', 'IT', 'NL', 'PL', 'SE'];
@@ -173,7 +176,8 @@ class ReportJobOrchestrator
                 }
 
                 $rows = is_array($download['rows'] ?? null) ? $download['rows'] : [];
-                $job->rows_parsed = count($rows);
+                $rowCount = count($rows);
+                $job->rows_parsed = $rowCount;
                 $job->document_url_sha256 = $download['report_document_url_sha256'] ?? null;
                 $job->debug_payload = [
                     'document_payload' => $download['document_payload'] ?? null,
@@ -185,6 +189,20 @@ class ReportJobOrchestrator
                 $job->status = 'done';
                 $job->completed_at = now();
                 $job->last_error = null;
+                if ($this->isUsFcSummaryJob($job)) {
+                    if ($rowCount > 0) {
+                        $windowDate = $this->reportWindowDate($job);
+                        if ($windowDate) {
+                            Cache::put($this->lastSuccessfulDateCacheKey($job), $windowDate->toDateString(), now()->addDays(30));
+                        }
+                    } else {
+                        $queuedFallback = $this->queuePreviousUsFcSummaryDay($job);
+                        if ($queuedFallback) {
+                            $job->status = 'done_no_data';
+                            $job->last_error = 'No rows returned. Queued previous day fallback.';
+                        }
+                    }
+                }
                 $processed++;
                 $job->save();
                 continue;
@@ -369,5 +387,90 @@ class ReportJobOrchestrator
         }
 
         return !empty($windows) ? $windows : [[$dataStartTime, $dataEndTime]];
+    }
+
+    private function isUsFcSummaryJob(ReportJob $job): bool
+    {
+        return trim((string) $job->processor) === 'us_fc_inventory'
+            && strtoupper(trim((string) $job->report_type)) === self::US_FC_SUMMARY_TYPE;
+    }
+
+    private function reportWindowDate(ReportJob $job): ?Carbon
+    {
+        if (!$job->data_start_time || !$job->data_end_time) {
+            return null;
+        }
+
+        $start = Carbon::instance($job->data_start_time)->startOfDay();
+        $end = Carbon::instance($job->data_end_time)->startOfDay();
+        if (!$start->equalTo($end)) {
+            return null;
+        }
+
+        return $start;
+    }
+
+    private function queuePreviousUsFcSummaryDay(ReportJob $job): bool
+    {
+        if (!$this->isUsFcSummaryJob($job)) {
+            return false;
+        }
+
+        $current = $this->reportWindowDate($job);
+        if (!$current) {
+            return false;
+        }
+
+        $depth = (int) data_get($job->scope, 'empty_backfill_depth', 0);
+        if ($depth >= self::US_FC_SUMMARY_MAX_BACKFILL_DAYS) {
+            return false;
+        }
+
+        $previous = $current->copy()->subDay();
+        $oldestAllowed = Carbon::now('UTC')->subDays(self::US_FC_SUMMARY_MAX_BACKFILL_DAYS + 2)->startOfDay();
+        if ($previous->lessThan($oldestAllowed)) {
+            return false;
+        }
+
+        $exists = ReportJob::query()
+            ->where('provider', self::PROVIDER_SP_API_SELLER)
+            ->where('processor', $job->processor)
+            ->where('region', $job->region)
+            ->where('marketplace_id', $job->marketplace_id)
+            ->where('report_type', $job->report_type)
+            ->whereDate('data_start_time', $previous->toDateString())
+            ->whereDate('data_end_time', $previous->toDateString())
+            ->exists();
+
+        if ($exists) {
+            return false;
+        }
+
+        ReportJob::create([
+            'provider' => self::PROVIDER_SP_API_SELLER,
+            'processor' => $job->processor,
+            'region' => $job->region,
+            'marketplace_id' => $job->marketplace_id,
+            'report_type' => $job->report_type,
+            'status' => 'queued',
+            'scope' => array_merge((array) ($job->scope ?? []), ['empty_backfill_depth' => $depth + 1]),
+            'report_options' => $job->report_options,
+            'data_start_time' => $previous->copy()->startOfDay(),
+            'data_end_time' => $previous->copy()->endOfDay(),
+            'next_poll_at' => now(),
+        ]);
+
+        return true;
+    }
+
+    private function lastSuccessfulDateCacheKey(ReportJob $job): string
+    {
+        return implode(':', [
+            'reports',
+            'last_successful_date',
+            'us_fc_inventory',
+            strtolower((string) $job->region),
+            strtolower((string) $job->marketplace_id),
+        ]);
     }
 }
