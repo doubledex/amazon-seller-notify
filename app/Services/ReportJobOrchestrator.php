@@ -299,7 +299,8 @@ class ReportJobOrchestrator
         $normalized = is_array($reportOptions) ? $reportOptions : [];
         if ($reportType === 'GET_LEDGER_SUMMARY_VIEW_DATA') {
             $normalized['aggregateByLocation'] = 'LOCAL';
-            $normalized['aggregateByTimePeriod'] = 'DAILY';
+            unset($normalized['aggregateByTimePeriod']);
+            $normalized['aggregatedByTimePeriod'] = 'DAILY';
         }
 
         return !empty($normalized) ? $normalized : null;
