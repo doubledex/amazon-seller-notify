@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CityGeo;
 use App\Models\UsFcInventory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -108,10 +109,52 @@ class UsFcInventoryController extends Controller
             ->orderBy('us_fc_inventories.fulfillment_center_id')
             ->get();
 
+        $hashByFc = [];
+        foreach ($fcSummary as $row) {
+            $city = trim((string) ($row->city ?? ''));
+            $region = trim((string) ($row->state ?? ''));
+            if ($city === '' || $region === '' || strtoupper($city) === 'UNKNOWN' || strtoupper($region) === 'UNKNOWN') {
+                continue;
+            }
+            $hashByFc[(string) $row->fc] = CityGeo::lookupHash('US', $city, $region);
+        }
+
+        $geoByHash = CityGeo::query()
+            ->whereIn('lookup_hash', array_values(array_unique(array_values($hashByFc))))
+            ->get(['lookup_hash', 'lat', 'lng'])
+            ->keyBy('lookup_hash');
+
+        $fcMapPoints = [];
+        foreach ($fcSummary as $row) {
+            $fc = (string) $row->fc;
+            $hash = $hashByFc[$fc] ?? null;
+            if (!$hash || !isset($geoByHash[$hash])) {
+                continue;
+            }
+            $geo = $geoByHash[$hash];
+            $lat = (float) $geo->lat;
+            $lng = (float) $geo->lng;
+            if ($lat === 0.0 || $lng === 0.0 || abs($lat) > 90 || abs($lng) > 180) {
+                continue;
+            }
+
+            $fcMapPoints[] = [
+                'fc' => $fc,
+                'city' => (string) $row->city,
+                'state' => (string) $row->state,
+                'qty' => (int) $row->qty,
+                'rows' => (int) $row->row_count,
+                'data_date' => (string) ($row->data_date ?? ''),
+                'lat' => $lat,
+                'lng' => $lng,
+            ];
+        }
+
         return view('inventory.us_fc', [
             'rows' => $rows,
             'summary' => $summary,
             'fcSummary' => $fcSummary,
+            'fcMapPoints' => $fcMapPoints,
             'search' => $q,
             'sku' => $sku,
             'asin' => $asin,

@@ -40,6 +40,20 @@
             </div>
 
             <div class="bg-white dark:bg-gray-800 shadow-sm sm:rounded-lg p-4 overflow-x-auto">
+                <h3 class="font-semibold mb-2">FC Quantity Map</h3>
+                @php
+                    $mapPoints = $fcMapPoints ?? [];
+                @endphp
+                @if (count($mapPoints) > 0)
+                    <div id="us-fc-map" style="height: 520px; width: 100%; border-radius: 8px; overflow: hidden;"></div>
+                @else
+                    <div class="text-sm text-gray-700 dark:text-gray-200">
+                        No geocoded FC points available for the current filters.
+                    </div>
+                @endif
+            </div>
+
+            <div class="bg-white dark:bg-gray-800 shadow-sm sm:rounded-lg p-4 overflow-x-auto">
                 <h3 class="font-semibold mb-2">Quantity by FC (Granular)</h3>
                 <table class="w-full text-sm border-collapse" border="1" cellpadding="6" cellspacing="0">
                     <thead>
@@ -134,4 +148,55 @@
             </div>
         </div>
     </div>
+
+    @if (count($mapPoints) > 0)
+        <link
+            rel="stylesheet"
+            href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+            integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+            crossorigin=""
+        />
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+        <script>
+            (function () {
+                const points = @json($mapPoints);
+                const map = L.map('us-fc-map', { zoomControl: true }).setView([39.8283, -98.5795], 4);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 18,
+                    attribution: '&copy; OpenStreetMap contributors'
+                }).addTo(map);
+
+                const maxQty = points.reduce((max, p) => Math.max(max, Number(p.qty || 0)), 1);
+                const bounds = [];
+
+                for (const p of points) {
+                    const qty = Number(p.qty || 0);
+                    const radius = Math.max(6, Math.min(24, 6 + (qty / maxQty) * 18));
+                    const marker = L.circleMarker([p.lat, p.lng], {
+                        radius,
+                        weight: 1,
+                        color: '#0b2a4a',
+                        fillColor: '#3b82f6',
+                        fillOpacity: 0.8
+                    }).addTo(map);
+
+                    marker.bindPopup(
+                        `<strong>${p.fc}</strong><br>` +
+                        `${p.city}, ${p.state}<br>` +
+                        `Qty: ${qty.toLocaleString()}<br>` +
+                        `Rows: ${Number(p.rows || 0).toLocaleString()}<br>` +
+                        `Data Date: ${p.data_date || 'N/A'}`
+                    );
+
+                    bounds.push([p.lat, p.lng]);
+                }
+
+                if (bounds.length > 1) {
+                    map.fitBounds(bounds, { padding: [24, 24] });
+                } else if (bounds.length === 1) {
+                    map.setView(bounds[0], 8);
+                }
+            })();
+        </script>
+    @endif
 </x-app-layout>
