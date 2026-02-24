@@ -62,7 +62,24 @@
                 <h3 class="font-semibold mb-2">FC Quantity Map</h3>
                 @php
                     $mapPoints = $fcMapPoints ?? [];
+                    $mapTotalQty = 0;
+                    foreach ($mapPoints as $p) {
+                        $mapTotalQty += (int) ($p['qty'] ?? 0);
+                    }
+                    $mapStateCount = count(array_unique(array_map(static fn ($p) => (string) ($p['state'] ?? ''), $mapPoints)));
+                    $mapFcCount = count($mapPoints);
                 @endphp
+                <div class="mb-2 text-sm text-gray-700 dark:text-gray-200">
+                    Total Qty: <strong>{{ number_format($mapTotalQty) }}</strong>
+                    <span class="mx-2">|</span>
+                    States on page: <strong>{{ number_format($mapStateCount) }}</strong>
+                    <span class="mx-2">|</span>
+                    FCs on page: <strong>{{ number_format($mapFcCount) }}</strong>
+                    <span class="mx-2">|</span>
+                    Detail rows on page: <strong>{{ number_format(count($rows)) }}</strong>
+                    <span class="mx-2">|</span>
+                    Total filtered rows: <strong>{{ number_format($rows->total()) }}</strong>
+                </div>
                 <div class="mb-2 text-sm text-gray-700 dark:text-gray-200">
                     Map points computed: <strong>{{ count($mapPoints) }}</strong>
                 </div>
