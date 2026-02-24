@@ -257,7 +257,24 @@
                     attribution: '&copy; OpenStreetMap contributors'
                 }).addTo(map);
 
-                const clusterGroup = L.markerClusterGroup({ chunkedLoading: true });
+                const clusterGroup = L.markerClusterGroup({
+                    chunkedLoading: true,
+                    iconCreateFunction: function (cluster) {
+                        const childMarkers = cluster.getAllChildMarkers();
+                        const totalQty = childMarkers.reduce((sum, m) => sum + Number(m.options.qty || 0), 0);
+                        let sizeClass = 'marker-cluster-small';
+                        if (totalQty >= 1000) {
+                            sizeClass = 'marker-cluster-large';
+                        } else if (totalQty >= 100) {
+                            sizeClass = 'marker-cluster-medium';
+                        }
+                        return L.divIcon({
+                            html: `<div><span>${Number(totalQty).toLocaleString()}</span></div>`,
+                            className: `marker-cluster ${sizeClass}`,
+                            iconSize: L.point(40, 40),
+                        });
+                    }
+                });
                 map.addLayer(clusterGroup);
 
                 const bounds = [];
@@ -272,7 +289,7 @@
                     }
 
                     const qty = Number(p.qty || 0);
-                    const marker = L.marker([lat, lng]);
+                    const marker = L.marker([lat, lng], { qty });
 
                     marker.bindPopup(
                         `<strong>${p.fc}</strong><br>` +
