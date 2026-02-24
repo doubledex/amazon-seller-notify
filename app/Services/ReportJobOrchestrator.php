@@ -316,15 +316,9 @@ class ReportJobOrchestrator
     {
         $normalized = is_array($reportOptions) ? $reportOptions : [];
         if ($reportType === 'GET_LEDGER_SUMMARY_VIEW_DATA') {
-            // Canonicalize report option keys expected by SP-API.
-            if (array_key_exists('aggregateByLocation', $normalized) && !array_key_exists('aggregatedByLocation', $normalized)) {
-                $normalized['aggregatedByLocation'] = $normalized['aggregateByLocation'];
-            }
-            if (array_key_exists('aggregatedByLocation', $normalized) && !array_key_exists('aggregateByLocation', $normalized)) {
-                $normalized['aggregateByLocation'] = $normalized['aggregatedByLocation'];
-            }
-            $normalized['aggregatedByLocation'] = 'LOCAL';
+            // Use the key path that returns FC-level summary rows consistently in this tenant.
             $normalized['aggregateByLocation'] = 'LOCAL';
+            unset($normalized['aggregatedByLocation']);
             unset($normalized['aggregateByTimePeriod']);
             $normalized['aggregatedByTimePeriod'] = 'DAILY';
         }
