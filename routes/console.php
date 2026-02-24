@@ -53,4 +53,10 @@ Schedule::call(function () {
     ]);
 })->daily()->name('ads:queue-reports-7to30d-daily')->withoutOverlapping();
 Schedule::command('ads:poll-reports --limit=200 --refresh-metrics=1')->everyFiveMinutes()->withoutOverlapping();
+Schedule::call(function () {
+    Artisan::call('metrics:refresh', [
+        '--from' => now()->subDays(2)->toDateString(),
+        '--to' => now()->toDateString(),
+    ]);
+})->everyFifteenMinutes()->name('metrics-refresh-recent-15m')->withoutOverlapping();
 Schedule::command('metrics:refresh')->dailyAt('05:00')->withoutOverlapping();
