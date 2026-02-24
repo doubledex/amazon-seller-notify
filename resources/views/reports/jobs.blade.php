@@ -7,7 +7,18 @@
 
     <div class="py-6">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-4">
+            @if (session('status'))
+                <div class="rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800">
+                    {{ session('status') }}
+                </div>
+            @endif
+            @if (session('error'))
+                <div class="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
+                    {{ session('error') }}
+                </div>
+            @endif
             <div class="bg-white dark:bg-gray-800 shadow-sm sm:rounded-lg p-4">
+                <div class="flex flex-wrap items-end justify-between gap-3">
                 <form method="GET" action="{{ route('reports.jobs') }}" class="flex flex-wrap items-end gap-3">
                     <div>
                         <label for="scope" class="block text-sm font-medium mb-1">Scope</label>
@@ -43,6 +54,24 @@
                     <button type="submit" class="px-3 py-2 rounded-md border text-sm border-gray-300 bg-white text-gray-700">Apply</button>
                     <a href="{{ route('reports.jobs') }}" class="px-3 py-2 rounded-md border text-sm border-gray-300 bg-white text-gray-700">Clear</a>
                 </form>
+                <form method="POST" action="{{ route('reports.jobs.poll') }}" class="flex items-end gap-2">
+                    @csrf
+                    <input type="hidden" name="scope" value="{{ $scope }}">
+                    <input type="hidden" name="provider" value="{{ $provider !== '' ? $provider : 'sp_api_seller' }}">
+                    <input type="hidden" name="processor" value="{{ $processor }}">
+                    <input type="hidden" name="status" value="{{ $status }}">
+                    <input type="hidden" name="region" value="{{ $region }}">
+                    <input type="hidden" name="marketplace" value="{{ $marketplace }}">
+                    <input type="hidden" name="report_type" value="{{ $reportType }}">
+                    <div>
+                        <label for="limit" class="block text-sm font-medium mb-1">Poll Limit</label>
+                        <input id="limit" name="limit" type="number" min="1" value="100" class="border rounded px-2 py-1 w-24">
+                    </div>
+                    <button type="submit" class="px-3 py-2 rounded-md border text-sm border-blue-300 bg-blue-50 text-blue-700">
+                        Poll now
+                    </button>
+                </form>
+                </div>
             </div>
 
             <div class="bg-white dark:bg-gray-800 shadow-sm sm:rounded-lg p-4 overflow-x-auto">

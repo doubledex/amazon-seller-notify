@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ReportJob;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\ReportJobOrchestrator;
 
 class ReportJobsController extends Controller
 {
@@ -65,5 +66,41 @@ class ReportJobsController extends Controller
             'reportType' => $reportType,
             'scope' => $scope === 'all' ? 'all' : 'outstanding',
         ]);
+    }
+
+    public function pollNow(Request $request, ReportJobOrchestrator $orchestrator)
+    {
+        $provider = strtolower(trim((string) $request->input('provider', ReportJobOrchestrator::PROVIDER_SP_API_SELLER)));
+        if ($provider !== ReportJobOrchestrator::PROVIDER_SP_API_SELLER) {
+            return redirect()
+                ->route('reports.jobs', $request->only(['scope', 'provider', 'processor', 'status', 'region', 'marketplace', 'report_type']))
+                ->with('error', "Unsupported provider '{$provider}'.");
+        }
+
+        $limit = max(1, (int) $request->input('limit', 100));
+        $processor = trim((string) $request->input('processor', ''));
+        $region = trim((string) $request->input('region', ''));
+        $marketplace = trim((string) $request->input('marketplace', ''));
+        $reportType = trim((string) $request->input('report_type', ''));
+
+        $result = $orchestrator->pollSpApiSellerJobs(
+            $limit,
+            $processor !== '' ? $processor : null,
+            $region !== '' ? $region : null,
+            $marketplace !== '' ? [$marketplace] : null,
+            $reportType !== '' ? $reportType : null
+        );
+
+        $message = implode(' ', [
+            'Report polling complete.',
+            'Checked: ' . (int) ($result['checked'] ?? 0),
+            'Processed: ' . (int) ($result['processed'] ?? 0),
+            'Failed: ' . (int) ($result['failed'] ?? 0),
+            'Outstanding: ' . (int) ($result['outstanding'] ?? 0),
+        ]);
+
+        return redirect()
+            ->route('reports.jobs', $request->only(['scope', 'provider', 'processor', 'status', 'region', 'marketplace', 'report_type']))
+            ->with('status', $message);
     }
 }

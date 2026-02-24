@@ -53,6 +53,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/ads/reports', [AdsReportController::class, 'index'])->name('ads.reports');
     Route::post('/ads/reports/poll-now', [AdsReportController::class, 'pollNow'])->name('ads.reports.poll');
     Route::get('/reports/jobs', [ReportJobsController::class, 'index'])->name('reports.jobs');
+    Route::post('/reports/jobs/poll-now', [ReportJobsController::class, 'pollNow'])->name('reports.jobs.poll');
     Route::get('/inventory/us-fc', [UsFcInventoryController::class, 'index'])->name('inventory.us_fc');
     Route::get('/products', [ProductController::class, 'index'])->name('products.index');
     Route::post('/products', [ProductController::class, 'store'])->name('products.store');
