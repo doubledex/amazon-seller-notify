@@ -2,7 +2,7 @@
 
 namespace App\Console\Commands;
 
-use App\Services\MarketplaceListingsSyncService;
+use App\Services\ReportJobOrchestrator;
 use Illuminate\Console\Command;
 
 class PollMarketplaceListingReports extends Command
@@ -10,19 +10,19 @@ class PollMarketplaceListingReports extends Command
     protected $signature = 'listings:poll-reports {--limit=100} {--marketplace=* : Optional marketplace IDs} {--report-type=GET_MERCHANT_LISTINGS_ALL_DATA : SP-API report type} {--region= : Optional SP-API region (EU|NA|FE)}';
     protected $description = 'Poll queued SP-API listing reports and ingest completed report documents.';
 
-    public function handle(MarketplaceListingsSyncService $service): int
+    public function handle(ReportJobOrchestrator $orchestrator): int
     {
         $limit = max(1, (int) $this->option('limit'));
         $marketplaces = array_values(array_filter(array_map('strval', (array) $this->option('marketplace'))));
         $reportType = trim((string) $this->option('report-type'));
         $region = $this->option('region') ? (string) $this->option('region') : null;
 
-        $result = $service->pollQueuedReports(
+        $result = $orchestrator->pollSpApiSellerJobs(
             $limit,
+            'marketplace_listings',
+            $region,
             $marketplaces ?: null,
-            $reportType !== '' ? $reportType : MarketplaceListingsSyncService::DEFAULT_REPORT_TYPE,
-            null,
-            $region
+            $reportType !== '' ? $reportType : null
         );
 
         $this->info('SP-API listings report polling complete.');
