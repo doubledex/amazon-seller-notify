@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\DB;
 
 class UsFcInventoryController extends Controller
 {
+    private const MAX_PER_PAGE_ALL = 1000;
+
     public function index(Request $request)
     {
         $q = trim((string) $request->query('q', ''));
@@ -67,10 +69,14 @@ class UsFcInventoryController extends Controller
 
         $countQuery = clone $query;
         $totalRows = (int) $countQuery->count();
+        $perPageCapped = false;
         $perPage = match ($perPageInput) {
-            'all' => max(1, $totalRows),
+            'all' => max(1, min(self::MAX_PER_PAGE_ALL, $totalRows)),
             default => max(25, min(1000, (int) $perPageInput ?: 100)),
         };
+        if ($perPageInput === 'all' && $totalRows > self::MAX_PER_PAGE_ALL) {
+            $perPageCapped = true;
+        }
 
         $rows = $query
             ->orderByRaw('coalesce(loc.state, "ZZ") asc')
@@ -257,6 +263,8 @@ class UsFcInventoryController extends Controller
             'asin' => $asin,
             'state' => $stateFilter,
             'perPage' => $perPageInput === 'all' ? 'all' : (string) $perPage,
+            'perPageCapped' => $perPageCapped,
+            'perPageCap' => self::MAX_PER_PAGE_ALL,
             'reportDate' => $reportDate,
             'latestReportDate' => $latestReportDate,
         ]);

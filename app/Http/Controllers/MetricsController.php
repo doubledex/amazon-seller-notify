@@ -2,13 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\FxRateService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 
 class MetricsController extends Controller
 {
-    public function index(Request $request)
+    public function index(Request $request, FxRateService $fxRateService)
     {
         $fromInput = $request->input('from');
         $toInput = $request->input('to');
@@ -49,39 +50,149 @@ class MetricsController extends Controller
             $byDate[$date][] = $row;
         }
 
+        $metricDateExpr = "COALESCE(orders.purchase_date_local_date, DATE(orders.purchase_date))";
+        $countrySalesRows = DB::table('orders')
+            ->join('marketplaces', 'marketplaces.id', '=', 'orders.marketplace_id')
+            ->selectRaw("
+                {$metricDateExpr} as metric_date,
+                UPPER(COALESCE(marketplaces.country_code, '')) as country_code,
+                COALESCE(
+                    NULLIF(orders.order_net_ex_tax_currency, ''),
+                    NULLIF(orders.order_total_currency, ''),
+                    NULLIF(marketplaces.default_currency, ''),
+                    'GBP'
+                ) as currency,
+                SUM(
+                    CASE
+                        WHEN COALESCE(orders.order_net_ex_tax, 0) > 0 THEN orders.order_net_ex_tax
+                        ELSE COALESCE(orders.order_total_amount, 0)
+                    END
+                ) as sales_amount,
+                COUNT(*) as order_count
+            ")
+            ->whereRaw("{$metricDateExpr} >= ?", [$from])
+            ->whereRaw("{$metricDateExpr} <= ?", [$to])
+            ->whereRaw("UPPER(COALESCE(orders.order_status, '')) NOT IN ('CANCELED', 'CANCELLED')")
+            ->groupByRaw("
+                {$metricDateExpr},
+                UPPER(COALESCE(marketplaces.country_code, '')),
+                COALESCE(NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(orders.order_total_currency, ''), NULLIF(marketplaces.default_currency, ''), 'GBP')
+            ")
+            ->get();
+
+        $countryByDateRegion = [];
+        foreach ($countrySalesRows as $row) {
+            $date = (string) ($row->metric_date ?? '');
+            $country = $this->normalizeMarketplaceCode((string) ($row->country_code ?? ''));
+            if ($date === '' || $country === '') {
+                continue;
+            }
+
+            $region = $this->regionForCountry($country);
+            $currency = strtoupper((string) ($row->currency ?? 'GBP'));
+            $salesLocal = (float) ($row->sales_amount ?? 0);
+            $salesGbp = $fxRateService->convert($salesLocal, $currency, 'GBP', $date) ?? 0.0;
+            $key = $date . '|' . $region . '|' . $country;
+
+            if (!isset($countryByDateRegion[$key])) {
+                $countryByDateRegion[$key] = [
+                    'date' => $date,
+                    'region' => $region,
+                    'country' => $country,
+                    'currency' => $currency,
+                    'sales_local' => 0.0,
+                    'sales_gbp' => 0.0,
+                    'order_count' => 0,
+                ];
+            }
+
+            $countryByDateRegion[$key]['sales_local'] += $salesLocal;
+            $countryByDateRegion[$key]['sales_gbp'] += $salesGbp;
+            $countryByDateRegion[$key]['order_count'] += (int) ($row->order_count ?? 0);
+        }
+
         $dailyRows = [];
         foreach ($byDate as $date => $rows) {
             $items = [];
             $totalSalesGbp = 0.0;
             $totalAdGbp = 0.0;
             $totalOrders = 0;
+            $regionRows = [];
 
             foreach ($rows as $row) {
-                $currency = strtoupper((string) ($row->local_currency ?? 'GBP'));
                 $salesGbp = (float) ($row->sales_gbp ?? 0);
                 $adGbp = (float) ($row->ad_spend_gbp ?? 0);
                 $totalSalesGbp += $salesGbp;
                 $totalAdGbp += $adGbp;
                 $totalOrders += (int) ($row->order_count ?? 0);
+                $regionRows[] = $row;
+            }
 
-                $items[] = [
-                    'date' => $date,
-                    'country' => strtoupper((string) ($row->region ?? '')),
-                    'currency' => $currency,
-                    'currency_symbol' => $this->currencySymbol($currency),
-                    'sales_local' => (float) ($row->sales_local ?? 0),
-                    'sales_gbp' => $salesGbp,
-                    'order_count' => (int) ($row->order_count ?? 0),
-                    'units' => 0,
-                    'ad_local' => (float) ($row->ad_spend_local ?? 0),
-                    'ad_gbp' => $adGbp,
-                    'fees_local' => 0.0,
-                    'fees_gbp' => 0.0,
-                    'estimated_fee_data' => false,
-                    'pending_sales_data' => false,
-                    'estimated_sales_data' => false,
-                    'acos_percent' => $salesGbp > 0 ? ($adGbp / $salesGbp) * 100 : null,
-                ];
+            foreach ($regionRows as $regionRow) {
+                $region = strtoupper((string) ($regionRow->region ?? ''));
+                $regionAdLocal = (float) ($regionRow->ad_spend_local ?? 0);
+                $regionAdGbp = (float) ($regionRow->ad_spend_gbp ?? 0);
+                $regionCountryRows = array_values(array_filter(
+                    $countryByDateRegion,
+                    fn (array $r): bool => $r['date'] === $date && $r['region'] === $region
+                ));
+                $regionCountrySalesGbp = 0.0;
+                foreach ($regionCountryRows as $regionCountryRow) {
+                    $regionCountrySalesGbp += (float) ($regionCountryRow['sales_gbp'] ?? 0);
+                }
+
+                foreach ($regionCountryRows as $regionCountryRow) {
+                    $ratio = $regionCountrySalesGbp > 0 ? ((float) $regionCountryRow['sales_gbp'] / $regionCountrySalesGbp) : 0.0;
+                    $adLocal = $regionAdLocal * $ratio;
+                    $adGbp = $regionAdGbp * $ratio;
+                    $currency = strtoupper((string) ($regionCountryRow['currency'] ?? 'GBP'));
+                    $salesGbp = (float) ($regionCountryRow['sales_gbp'] ?? 0);
+
+                    $items[] = [
+                        'date' => $date,
+                        'country' => (string) ($regionCountryRow['country'] ?? $region),
+                        'currency' => $currency,
+                        'currency_symbol' => $this->currencySymbol($currency),
+                        'sales_local' => (float) ($regionCountryRow['sales_local'] ?? 0),
+                        'sales_gbp' => $salesGbp,
+                        'order_count' => (int) ($regionCountryRow['order_count'] ?? 0),
+                        'units' => 0,
+                        'ad_local' => $adLocal,
+                        'ad_gbp' => $adGbp,
+                        'fees_local' => 0.0,
+                        'fees_gbp' => 0.0,
+                        'estimated_fee_data' => false,
+                        'pending_sales_data' => false,
+                        'estimated_sales_data' => false,
+                        'acos_percent' => $salesGbp > 0 ? ($adGbp / $salesGbp) * 100 : null,
+                    ];
+                }
+            }
+
+            if (empty($items)) {
+                foreach ($regionRows as $row) {
+                    $currency = strtoupper((string) ($row->local_currency ?? 'GBP'));
+                    $salesGbp = (float) ($row->sales_gbp ?? 0);
+                    $adGbp = (float) ($row->ad_spend_gbp ?? 0);
+                    $items[] = [
+                        'date' => $date,
+                        'country' => strtoupper((string) ($row->region ?? '')),
+                        'currency' => $currency,
+                        'currency_symbol' => $this->currencySymbol($currency),
+                        'sales_local' => (float) ($row->sales_local ?? 0),
+                        'sales_gbp' => $salesGbp,
+                        'order_count' => (int) ($row->order_count ?? 0),
+                        'units' => 0,
+                        'ad_local' => (float) ($row->ad_spend_local ?? 0),
+                        'ad_gbp' => $adGbp,
+                        'fees_local' => 0.0,
+                        'fees_gbp' => 0.0,
+                        'estimated_fee_data' => false,
+                        'pending_sales_data' => false,
+                        'estimated_sales_data' => false,
+                        'acos_percent' => $salesGbp > 0 ? ($adGbp / $salesGbp) * 100 : null,
+                    ];
+                }
             }
 
             usort($items, fn ($a, $b) => strcmp((string) $a['country'], (string) $b['country']));
@@ -224,6 +335,29 @@ class MetricsController extends Controller
         }
 
         return $query->orderByDesc('id')->value($column);
+    }
+
+    private function normalizeMarketplaceCode(string $countryCode): string
+    {
+        $code = strtoupper(trim($countryCode));
+        if ($code === 'UK') {
+            return 'GB';
+        }
+
+        return $code;
+    }
+
+    private function regionForCountry(string $countryCode): string
+    {
+        $code = strtoupper(trim($countryCode));
+        if (in_array($code, ['GB', 'UK'], true)) {
+            return 'UK';
+        }
+        if (in_array($code, ['US', 'CA', 'MX', 'BR'], true)) {
+            return 'NA';
+        }
+
+        return 'EU';
     }
 
     private function formatRefreshTime($value): string
