@@ -84,6 +84,9 @@ class UsFcInventoryReportJobProcessor implements ReportJobProcessor
         $fc = $this->pick($flat, ['fulfillment-center-id', 'fulfillment_center_id', 'fulfillment center id', 'fulfillmentcenterid']);
         if ($fc === '') {
             $fc = $this->pick($flat, [
+                'fulfillment center',
+                'fulfillment-center',
+                'fulfillment_center',
                 'warehouse-id',
                 'warehouse_id',
                 'warehouse id',
@@ -98,10 +101,10 @@ class UsFcInventoryReportJobProcessor implements ReportJobProcessor
             ]);
         }
 
-        $sku = $this->pick($flat, ['seller-sku', 'seller_sku', 'sku', 'merchant-sku', 'merchant_sku', 'merchant sku']);
+        $sku = $this->pick($flat, ['seller-sku', 'seller_sku', 'sku', 'merchant-sku', 'merchant_sku', 'merchant sku', 'msku']);
         $asin = $this->pick($flat, ['asin']);
         $fnsku = $this->pick($flat, ['fnsku']);
-        $condition = $this->pick($flat, ['condition', 'item-condition', 'item_condition']);
+        $condition = $this->pick($flat, ['condition', 'item-condition', 'item_condition', 'disposition']);
         $qtyRaw = $this->pick($flat, [
             'quantity',
             'afn-fulfillable-quantity',
