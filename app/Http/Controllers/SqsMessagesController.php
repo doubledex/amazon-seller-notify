@@ -9,6 +9,7 @@ use App\Services\RegionConfigService;
 use App\Services\MarketplaceService;
 use Illuminate\Support\Facades\Log;
 use App\Services\SqsMessageProcessor;
+use App\Services\SpApiReportLifecycleService;
 
 class SqsMessagesController extends Controller
 {
@@ -57,7 +58,7 @@ class SqsMessagesController extends Controller
         }
     }
 
-    public function downloadReportDocument(int $id)
+    public function downloadReportDocument(int $id, SpApiReportLifecycleService $reportLifecycle)
     {
         $message = SqsMessage::findOrFail($id);
         $report = $this->extractReportDocumentData($message);
@@ -99,17 +100,15 @@ class SqsMessagesController extends Controller
                     endpoint: $regionService->spApiEndpointEnum($region)
                 );
 
-                $response = $connector
-                    ->reportsV20210630()
-                    ->getReportDocument($reportDocumentId, $reportType);
-
-                if ($response->status() >= 400) {
-                    $lastError = "HTTP {$response->status()}";
+                $reportsApi = $connector->reportsV20210630();
+                $meta = $reportLifecycle->getReportDocumentMetadata($reportsApi, $reportDocumentId, $reportType);
+                if (!($meta['ok'] ?? false)) {
+                    $lastError = (string) ($meta['error'] ?? 'Unable to fetch report document metadata.');
                     continue;
                 }
 
                 if ($format === 'raw') {
-                    $url = trim((string) ($response->json('url') ?? ''));
+                    $url = trim((string) ($meta['document_url'] ?? ''));
                     if ($url === '') {
                         $lastError = 'Report document URL missing in SP-API response.';
                         continue;
@@ -118,9 +117,12 @@ class SqsMessagesController extends Controller
                     return redirect()->away($url);
                 }
 
-                $document = $response->dto();
-                $downloaded = $document->download($reportType);
-                $rows = $this->normalizeDownloadedReportRows($downloaded);
+                $download = $reportLifecycle->downloadReportRows($reportsApi, $reportDocumentId, $reportType);
+                if (!($download['ok'] ?? false)) {
+                    $lastError = (string) ($download['error'] ?? 'Unable to download report document.');
+                    continue;
+                }
+                $rows = is_array($download['rows'] ?? null) ? $download['rows'] : [];
 
                 if ($format === 'csv') {
                     $csv = $this->rowsToCsv($rows);
@@ -223,62 +225,6 @@ class SqsMessagesController extends Controller
         return [$documentId, $reportType];
     }
 
-    private function normalizeDownloadedReportRows(mixed $downloaded): array
-    {
-        if (is_array($downloaded)) {
-            $isList = array_is_list($downloaded);
-            if ($isList) {
-                $rows = [];
-                foreach ($downloaded as $row) {
-                    if (is_array($row)) {
-                        $rows[] = $this->flattenArray($row);
-                    }
-                }
-                return $rows;
-            }
-
-            return [$this->flattenArray($downloaded)];
-        }
-
-        if (is_string($downloaded)) {
-            return $this->parseDelimitedStringRows($downloaded);
-        }
-
-        return [];
-    }
-
-    private function parseDelimitedStringRows(string $content): array
-    {
-        $lines = preg_split('/\r\n|\n|\r/', trim($content));
-        if (!$lines || count($lines) < 1) {
-            return [];
-        }
-
-        $first = $lines[0];
-        $delimiter = str_contains($first, "\t") ? "\t" : ',';
-        $headers = str_getcsv($first, $delimiter);
-        $headers = array_map(fn ($h) => trim((string) $h), $headers);
-
-        $rows = [];
-        for ($i = 1; $i < count($lines); $i++) {
-            $line = trim((string) $lines[$i]);
-            if ($line === '') {
-                continue;
-            }
-
-            $values = str_getcsv($line, $delimiter);
-            $row = [];
-            foreach ($headers as $index => $header) {
-                if ($header === '') {
-                    $header = 'col_' . ($index + 1);
-                }
-                $row[$header] = (string) ($values[$index] ?? '');
-            }
-            $rows[] = $row;
-        }
-
-        return $rows;
-    }
 
     private function rowsToCsv(array $rows): string
     {
@@ -358,26 +304,6 @@ class SqsMessagesController extends Controller
 
         $html .= '</tbody></table></body></html>';
         return $html;
-    }
-
-    private function flattenArray(array $input, string $prefix = ''): array
-    {
-        $result = [];
-
-        foreach ($input as $key => $value) {
-            $key = (string) $key;
-            $newKey = $prefix === '' ? $key : $prefix . '.' . $key;
-
-            if (is_array($value)) {
-                $result = array_merge($result, $this->flattenArray($value, $newKey));
-            } else {
-                $result[$newKey] = is_scalar($value) || $value === null
-                    ? (string) ($value ?? '')
-                    : json_encode($value);
-            }
-        }
-
-        return $result;
     }
 
     private function buildDownloadFileName(string $reportType, string $reportDocumentId, string $extension): string

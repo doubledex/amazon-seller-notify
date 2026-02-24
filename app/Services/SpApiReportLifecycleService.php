@@ -153,10 +153,19 @@ class SpApiReportLifecycleService
         string $reportType
     ): array {
         try {
-            $documentResponse = $reportsApi->getReportDocument($reportDocumentId, $reportType);
-            $documentPayload = $documentResponse->json();
-            $documentUrl = trim((string) ($documentPayload['url'] ?? ''));
-            $documentUrlSha256 = $documentUrl !== '' ? hash('sha256', $documentUrl) : null;
+            $meta = $this->getReportDocumentMetadata($reportsApi, $reportDocumentId, $reportType);
+            if (!($meta['ok'] ?? false)) {
+                return [
+                    'ok' => false,
+                    'rows' => [],
+                    'document_payload' => null,
+                    'report_document_url_sha256' => null,
+                    'error' => (string) ($meta['error'] ?? 'Failed to get report document metadata.'),
+                ];
+            }
+            $documentResponse = $meta['response'];
+            $documentPayload = is_array($meta['document_payload'] ?? null) ? $meta['document_payload'] : null;
+            $documentUrlSha256 = $meta['report_document_url_sha256'] ?? null;
 
             $document = $documentResponse->dto();
             $downloaded = $document->download($reportType);
@@ -173,6 +182,36 @@ class SpApiReportLifecycleService
                 'ok' => false,
                 'rows' => [],
                 'document_payload' => null,
+                'report_document_url_sha256' => null,
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    public function getReportDocumentMetadata(
+        object $reportsApi,
+        string $reportDocumentId,
+        string $reportType
+    ): array {
+        try {
+            $documentResponse = $reportsApi->getReportDocument($reportDocumentId, $reportType);
+            $documentPayload = $documentResponse->json();
+            $documentUrl = trim((string) ($documentPayload['url'] ?? ''));
+            $documentUrlSha256 = $documentUrl !== '' ? hash('sha256', $documentUrl) : null;
+
+            return [
+                'ok' => true,
+                'response' => $documentResponse,
+                'document_payload' => $documentPayload,
+                'document_url' => $documentUrl,
+                'report_document_url_sha256' => $documentUrlSha256,
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'ok' => false,
+                'response' => null,
+                'document_payload' => null,
+                'document_url' => null,
                 'report_document_url_sha256' => null,
                 'error' => $e->getMessage(),
             ];
