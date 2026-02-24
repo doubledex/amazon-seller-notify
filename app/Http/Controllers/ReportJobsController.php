@@ -6,6 +6,9 @@ use App\Models\ReportJob;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Services\ReportJobOrchestrator;
+use App\Services\RegionConfigService;
+use App\Services\SpApiReportLifecycleService;
+use SellingPartnerApi\SellingPartnerApi;
 
 class ReportJobsController extends Controller
 {
@@ -102,5 +105,84 @@ class ReportJobsController extends Controller
         return redirect()
             ->route('reports.jobs', $request->only(['scope', 'provider', 'processor', 'status', 'region', 'marketplace', 'report_type']))
             ->with('status', $message);
+    }
+
+    public function downloadCsv(int $id, RegionConfigService $regionConfig, SpApiReportLifecycleService $lifecycle)
+    {
+        $job = ReportJob::query()->findOrFail($id);
+        $documentId = trim((string) ($job->external_document_id ?? ''));
+        if ($documentId === '') {
+            return redirect()
+                ->route('reports.jobs')
+                ->with('error', 'This report job has no report document to download.');
+        }
+
+        $region = strtoupper(trim((string) ($job->region ?? 'NA')));
+        $config = $regionConfig->spApiConfig($region);
+        $connector = SellingPartnerApi::seller(
+            clientId: (string) $config['client_id'],
+            clientSecret: (string) $config['client_secret'],
+            refreshToken: (string) $config['refresh_token'],
+            endpoint: $regionConfig->spApiEndpointEnum($region)
+        );
+
+        $download = $lifecycle->downloadReportRows(
+            $connector->reportsV20210630(),
+            $documentId,
+            (string) $job->report_type
+        );
+        if (!($download['ok'] ?? false)) {
+            return redirect()
+                ->route('reports.jobs')
+                ->with('error', 'Unable to download report rows. ' . (string) ($download['error'] ?? 'Unknown error.'));
+        }
+
+        $rows = is_array($download['rows'] ?? null) ? $download['rows'] : [];
+        $csv = $this->rowsToCsv($rows);
+        $filename = sprintf('report_job_%d_%s.csv', (int) $job->id, preg_replace('/[^A-Za-z0-9_\-]/', '_', (string) $job->report_type));
+
+        return response($csv, 200, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ]);
+    }
+
+    private function rowsToCsv(array $rows): string
+    {
+        if (empty($rows)) {
+            return '';
+        }
+
+        $headers = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            foreach (array_keys($row) as $key) {
+                $headers[(string) $key] = true;
+            }
+        }
+        $headers = array_keys($headers);
+        if (empty($headers)) {
+            return '';
+        }
+
+        $stream = fopen('php://temp', 'r+');
+        fputcsv($stream, $headers, ',', '"', '\\');
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $line = [];
+            foreach ($headers as $header) {
+                $line[] = (string) ($row[$header] ?? '');
+            }
+            fputcsv($stream, $line, ',', '"', '\\');
+        }
+        rewind($stream);
+        $csv = stream_get_contents($stream);
+        fclose($stream);
+
+        return (string) $csv;
     }
 }

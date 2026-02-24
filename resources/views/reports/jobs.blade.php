@@ -115,6 +115,7 @@
                         <th class="text-left">Next Poll</th>
                         <th class="text-left">Completed</th>
                         <th class="text-left">Row Preview</th>
+                        <th class="text-left">Actions</th>
                         <th class="text-left">Last Error</th>
                     </tr>
                     </thead>
@@ -148,10 +149,20 @@
                                     <span class="text-gray-500">n/a</span>
                                 @endif
                             </td>
+                            <td>
+                                @if(!empty($row->external_document_id))
+                                    <a href="{{ route('reports.jobs.download_csv', ['id' => $row->id]) }}"
+                                       class="px-2 py-1 rounded border text-xs border-gray-300 bg-white text-gray-700">
+                                        Download CSV
+                                    </a>
+                                @else
+                                    <span class="text-gray-500">n/a</span>
+                                @endif
+                            </td>
                             <td>{{ $row->last_error }}</td>
                         </tr>
                     @empty
-                        <tr><td colspan="16">No matching report jobs.</td></tr>
+                        <tr><td colspan="17">No matching report jobs.</td></tr>
                     @endforelse
                     </tbody>
                 </table>
