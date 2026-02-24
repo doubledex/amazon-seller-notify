@@ -17,7 +17,7 @@ class UsFcInventoryController extends Controller
             (array) $request->query('sku', [])
         ), static fn ($v) => $v !== ''));
         $asin = strtoupper(trim((string) $request->query('asin', '')));
-        $state = strtoupper(trim((string) $request->query('state', '')));
+        $stateFilter = strtoupper(trim((string) $request->query('state', '')));
         $perPageInput = strtolower(trim((string) $request->query('per_page', '100')));
         $latestReportDate = UsFcInventory::query()->max('report_date');
         $reportDate = trim((string) $request->query('report_date', $latestReportDate ?? ''));
@@ -61,8 +61,8 @@ class UsFcInventoryController extends Controller
             $query->where('us_fc_inventories.asin', 'like', '%' . $asin . '%');
         }
 
-        if ($state !== '') {
-            $query->whereRaw('upper(coalesce(loc.state, "")) = ?', [$state]);
+        if ($stateFilter !== '') {
+            $query->whereRaw('upper(coalesce(loc.state, "")) = ?', [$stateFilter]);
         }
 
         $countQuery = clone $query;
@@ -82,8 +82,8 @@ class UsFcInventoryController extends Controller
 
         $hierarchy = [];
         foreach ($rows->items() as $row) {
-            $state = trim((string) ($row->fc_state ?? ''));
-            $state = $state !== '' ? strtoupper($state) : 'Unknown';
+            $nodeState = trim((string) ($row->fc_state ?? ''));
+            $nodeState = $nodeState !== '' ? strtoupper($nodeState) : 'Unknown';
             $fc = trim((string) ($row->fulfillment_center_id ?? ''));
             $fc = $fc !== '' ? $fc : 'Unknown';
             $city = trim((string) ($row->fc_city ?? ''));
@@ -91,36 +91,36 @@ class UsFcInventoryController extends Controller
             $qty = (int) ($row->quantity_available ?? 0);
             $dataDate = (string) ($row->report_date ?? '');
 
-            if (!isset($hierarchy[$state])) {
-                $hierarchy[$state] = [
-                    'state' => $state,
+            if (!isset($hierarchy[$nodeState])) {
+                $hierarchy[$nodeState] = [
+                    'state' => $nodeState,
                     'qty' => 0,
                     'data_date' => $dataDate,
                     'fcs' => [],
                 ];
             }
-            $hierarchy[$state]['qty'] += $qty;
-            if ($dataDate !== '' && ($hierarchy[$state]['data_date'] === '' || strcmp($dataDate, $hierarchy[$state]['data_date']) > 0)) {
-                $hierarchy[$state]['data_date'] = $dataDate;
+            $hierarchy[$nodeState]['qty'] += $qty;
+            if ($dataDate !== '' && ($hierarchy[$nodeState]['data_date'] === '' || strcmp($dataDate, $hierarchy[$nodeState]['data_date']) > 0)) {
+                $hierarchy[$nodeState]['data_date'] = $dataDate;
             }
 
-            if (!isset($hierarchy[$state]['fcs'][$fc])) {
-                $hierarchy[$state]['fcs'][$fc] = [
+            if (!isset($hierarchy[$nodeState]['fcs'][$fc])) {
+                $hierarchy[$nodeState]['fcs'][$fc] = [
                     'fc' => $fc,
                     'city' => $city,
-                    'state' => $state,
+                    'state' => $nodeState,
                     'qty' => 0,
                     'row_count' => 0,
                     'data_date' => $dataDate,
                     'details' => [],
                 ];
             }
-            $hierarchy[$state]['fcs'][$fc]['qty'] += $qty;
-            $hierarchy[$state]['fcs'][$fc]['row_count']++;
-            if ($dataDate !== '' && ($hierarchy[$state]['fcs'][$fc]['data_date'] === '' || strcmp($dataDate, $hierarchy[$state]['fcs'][$fc]['data_date']) > 0)) {
-                $hierarchy[$state]['fcs'][$fc]['data_date'] = $dataDate;
+            $hierarchy[$nodeState]['fcs'][$fc]['qty'] += $qty;
+            $hierarchy[$nodeState]['fcs'][$fc]['row_count']++;
+            if ($dataDate !== '' && ($hierarchy[$nodeState]['fcs'][$fc]['data_date'] === '' || strcmp($dataDate, $hierarchy[$nodeState]['fcs'][$fc]['data_date']) > 0)) {
+                $hierarchy[$nodeState]['fcs'][$fc]['data_date'] = $dataDate;
             }
-            $hierarchy[$state]['fcs'][$fc]['details'][] = $row;
+            $hierarchy[$nodeState]['fcs'][$fc]['details'][] = $row;
         }
 
         $hierarchy = array_values(array_map(static function (array $stateNode): array {
@@ -151,7 +151,7 @@ class UsFcInventoryController extends Controller
             ->when($reportDate !== '', fn ($q) => $q->whereDate('us_fc_inventories.report_date', '=', $reportDate))
             ->when(!empty($skuSelection), fn ($q) => $q->whereIn('us_fc_inventories.seller_sku', $skuSelection))
             ->when($asin !== '', fn ($q) => $q->where('us_fc_inventories.asin', 'like', '%' . $asin . '%'))
-            ->when($state !== '', fn ($q) => $q->whereRaw('upper(coalesce(loc.state, "")) = ?', [$state]))
+            ->when($stateFilter !== '', fn ($q) => $q->whereRaw('upper(coalesce(loc.state, "")) = ?', [$stateFilter]))
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($w) use ($q) {
                     $w->where('us_fc_inventories.seller_sku', 'like', '%' . $q . '%')
@@ -180,8 +180,8 @@ class UsFcInventoryController extends Controller
         if ($asin !== '') {
             $skuOptionsQuery->where('us_fc_inventories.asin', 'like', '%' . $asin . '%');
         }
-        if ($state !== '') {
-            $skuOptionsQuery->whereRaw('upper(coalesce(loc.state, "")) = ?', [$state]);
+        if ($stateFilter !== '') {
+            $skuOptionsQuery->whereRaw('upper(coalesce(loc.state, "")) = ?', [$stateFilter]);
         }
 
         $skuOptions = $skuOptionsQuery
@@ -255,7 +255,7 @@ class UsFcInventoryController extends Controller
             'skuSelection' => $skuSelection,
             'skuOptions' => $skuOptions,
             'asin' => $asin,
-            'state' => $state,
+            'state' => $stateFilter,
             'perPage' => $perPageInput === 'all' ? 'all' : (string) $perPage,
             'reportDate' => $reportDate,
             'latestReportDate' => $latestReportDate,

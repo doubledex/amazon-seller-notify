@@ -103,10 +103,30 @@
                     <tbody>
                     @php $stateIndex = 0; @endphp
                     @forelse($hierarchy as $stateNode)
-                        @php
-                            $stateId = 'state-' . $stateIndex;
-                            $stateIndex++;
-                        @endphp
+                    @php
+                        $stateId = 'state-' . $stateIndex;
+                        $stateIndex++;
+                        $stateCode = strtoupper((string) ($stateNode['state'] ?? ''));
+                        $stateNames = [
+                            'AL' => 'Alabama', 'AK' => 'Alaska', 'AZ' => 'Arizona', 'AR' => 'Arkansas',
+                            'CA' => 'California', 'CO' => 'Colorado', 'CT' => 'Connecticut', 'DE' => 'Delaware',
+                            'FL' => 'Florida', 'GA' => 'Georgia', 'HI' => 'Hawaii', 'ID' => 'Idaho',
+                            'IL' => 'Illinois', 'IN' => 'Indiana', 'IA' => 'Iowa', 'KS' => 'Kansas',
+                            'KY' => 'Kentucky', 'LA' => 'Louisiana', 'ME' => 'Maine', 'MD' => 'Maryland',
+                            'MA' => 'Massachusetts', 'MI' => 'Michigan', 'MN' => 'Minnesota', 'MS' => 'Mississippi',
+                            'MO' => 'Missouri', 'MT' => 'Montana', 'NE' => 'Nebraska', 'NV' => 'Nevada',
+                            'NH' => 'New Hampshire', 'NJ' => 'New Jersey', 'NM' => 'New Mexico', 'NY' => 'New York',
+                            'NC' => 'North Carolina', 'ND' => 'North Dakota', 'OH' => 'Ohio', 'OK' => 'Oklahoma',
+                            'OR' => 'Oregon', 'PA' => 'Pennsylvania', 'RI' => 'Rhode Island', 'SC' => 'South Carolina',
+                            'SD' => 'South Dakota', 'TN' => 'Tennessee', 'TX' => 'Texas', 'UT' => 'Utah',
+                            'VT' => 'Vermont', 'VA' => 'Virginia', 'WA' => 'Washington', 'WV' => 'West Virginia',
+                            'WI' => 'Wisconsin', 'WY' => 'Wyoming', 'DC' => 'District of Columbia',
+                        ];
+                        $stateLabel = $stateCode;
+                        if (isset($stateNames[$stateCode])) {
+                            $stateLabel = $stateCode . ' - ' . $stateNames[$stateCode];
+                        }
+                    @endphp
                         <tr class="bg-gray-100 dark:bg-gray-700">
                             <td>
                                 <button type="button" class="toggle-state font-mono text-xs px-2 py-1 border rounded" data-state-id="{{ $stateId }}">+</button>
@@ -114,13 +134,13 @@
                             </td>
                             <td></td>
                             <td></td>
-                            <td><strong>{{ $stateNode['state'] }}</strong></td>
+                            <td><strong>{{ $stateLabel }}</strong></td>
                             <td></td>
                             <td></td>
                             <td></td>
-                            <td class="text-right"></td>
-                            <td>{{ $stateNode['data_date'] ?: 'N/A' }}</td>
+                            <td></td>
                             <td class="text-right"><strong>{{ number_format((int) $stateNode['qty']) }}</strong></td>
+                            <td>{{ $stateNode['data_date'] ?: 'N/A' }}</td>
                             <td></td>
                         </tr>
                         @foreach($stateNode['fcs'] as $fcNode)
@@ -136,10 +156,10 @@
                                 <td></td>
                                 <td></td>
                                 <td></td>
-                                <td class="text-right">{{ number_format((int) $fcNode['row_count']) }}</td>
-                                <td>{{ $fcNode['data_date'] ?: 'N/A' }}</td>
-                                <td class="text-right"><strong>{{ number_format((int) $fcNode['qty']) }}</strong></td>
                                 <td></td>
+                                <td class="text-right"><strong>{{ number_format((int) $fcNode['qty']) }}</strong></td>
+                                <td>{{ $fcNode['data_date'] ?: 'N/A' }}</td>
+                                <td>Rows: {{ number_format((int) $fcNode['row_count']) }}</td>
                             </tr>
                             @foreach($fcNode['details'] as $detailRow)
                                 <tr class="detail-row hidden" data-state-parent="{{ $stateId }}" data-fc-parent="{{ $fcId }}">
@@ -150,9 +170,9 @@
                                     <td>{{ $detailRow->seller_sku }}</td>
                                     <td>{{ $detailRow->asin }}</td>
                                     <td>{{ $detailRow->fnsku }}</td>
-                                    <td class="text-right">1</td>
-                                    <td>{{ $detailRow->report_date }}</td>
+                                    <td>{{ $detailRow->item_condition }}</td>
                                     <td class="text-right">{{ number_format((int) $detailRow->quantity_available) }}</td>
+                                    <td>{{ $detailRow->report_date }}</td>
                                     <td>{{ optional($detailRow->updated_at)->format('Y-m-d H:i') }}</td>
                                 </tr>
                             @endforeach
@@ -230,6 +250,7 @@
             (function () {
                 const points = @json($mapPoints);
                 console.log('[US FC MAP] points', points.length, points.slice(0, 5));
+                const selectedState = @json($state ?? '');
                 const map = L.map('us-fc-map', { zoomControl: true }).setView([39.8283, -98.5795], 4);
                 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                     maxZoom: 18,
@@ -272,6 +293,52 @@
                     map.fitBounds(bounds, { padding: [24, 24] });
                 } else if (bounds.length === 1) {
                     map.setView(bounds[0], 8);
+                }
+
+                if (selectedState) {
+                    const stateNames = {
+                        AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas',
+                        CA: 'California', CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware',
+                        FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho',
+                        IL: 'Illinois', IN: 'Indiana', IA: 'Iowa', KS: 'Kansas',
+                        KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland',
+                        MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi',
+                        MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada',
+                        NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York',
+                        NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma',
+                        OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina',
+                        SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah',
+                        VT: 'Vermont', VA: 'Virginia', WA: 'Washington', WV: 'West Virginia',
+                        WI: 'Wisconsin', WY: 'Wyoming', DC: 'District of Columbia'
+                    };
+                    const selectedStateCode = String(selectedState).toUpperCase();
+                    const selectedStateName = stateNames[selectedStateCode] || selectedStateCode;
+
+                    fetch('https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json')
+                        .then((resp) => resp.json())
+                        .then((geojson) => {
+                            const feature = (geojson.features || []).find((f) => {
+                                const name = String(f?.properties?.name || '').trim();
+                                return name.toLowerCase() === selectedStateName.toLowerCase();
+                            });
+                            if (!feature) {
+                                return;
+                            }
+
+                            const highlight = L.geoJSON(feature, {
+                                style: {
+                                    color: '#ef4444',
+                                    weight: 3,
+                                    opacity: 0.95,
+                                    fillColor: '#fca5a5',
+                                    fillOpacity: 0.12
+                                }
+                            }).addTo(map);
+                            map.fitBounds(highlight.getBounds(), { padding: [20, 20] });
+                        })
+                        .catch(() => {
+                            // Ignore boundary overlay errors; markers still render.
+                        });
                 }
             })();
         </script>
