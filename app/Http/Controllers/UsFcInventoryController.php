@@ -69,9 +69,35 @@ class UsFcInventoryController extends Controller
             ->orderBy('state')
             ->get();
 
+        $fcSummary = UsFcInventory::query()
+            ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
+            ->selectRaw('us_fc_inventories.fulfillment_center_id as fc')
+            ->selectRaw('coalesce(loc.city, "Unknown") as city')
+            ->selectRaw('coalesce(loc.state, "Unknown") as state')
+            ->selectRaw('sum(us_fc_inventories.quantity_available) as qty')
+            ->selectRaw('count(*) as row_count')
+            ->when($reportDate !== '', fn ($q) => $q->whereDate('us_fc_inventories.report_date', '=', $reportDate))
+            ->when($state !== '', fn ($q) => $q->whereRaw('upper(coalesce(loc.state, "")) = ?', [$state]))
+            ->when($q !== '', function ($query) use ($q) {
+                $query->where(function ($w) use ($q) {
+                    $w->where('us_fc_inventories.seller_sku', 'like', '%' . $q . '%')
+                        ->orWhere('us_fc_inventories.asin', 'like', '%' . $q . '%')
+                        ->orWhere('us_fc_inventories.fnsku', 'like', '%' . $q . '%')
+                        ->orWhere('us_fc_inventories.fulfillment_center_id', 'like', '%' . $q . '%')
+                        ->orWhere('loc.city', 'like', '%' . $q . '%')
+                        ->orWhere('loc.state', 'like', '%' . $q . '%');
+                });
+            })
+            ->groupBy('us_fc_inventories.fulfillment_center_id', DB::raw('coalesce(loc.city, "Unknown")'), DB::raw('coalesce(loc.state, "Unknown")'))
+            ->orderByRaw('coalesce(loc.state, "ZZ") asc')
+            ->orderByRaw('coalesce(loc.city, "ZZZZZZ") asc')
+            ->orderBy('us_fc_inventories.fulfillment_center_id')
+            ->get();
+
         return view('inventory.us_fc', [
             'rows' => $rows,
             'summary' => $summary,
+            'fcSummary' => $fcSummary,
             'search' => $q,
             'state' => $state,
             'reportDate' => $reportDate,

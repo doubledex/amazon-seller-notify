@@ -146,25 +146,7 @@ class UsFcInventoryReportJobProcessor implements ReportJobProcessor
             $flat[strtolower(trim((string) $key))] = is_scalar($value) || $value === null ? (string) ($value ?? '') : '';
         }
 
-        $fc = $this->pick($flat, ['fulfillment-center-id', 'fulfillment_center_id', 'fulfillment center id', 'fulfillmentcenterid']);
-        if ($fc === '') {
-            $fc = $this->pick($flat, [
-                'fulfillment center',
-                'fulfillment-center',
-                'fulfillment_center',
-                'warehouse-id',
-                'warehouse_id',
-                'warehouse id',
-                'warehouseid',
-                'location-id',
-                'location_id',
-                'location id',
-                'locationid',
-                'location',
-                'store',
-                'fc',
-            ]);
-        }
+        $fc = $this->pickValidFc($flat);
 
         $sku = $this->pick($flat, ['seller-sku', 'seller_sku', 'sku', 'merchant-sku', 'merchant_sku', 'merchant sku', 'msku']);
         $asin = $this->pick($flat, ['asin']);
@@ -188,13 +170,54 @@ class UsFcInventoryReportJobProcessor implements ReportJobProcessor
         $qty = is_numeric($qtyRaw) ? (int) round((float) $qtyRaw) : 0;
 
         return [
-            'fulfillment_center_id' => strtoupper(trim($fc)),
+            'fulfillment_center_id' => $fc,
             'seller_sku' => trim($sku),
             'asin' => strtoupper(trim($asin)),
             'fnsku' => strtoupper(trim($fnsku)),
             'item_condition' => trim($condition),
             'quantity_available' => $qty,
         ];
+    }
+
+    private function pickValidFc(array $flat): string
+    {
+        $priorityGroups = [
+            ['fulfillment-center-id', 'fulfillment_center_id', 'fulfillment center id', 'fulfillmentcenterid'],
+            ['fulfillment center', 'fulfillment-center', 'fulfillment_center'],
+            ['warehouse-id', 'warehouse_id', 'warehouse id', 'warehouseid'],
+            ['location-id', 'location_id', 'location id', 'locationid', 'location'],
+            ['store', 'fc'],
+        ];
+
+        foreach ($priorityGroups as $keys) {
+            $candidate = $this->pick($flat, $keys);
+            $candidate = $this->normalizeFcCode($candidate);
+            if ($candidate !== '') {
+                return $candidate;
+            }
+        }
+
+        return '';
+    }
+
+    private function normalizeFcCode(string $value): string
+    {
+        $value = strtoupper(trim($value));
+        if ($value === '') {
+            return '';
+        }
+
+        // Drop country/region values that are not FC codes.
+        if (in_array($value, ['US', 'CA', 'MX', 'UK', 'DE', 'FR', 'IT', 'ES', 'NL', 'SE', 'PL', 'BE', 'JP', 'AU'], true)) {
+            return '';
+        }
+
+        // Typical FC code shape (e.g. ONT8, RMN3, JFK8, XMD3).
+        if (!preg_match('/^(?=.*[A-Z])(?=.*\d)[A-Z0-9]{4,6}$/', $value)) {
+            return '';
+        }
+
+        return $value;
     }
 
     private function pick(array $flat, array $keys): string
