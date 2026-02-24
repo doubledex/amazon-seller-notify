@@ -370,6 +370,7 @@
                     VT: 'Vermont', VA: 'Virginia', WA: 'Washington', WV: 'West Virginia',
                     WI: 'Wisconsin', WY: 'Wyoming', DC: 'District of Columbia'
                 };
+                const normalize = (v) => String(v || '').trim().toLowerCase();
 
                 const loadUsStates = () => {
                     if (usStatesGeoJson) {
@@ -393,9 +394,13 @@
                         .then((geojson) => {
                             const feature = (geojson.features || []).find((f) => {
                                 const name = String(f?.properties?.name || '').trim();
-                                return name.toLowerCase() === stateName.toLowerCase();
+                                const nameNorm = normalize(name);
+                                const stateNorm = normalize(stateName);
+                                const codeNorm = normalize(code);
+                                return nameNorm === stateNorm || nameNorm === codeNorm;
                             });
                             if (!feature) {
+                                console.warn('[US FC MAP] no boundary feature found for', code, stateName);
                                 return;
                             }
                             if (stateLayer) {
@@ -419,8 +424,14 @@
                         });
                 };
 
-                if (selectedState) {
-                    highlightStateBoundary(selectedState, true);
+                const pointStates = Array.from(new Set(
+                    points
+                        .map((p) => String(p.state || '').toUpperCase().trim())
+                        .filter((s) => s !== '')
+                ));
+                const initialStateForHighlight = String(selectedState || (pointStates.length === 1 ? pointStates[0] : '')).toUpperCase().trim();
+                if (initialStateForHighlight) {
+                    highlightStateBoundary(initialStateForHighlight, true);
                 }
 
                 document.querySelectorAll('.toggle-state').forEach((btn) => {
