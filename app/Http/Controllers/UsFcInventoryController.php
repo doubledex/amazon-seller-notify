@@ -12,6 +12,8 @@ class UsFcInventoryController extends Controller
     {
         $q = trim((string) $request->query('q', ''));
         $state = strtoupper(trim((string) $request->query('state', '')));
+        $latestReportDate = UsFcInventory::query()->max('report_date');
+        $reportDate = trim((string) $request->query('report_date', $latestReportDate ?? ''));
 
         $query = UsFcInventory::query()
             ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
@@ -30,6 +32,10 @@ class UsFcInventoryController extends Controller
                 'loc.state as fc_state',
                 'loc.label as fc_label',
             );
+
+        if ($reportDate !== '') {
+            $query->whereDate('us_fc_inventories.report_date', '=', $reportDate);
+        }
 
         if ($q !== '') {
             $query->where(function ($w) use ($q) {
@@ -58,6 +64,7 @@ class UsFcInventoryController extends Controller
             ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
             ->selectRaw('coalesce(loc.state, "Unknown") as state')
             ->selectRaw('sum(us_fc_inventories.quantity_available) as qty')
+            ->when($reportDate !== '', fn ($q) => $q->whereDate('us_fc_inventories.report_date', '=', $reportDate))
             ->groupBy(DB::raw('coalesce(loc.state, "Unknown")'))
             ->orderBy('state')
             ->get();
@@ -67,6 +74,8 @@ class UsFcInventoryController extends Controller
             'summary' => $summary,
             'search' => $q,
             'state' => $state,
+            'reportDate' => $reportDate,
+            'latestReportDate' => $latestReportDate,
         ]);
     }
 }

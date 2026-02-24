@@ -9,16 +9,32 @@ class UsFcInventoryReportJobProcessor implements ReportJobProcessor
 {
     public function process(ReportJob $job, array $rows): array
     {
+        if (strtoupper(trim((string) $job->report_type)) !== 'GET_LEDGER_SUMMARY_VIEW_DATA') {
+            return [
+                'rows_ingested' => 0,
+                'rows_missing_fc' => 0,
+                'rows_missing_sku' => 0,
+                'sample_row_keys' => [],
+            ];
+        }
+
+        $latestDate = $this->latestRowDate($rows);
         $upsertRows = [];
         $missingFcRows = 0;
         $missingSkuRows = 0;
         $sampleKeys = [];
         $now = now();
-        $reportDate = $job->completed_at?->toDateString();
+        $reportDate = $latestDate ?? $job->completed_at?->toDateString();
 
         foreach ($rows as $row) {
             if (!is_array($row)) {
                 continue;
+            }
+            if ($latestDate !== null) {
+                $rowDate = $this->rowDateString($row);
+                if ($rowDate === null || $rowDate !== $latestDate) {
+                    continue;
+                }
             }
 
             $normalized = $this->normalizeRow($row);
@@ -72,6 +88,55 @@ class UsFcInventoryReportJobProcessor implements ReportJobProcessor
             'rows_missing_sku' => $missingSkuRows,
             'sample_row_keys' => $sampleKeys,
         ];
+    }
+
+    private function latestRowDate(array $rows): ?string
+    {
+        $max = null;
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $date = $this->rowDateString($row);
+            if ($date === null) {
+                continue;
+            }
+            if ($max === null || strcmp($date, $max) > 0) {
+                $max = $date;
+            }
+        }
+
+        return $max;
+    }
+
+    private function rowDateString(array $row): ?string
+    {
+        $value = '';
+        foreach (['Date', 'date', 'Report Date', 'report_date'] as $key) {
+            if (!array_key_exists($key, $row)) {
+                continue;
+            }
+            $value = trim((string) $row[$key]);
+            if ($value !== '') {
+                break;
+            }
+        }
+        if ($value === '') {
+            return null;
+        }
+
+        foreach (['m/d/Y', 'm/d/y', 'Y-m-d', 'n/j/Y', 'n/j/y'] as $format) {
+            $dt = \DateTime::createFromFormat($format, $value);
+            if ($dt !== false) {
+                return $dt->format('Y-m-d');
+            }
+        }
+
+        try {
+            return (new \DateTime($value))->format('Y-m-d');
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function normalizeRow(array $row): array
