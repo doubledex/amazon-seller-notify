@@ -385,6 +385,7 @@ class UsFcInventorySyncService
 
         if ($reportType === 'GET_LEDGER_SUMMARY_VIEW_DATA') {
             return [
+                'aggregateByLocation' => 'LOCAL',
                 'aggregatedByLocation' => 'LOCAL',
                 'aggregatedByTimePeriod' => 'DAILY',
             ];

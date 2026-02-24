@@ -302,8 +302,11 @@ class ReportJobOrchestrator
             if (array_key_exists('aggregateByLocation', $normalized) && !array_key_exists('aggregatedByLocation', $normalized)) {
                 $normalized['aggregatedByLocation'] = $normalized['aggregateByLocation'];
             }
+            if (array_key_exists('aggregatedByLocation', $normalized) && !array_key_exists('aggregateByLocation', $normalized)) {
+                $normalized['aggregateByLocation'] = $normalized['aggregatedByLocation'];
+            }
             $normalized['aggregatedByLocation'] = 'LOCAL';
-            unset($normalized['aggregateByLocation']);
+            $normalized['aggregateByLocation'] = 'LOCAL';
             unset($normalized['aggregateByTimePeriod']);
             $normalized['aggregatedByTimePeriod'] = 'DAILY';
         }
@@ -340,8 +343,9 @@ class ReportJobOrchestrator
             return [[$dataStartTime, $dataEndTime]];
         }
 
-        $aggregatedByLocation = strtoupper(trim((string) ($reportOptions['aggregatedByLocation'] ?? '')));
-        $requiresChunking = $reportType === 'GET_LEDGER_SUMMARY_VIEW_DATA' && $aggregatedByLocation === 'LOCAL';
+        $locationOption = (string) ($reportOptions['aggregatedByLocation'] ?? $reportOptions['aggregateByLocation'] ?? '');
+        $locationOption = strtoupper(trim($locationOption));
+        $requiresChunking = $reportType === 'GET_LEDGER_SUMMARY_VIEW_DATA' && $locationOption === 'LOCAL';
         if (!$requiresChunking) {
             return [[$dataStartTime, $dataEndTime]];
         }
