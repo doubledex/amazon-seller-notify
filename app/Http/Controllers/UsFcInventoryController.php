@@ -11,6 +11,8 @@ class UsFcInventoryController extends Controller
     public function index(Request $request)
     {
         $q = trim((string) $request->query('q', ''));
+        $sku = trim((string) $request->query('sku', ''));
+        $asin = strtoupper(trim((string) $request->query('asin', '')));
         $state = strtoupper(trim((string) $request->query('state', '')));
         $latestReportDate = UsFcInventory::query()->max('report_date');
         $reportDate = trim((string) $request->query('report_date', $latestReportDate ?? ''));
@@ -47,6 +49,12 @@ class UsFcInventoryController extends Controller
                     ->orWhere('loc.state', 'like', '%' . $q . '%');
             });
         }
+        if ($sku !== '') {
+            $query->where('us_fc_inventories.seller_sku', 'like', '%' . $sku . '%');
+        }
+        if ($asin !== '') {
+            $query->where('us_fc_inventories.asin', 'like', '%' . $asin . '%');
+        }
 
         if ($state !== '') {
             $query->whereRaw('upper(coalesce(loc.state, "")) = ?', [$state]);
@@ -66,6 +74,8 @@ class UsFcInventoryController extends Controller
             ->selectRaw('sum(us_fc_inventories.quantity_available) as qty')
             ->selectRaw('max(us_fc_inventories.report_date) as data_date')
             ->when($reportDate !== '', fn ($q) => $q->whereDate('us_fc_inventories.report_date', '=', $reportDate))
+            ->when($sku !== '', fn ($q) => $q->where('us_fc_inventories.seller_sku', 'like', '%' . $sku . '%'))
+            ->when($asin !== '', fn ($q) => $q->where('us_fc_inventories.asin', 'like', '%' . $asin . '%'))
             ->groupBy(DB::raw('coalesce(loc.state, "Unknown")'))
             ->orderBy('state')
             ->get();
@@ -79,6 +89,8 @@ class UsFcInventoryController extends Controller
             ->selectRaw('count(*) as row_count')
             ->selectRaw('max(us_fc_inventories.report_date) as data_date')
             ->when($reportDate !== '', fn ($q) => $q->whereDate('us_fc_inventories.report_date', '=', $reportDate))
+            ->when($sku !== '', fn ($q) => $q->where('us_fc_inventories.seller_sku', 'like', '%' . $sku . '%'))
+            ->when($asin !== '', fn ($q) => $q->where('us_fc_inventories.asin', 'like', '%' . $asin . '%'))
             ->when($state !== '', fn ($q) => $q->whereRaw('upper(coalesce(loc.state, "")) = ?', [$state]))
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($w) use ($q) {
@@ -101,6 +113,8 @@ class UsFcInventoryController extends Controller
             'summary' => $summary,
             'fcSummary' => $fcSummary,
             'search' => $q,
+            'sku' => $sku,
+            'asin' => $asin,
             'state' => $state,
             'reportDate' => $reportDate,
             'latestReportDate' => $latestReportDate,

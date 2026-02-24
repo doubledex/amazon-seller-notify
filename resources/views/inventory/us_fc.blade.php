@@ -14,6 +14,14 @@
                         <input id="q" name="q" value="{{ $search }}" class="border rounded px-2 py-1" placeholder="SKU / ASIN / FNSKU / FC / city / state">
                     </div>
                     <div>
+                        <label for="sku" class="block text-sm font-medium mb-1">SKU</label>
+                        <input id="sku" name="sku" value="{{ $sku ?? '' }}" class="border rounded px-2 py-1" placeholder="seller sku">
+                    </div>
+                    <div>
+                        <label for="asin" class="block text-sm font-medium mb-1">ASIN</label>
+                        <input id="asin" name="asin" value="{{ $asin ?? '' }}" class="border rounded px-2 py-1" placeholder="B0...">
+                    </div>
+                    <div>
                         <label for="state" class="block text-sm font-medium mb-1">State</label>
                         <input id="state" name="state" value="{{ $state }}" class="border rounded px-2 py-1" placeholder="TX">
                     </div>
