@@ -146,7 +146,7 @@
                     @endphp
                         <tr class="bg-gray-100 dark:bg-gray-700">
                             <td>
-                                <button type="button" class="toggle-state font-mono text-xs px-2 py-1 border rounded" data-state-id="{{ $stateId }}">+</button>
+                                <button type="button" class="toggle-state font-mono text-xs px-2 py-1 border rounded" data-state-id="{{ $stateId }}" data-state-code="{{ $stateCode }}">+</button>
                                 <strong class="ml-2">State</strong>
                             </td>
                             <td></td>
@@ -268,6 +268,8 @@
                 const points = @json($mapPoints);
                 console.log('[US FC MAP] points', points.length, points.slice(0, 5));
                 const selectedState = @json($state ?? '');
+                let stateLayer = null;
+                let usStatesGeoJson = null;
                 const map = L.map('us-fc-map', { zoomControl: true }).setView([39.8283, -98.5795], 4);
                 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                     maxZoom: 18,
@@ -353,37 +355,53 @@
                     map.setView(bounds[0], 8);
                 }
 
-                if (selectedState) {
-                    const stateNames = {
-                        AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas',
-                        CA: 'California', CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware',
-                        FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho',
-                        IL: 'Illinois', IN: 'Indiana', IA: 'Iowa', KS: 'Kansas',
-                        KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland',
-                        MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi',
-                        MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada',
-                        NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York',
-                        NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma',
-                        OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina',
-                        SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah',
-                        VT: 'Vermont', VA: 'Virginia', WA: 'Washington', WV: 'West Virginia',
-                        WI: 'Wisconsin', WY: 'Wyoming', DC: 'District of Columbia'
-                    };
-                    const selectedStateCode = String(selectedState).toUpperCase();
-                    const selectedStateName = stateNames[selectedStateCode] || selectedStateCode;
+                const stateNames = {
+                    AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas',
+                    CA: 'California', CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware',
+                    FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho',
+                    IL: 'Illinois', IN: 'Indiana', IA: 'Iowa', KS: 'Kansas',
+                    KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland',
+                    MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi',
+                    MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada',
+                    NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York',
+                    NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma',
+                    OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina',
+                    SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah',
+                    VT: 'Vermont', VA: 'Virginia', WA: 'Washington', WV: 'West Virginia',
+                    WI: 'Wisconsin', WY: 'Wyoming', DC: 'District of Columbia'
+                };
 
-                    fetch('https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json')
+                const loadUsStates = () => {
+                    if (usStatesGeoJson) {
+                        return Promise.resolve(usStatesGeoJson);
+                    }
+                    return fetch('https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json')
                         .then((resp) => resp.json())
+                        .then((geojson) => {
+                            usStatesGeoJson = geojson;
+                            return geojson;
+                        });
+                };
+
+                const highlightStateBoundary = (stateCode, fit = true) => {
+                    const code = String(stateCode || '').toUpperCase().trim();
+                    if (!code) {
+                        return;
+                    }
+                    const stateName = stateNames[code] || code;
+                    loadUsStates()
                         .then((geojson) => {
                             const feature = (geojson.features || []).find((f) => {
                                 const name = String(f?.properties?.name || '').trim();
-                                return name.toLowerCase() === selectedStateName.toLowerCase();
+                                return name.toLowerCase() === stateName.toLowerCase();
                             });
                             if (!feature) {
                                 return;
                             }
-
-                            const highlight = L.geoJSON(feature, {
+                            if (stateLayer) {
+                                map.removeLayer(stateLayer);
+                            }
+                            stateLayer = L.geoJSON(feature, {
                                 style: {
                                     color: '#ef4444',
                                     weight: 3,
@@ -392,12 +410,27 @@
                                     fillOpacity: 0.12
                                 }
                             }).addTo(map);
-                            map.fitBounds(highlight.getBounds(), { padding: [20, 20] });
+                            if (fit) {
+                                map.fitBounds(stateLayer.getBounds(), { padding: [20, 20] });
+                            }
                         })
-                        .catch(() => {
-                            // Ignore boundary overlay errors; markers still render.
+                        .catch((err) => {
+                            console.warn('[US FC MAP] state boundary load failed', err);
                         });
+                };
+
+                if (selectedState) {
+                    highlightStateBoundary(selectedState, true);
                 }
+
+                document.querySelectorAll('.toggle-state').forEach((btn) => {
+                    btn.addEventListener('click', () => {
+                        const stateCode = btn.dataset.stateCode || '';
+                        if (stateCode) {
+                            highlightStateBoundary(stateCode, true);
+                        }
+                    });
+                });
             })();
         </script>
     @endif
