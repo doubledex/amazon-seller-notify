@@ -317,7 +317,7 @@ class ReportJobOrchestrator
         $normalized = is_array($reportOptions) ? $reportOptions : [];
         if ($reportType === 'GET_LEDGER_SUMMARY_VIEW_DATA') {
             // Use the key path that returns FC-level summary rows consistently in this tenant.
-            $normalized['aggregateByLocation'] = 'LOCAL';
+            $normalized['aggregateByLocation'] = 'FC';
             unset($normalized['aggregatedByLocation']);
             unset($normalized['aggregateByTimePeriod']);
             $normalized['aggregatedByTimePeriod'] = 'DAILY';
@@ -355,9 +355,9 @@ class ReportJobOrchestrator
             return [[$dataStartTime, $dataEndTime]];
         }
 
-        $locationOption = (string) ($reportOptions['aggregatedByLocation'] ?? $reportOptions['aggregateByLocation'] ?? '');
+        $locationOption = (string) ($reportOptions['aggregateByLocation'] ?? $reportOptions['aggregatedByLocation'] ?? '');
         $locationOption = strtoupper(trim($locationOption));
-        $requiresChunking = $reportType === 'GET_LEDGER_SUMMARY_VIEW_DATA' && $locationOption === 'LOCAL';
+        $requiresChunking = $reportType === 'GET_LEDGER_SUMMARY_VIEW_DATA' && $locationOption === 'FC';
         if (!$requiresChunking) {
             return [[$dataStartTime, $dataEndTime]];
         }
