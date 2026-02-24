@@ -289,7 +289,31 @@
                     }
 
                     const qty = Number(p.qty || 0);
-                    const marker = L.marker([lat, lng], { qty });
+                    const marker = L.marker([lat, lng], {
+                        qty,
+                        icon: L.divIcon({
+                            html: `<div style="
+                                min-width:34px;
+                                height:34px;
+                                padding:0 8px;
+                                border-radius:17px;
+                                background:#2563eb;
+                                color:#fff;
+                                border:2px solid #ffffff;
+                                box-shadow:0 1px 6px rgba(0,0,0,0.35);
+                                display:flex;
+                                align-items:center;
+                                justify-content:center;
+                                font-size:11px;
+                                font-weight:700;
+                                line-height:1;
+                                white-space:nowrap;
+                            ">${qty.toLocaleString()}</div>`,
+                            className: 'us-fc-qty-icon',
+                            iconSize: L.point(34, 34),
+                            iconAnchor: [17, 17],
+                        })
+                    });
 
                     marker.bindPopup(
                         `<strong>${p.fc}</strong><br>` +
