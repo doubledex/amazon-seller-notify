@@ -6,9 +6,9 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderShipAddress;
 use App\Models\PostalCodeGeo;
+use App\Integrations\Amazon\SpApi\OrdersAdapter;
+use App\Integrations\Amazon\SpApi\SpApiClientFactory;
 use Illuminate\Support\Facades\Log;
-use SellingPartnerApi\Enums\Endpoint;
-use SellingPartnerApi\SellingPartnerApi;
 use Saloon\Exceptions\Request\Statuses\TooManyRequestsException;
 use Saloon\Http\Response;
 
@@ -30,20 +30,12 @@ class OrderSyncService
         $itemsLimit = max(0, min($itemsLimit, 500));
         $addressLimit = max(0, min($addressLimit, 500));
 
-        $endpointValue = strtoupper((string) config('services.amazon_sp_api.endpoint', 'EU'));
-        $endpoint = Endpoint::tryFrom($endpointValue) ?? Endpoint::EU;
-
-        $connector = SellingPartnerApi::seller(
-            clientId: config('services.amazon_sp_api.client_id'),
-            clientSecret: config('services.amazon_sp_api.client_secret'),
-            refreshToken: config('services.amazon_sp_api.refresh_token'),
-            endpoint: $endpoint
+        $ordersAdapter = new OrdersAdapter(
+            new SpApiClientFactory(),
+            new MarketplaceService()
         );
 
-        $ordersApi = $connector->ordersV0();
-        $marketplaceService = new MarketplaceService();
-        $marketplaceIds = $marketplaceService->getMarketplaceIds($connector);
-        if (empty($marketplaceIds)) {
+        if (!$ordersAdapter->hasMarketplaceIds()) {
             return [
                 'ok' => false,
                 'message' => 'No marketplace IDs configured.',
@@ -63,9 +55,7 @@ class OrderSyncService
         do {
             $page++;
             $response = $this->callSpApiWithRetries(
-                fn () => $nextToken
-                    ? $ordersApi->getOrders(marketplaceIds: $marketplaceIds, nextToken: $nextToken)
-                    : $ordersApi->getOrders(createdAfter: $createdAfter, createdBefore: $createdBefore, marketplaceIds: $marketplaceIds),
+                fn () => $ordersAdapter->getOrders($createdAfter, $createdBefore, $nextToken),
                 'orders.getOrders',
                 self::MAX_API_RETRY_ATTEMPTS
             );
@@ -172,7 +162,7 @@ class OrderSyncService
 
                     if (($needsDetails || $itemsMissing) && $itemsFetched < $itemsLimit) {
                         $itemsResponse = $this->callSpApiWithRetries(
-                            fn () => $ordersApi->getOrderItems($orderId),
+                            fn () => $ordersAdapter->getOrderItems($orderId),
                             'orders.getOrderItems',
                             self::MAX_API_RETRY_ATTEMPTS
                         );
@@ -214,7 +204,7 @@ class OrderSyncService
 
                     if (($needsDetails || $addressMissing) && $addressesFetched < $addressLimit) {
                         $addrResponse = $this->callSpApiWithRetries(
-                            fn () => $ordersApi->getOrderAddress($orderId),
+                            fn () => $ordersAdapter->getOrderAddress($orderId),
                             'orders.getOrderAddress',
                             self::MAX_API_RETRY_ATTEMPTS
                         );
