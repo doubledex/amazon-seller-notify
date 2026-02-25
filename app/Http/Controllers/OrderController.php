@@ -18,6 +18,7 @@ use App\Models\OrderFeeEstimateLine;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Services\OrderQueryService;
+use App\Services\LandedCostResolver;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -31,6 +32,7 @@ class OrderController extends Controller
     private $orderQueryService;
     private $marketplaceTimezoneService;
     private $orderNetValueService;
+    private $landedCostResolver;
     private const ORDERS_MAX_RETRIES = 3;
 
     public function __construct()
@@ -49,6 +51,7 @@ class OrderController extends Controller
         $this->orderQueryService = new OrderQueryService();
         $this->marketplaceTimezoneService = new MarketplaceTimezoneService();
         $this->orderNetValueService = new OrderNetValueService();
+        $this->landedCostResolver = new LandedCostResolver();
     }
 
     public function index(Request $request)
@@ -142,6 +145,8 @@ class OrderController extends Controller
                     ->groupBy('amazon_order_id')
                     ->get();
             }
+
+            $landedCostMap = $this->landedCostResolver->resolveOrderLandedCosts($orderIdsOnPage);
             if (!empty($orderIdsOnPage) && Schema::hasTable('amazon_order_fee_lines_v2')) {
                 $feeFallbackRowsV2 = DB::table('amazon_order_fee_lines_v2')
                     ->selectRaw("
@@ -194,7 +199,7 @@ class OrderController extends Controller
                 ];
             }
 
-            $allOrders = $orderModels->map(function (Order $order) use ($mfFallbackMap, $itemNetFallbackMap, $feeFallbackMap) {
+            $allOrders = $orderModels->map(function (Order $order) use ($mfFallbackMap, $itemNetFallbackMap, $feeFallbackMap, $landedCostMap) {
                 $raw = $order->raw_order;
                 if (is_string($raw)) {
                     $decoded = json_decode($raw, true);
@@ -226,6 +231,19 @@ class OrderController extends Controller
                     $feeSource = 'finance_lines_fallback';
                 }
 
+                $landed = $landedCostMap[$order->amazon_order_id] ?? null;
+                $landedAmount = is_array($landed) ? (float) ($landed['landed_cost_total'] ?? 0.0) : null;
+                $landedCurrency = is_array($landed) ? ($landed['currency'] ?? null) : null;
+                $marginProxy = null;
+                if ($netAmount !== null && $feeAmount !== null && $landedAmount !== null) {
+                    $netCode = strtoupper(trim((string) ($netCurrency ?? '')));
+                    $feeCode = strtoupper(trim((string) ($feeCurrency ?? '')));
+                    $landedCode = strtoupper(trim((string) ($landedCurrency ?? '')));
+                    if ($netCode !== '' && $netCode === $feeCode && $netCode === $landedCode) {
+                        $marginProxy = round(((float) $netAmount) - ((float) $feeAmount) - ((float) $landedAmount), 2);
+                    }
+                }
+
                 if (!is_array($raw) || empty($raw)) {
                     $raw = [
                         'AmazonOrderId' => $order->amazon_order_id,
@@ -248,6 +266,15 @@ class OrderController extends Controller
                             'Amount' => $feeAmount,
                             'CurrencyCode' => $feeCurrency,
                             'Source' => $feeSource,
+                        ],
+                        'LandedCost' => [
+                            'Amount' => $landedAmount,
+                            'CurrencyCode' => $landedCurrency,
+                        ],
+                        'MarginProxy' => [
+                            'Amount' => $marginProxy,
+                            'CurrencyCode' => $netCurrency,
+                            'Formula' => 'net_sales_ex_tax - amazon_fees - landed_cost',
                         ],
                         'SalesChannel' => $order->sales_channel,
                         'MarketplaceId' => $order->marketplace_id,
@@ -275,6 +302,15 @@ class OrderController extends Controller
                         'CurrencyCode' => $feeCurrency
                             ?: ($raw['AmazonFees']['CurrencyCode'] ?? $netCurrency ?? $order->order_total_currency ?? null),
                         'Source' => $feeSource,
+                    ];
+                    $raw['LandedCost'] = [
+                        'Amount' => $landedAmount,
+                        'CurrencyCode' => $landedCurrency,
+                    ];
+                    $raw['MarginProxy'] = [
+                        'Amount' => $marginProxy,
+                        'CurrencyCode' => $netCurrency,
+                        'Formula' => 'net_sales_ex_tax - amazon_fees - landed_cost',
                     ];
                 }
                 return $raw;

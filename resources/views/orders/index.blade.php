@@ -442,6 +442,8 @@
                 <th>Method</th>
                 <th>Net (ex tax)</th>
                 <th>Amazon Fees</th>
+                <th>Landed Cost</th>
+                <th>Margin Proxy</th>
                 <th>Currency</th>
                 <th>Ship to</th>
                 <th>Marketplace</th>
@@ -522,6 +524,14 @@
                         @endif
                         {{ $order['AmazonFees']['Amount'] ?? 'N/A' }}
                         {{ $order['AmazonFees']['CurrencyCode'] ?? '' }}
+                    </td>
+                    <td dir="rtl">
+                        {{ $order['LandedCost']['Amount'] ?? 'N/A' }}
+                        {{ $order['LandedCost']['CurrencyCode'] ?? '' }}
+                    </td>
+                    <td dir="rtl">
+                        {{ $order['MarginProxy']['Amount'] ?? 'N/A' }}
+                        {{ $order['MarginProxy']['CurrencyCode'] ?? '' }}
                     </td>
                     <td>{{ $order['OrderNetExTax']['CurrencyCode'] ?? '' }}</td>
                     <td>{{ $order['ShippingAddress']['CountryCode'] ?? '' }}</td>

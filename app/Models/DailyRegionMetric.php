@@ -14,6 +14,10 @@ class DailyRegionMetric extends Model
         'sales_gbp',
         'ad_spend_local',
         'ad_spend_gbp',
+        'landed_cost_local',
+        'landed_cost_gbp',
+        'margin_local',
+        'margin_gbp',
         'acos_percent',
         'order_count',
     ];
@@ -24,7 +28,10 @@ class DailyRegionMetric extends Model
         'sales_gbp' => 'decimal:2',
         'ad_spend_local' => 'decimal:2',
         'ad_spend_gbp' => 'decimal:2',
+        'landed_cost_local' => 'decimal:2',
+        'landed_cost_gbp' => 'decimal:2',
+        'margin_local' => 'decimal:2',
+        'margin_gbp' => 'decimal:2',
         'acos_percent' => 'decimal:2',
     ];
 }
-

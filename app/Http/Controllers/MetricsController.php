@@ -29,6 +29,10 @@ class MetricsController extends Controller
                 'sales_gbp',
                 'ad_spend_local',
                 'ad_spend_gbp',
+                'landed_cost_local',
+                'landed_cost_gbp',
+                'margin_local',
+                'margin_gbp',
                 'acos_percent',
                 'order_count',
             ])
@@ -40,6 +44,8 @@ class MetricsController extends Controller
 
         $byDate = [];
         $adSpendByDateRegion = [];
+        $landedCostByDateRegion = [];
+        $marginByDateRegion = [];
         foreach ($metricRows as $row) {
             $date = (string) $row->metric_date;
             if ($date === '') {
@@ -61,6 +67,16 @@ class MetricsController extends Controller
                 'ad_local' => (float) ($row->ad_spend_local ?? 0.0),
                 'ad_gbp' => (float) ($row->ad_spend_gbp ?? 0.0),
                 'local_currency' => strtoupper((string) ($row->local_currency ?? $this->regionLocalCurrency($region))),
+            ];
+
+            $landedCostByDateRegion[$key] = [
+                'landed_local' => (float) ($row->landed_cost_local ?? 0.0),
+                'landed_gbp' => (float) ($row->landed_cost_gbp ?? 0.0),
+            ];
+
+            $marginByDateRegion[$key] = [
+                'margin_local' => (float) ($row->margin_local ?? 0.0),
+                'margin_gbp' => (float) ($row->margin_gbp ?? 0.0),
             ];
         }
 
@@ -232,6 +248,8 @@ class MetricsController extends Controller
                     'sales_gbp' => 0.0,
                     'fees_local' => 0.0,
                     'fees_gbp' => 0.0,
+                    'landed_cost_gbp' => 0.0,
+                    'margin_gbp' => 0.0,
                     'order_count' => 0,
                     'units' => 0,
                     'estimated_fee_data' => false,
@@ -290,6 +308,10 @@ class MetricsController extends Controller
                 $adKey = $date . '|' . $region;
                 $regionAdLocal = (float) ($adSpendByDateRegion[$adKey]['ad_local'] ?? 0.0);
                 $regionAdGbp = (float) ($adSpendByDateRegion[$adKey]['ad_gbp'] ?? 0.0);
+                $regionLandedLocal = (float) ($landedCostByDateRegion[$adKey]['landed_local'] ?? 0.0);
+                $regionLandedGbp = (float) ($landedCostByDateRegion[$adKey]['landed_gbp'] ?? 0.0);
+                $regionMarginLocal = (float) ($marginByDateRegion[$adKey]['margin_local'] ?? 0.0);
+                $regionMarginGbp = (float) ($marginByDateRegion[$adKey]['margin_gbp'] ?? 0.0);
                 $regionCountryRows = array_values(array_filter(
                     $countryByDateRegion,
                     fn (array $r): bool => $r['date'] === $date && $r['region'] === $region
@@ -316,6 +338,10 @@ class MetricsController extends Controller
                         'ad_gbp' => $regionAdGbp,
                         'fees_local' => 0.0,
                         'fees_gbp' => 0.0,
+                        'landed_cost_local' => $regionLandedLocal,
+                        'landed_cost_gbp' => $regionLandedGbp,
+                        'margin_local' => $regionMarginLocal,
+                        'margin_gbp' => $regionMarginGbp,
                         'estimated_fee_data' => false,
                         'pending_sales_data' => false,
                         'estimated_sales_data' => false,
@@ -335,6 +361,10 @@ class MetricsController extends Controller
                     }
                     $adLocal = $regionAdLocal * $ratio;
                     $adGbp = $regionAdGbp * $ratio;
+                    $landedLocal = $regionLandedLocal * $ratio;
+                    $landedGbp = $regionLandedGbp * $ratio;
+                    $marginLocal = $regionMarginLocal * $ratio;
+                    $marginGbp = $regionMarginGbp * $ratio;
                     $currency = strtoupper((string) ($regionCountryRow['currency'] ?? 'GBP'));
                     $salesGbp = (float) ($regionCountryRow['sales_gbp'] ?? 0);
 
@@ -351,6 +381,10 @@ class MetricsController extends Controller
                         'ad_gbp' => $adGbp,
                         'fees_local' => (float) ($regionCountryRow['fees_local'] ?? 0.0),
                         'fees_gbp' => (float) ($regionCountryRow['fees_gbp'] ?? 0.0),
+                        'landed_cost_local' => $landedLocal,
+                        'landed_cost_gbp' => $landedGbp,
+                        'margin_local' => $marginLocal,
+                        'margin_gbp' => $marginGbp,
                         'estimated_fee_data' => (bool) ($regionCountryRow['estimated_fee_data'] ?? false),
                         'pending_sales_data' => false,
                         'estimated_sales_data' => false,
@@ -363,6 +397,8 @@ class MetricsController extends Controller
             $totalSalesGbp = (float) array_sum(array_map(fn (array $item): float => (float) ($item['sales_gbp'] ?? 0.0), $items));
             $totalAdGbp = (float) array_sum(array_map(fn (array $item): float => (float) ($item['ad_gbp'] ?? 0.0), $items));
             $totalFeesGbp = (float) array_sum(array_map(fn (array $item): float => (float) ($item['fees_gbp'] ?? 0.0), $items));
+            $totalLandedGbp = (float) array_sum(array_map(fn (array $item): float => (float) ($item['landed_cost_gbp'] ?? 0.0), $items));
+            $totalMarginGbp = (float) array_sum(array_map(fn (array $item): float => (float) ($item['margin_gbp'] ?? 0.0), $items));
             $totalOrders = (int) array_sum(array_map(fn (array $item): int => (int) ($item['order_count'] ?? 0), $items));
             $totalUnits = (int) array_sum(array_map(fn (array $item): int => (int) ($item['units'] ?? 0), $items));
             $estimatedFeeData = in_array(true, array_map(fn (array $item): bool => (bool) ($item['estimated_fee_data'] ?? false), $items), true);
@@ -372,6 +408,8 @@ class MetricsController extends Controller
                 'sales_gbp' => $totalSalesGbp,
                 'ad_gbp' => $totalAdGbp,
                 'fees_gbp' => $totalFeesGbp,
+                'landed_cost_gbp' => $totalLandedGbp,
+                'margin_gbp' => $totalMarginGbp,
                 'order_count' => $totalOrders,
                 'units' => $totalUnits,
                 'acos_percent' => $totalSalesGbp > 0 ? ($totalAdGbp / $totalSalesGbp) * 100 : null,
@@ -393,6 +431,8 @@ class MetricsController extends Controller
                     'sales_gbp' => 0.0,
                     'ad_gbp' => 0.0,
                     'fees_gbp' => 0.0,
+                    'landed_cost_gbp' => 0.0,
+                    'margin_gbp' => 0.0,
                     'order_count' => 0,
                     'units' => 0,
                     'pending_sales_data' => false,
@@ -405,6 +445,8 @@ class MetricsController extends Controller
             $weekly[$weekStart]['sales_gbp'] += (float) ($day['sales_gbp'] ?? 0.0);
             $weekly[$weekStart]['ad_gbp'] += (float) ($day['ad_gbp'] ?? 0.0);
             $weekly[$weekStart]['fees_gbp'] += (float) ($day['fees_gbp'] ?? 0.0);
+            $weekly[$weekStart]['landed_cost_gbp'] += (float) ($day['landed_cost_gbp'] ?? 0.0);
+            $weekly[$weekStart]['margin_gbp'] += (float) ($day['margin_gbp'] ?? 0.0);
             $weekly[$weekStart]['order_count'] += (int) ($day['order_count'] ?? 0);
             $weekly[$weekStart]['units'] += (int) ($day['units'] ?? 0);
             $weekly[$weekStart]['pending_sales_data'] = $weekly[$weekStart]['pending_sales_data'] || (bool) ($day['pending_sales_data'] ?? false);
