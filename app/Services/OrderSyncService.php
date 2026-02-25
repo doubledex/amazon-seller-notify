@@ -7,9 +7,9 @@ use App\Models\OrderItem;
 use App\Models\OrderSyncRun;
 use App\Models\OrderShipAddress;
 use App\Models\PostalCodeGeo;
-use Carbon\Carbon;
+use App\Integrations\Amazon\SpApi\OrdersAdapter;
+use App\Integrations\Amazon\SpApi\SpApiClientFactory;
 use Illuminate\Support\Facades\Log;
-use SellingPartnerApi\SellingPartnerApi;
 use Saloon\Exceptions\Request\Statuses\TooManyRequestsException;
 use Saloon\Http\Response;
 
@@ -33,31 +33,12 @@ class OrderSyncService
         $itemsLimit = max(0, min($itemsLimit, 500));
         $addressLimit = max(0, min($addressLimit, 500));
 
-        $region = strtoupper(trim((string) $region));
-        if ($region !== '') {
-            return $this->syncSingleRegion($days, $endBefore, $maxPages, $itemsLimit, $addressLimit, $region, $source);
-        }
+        $ordersAdapter = new OrdersAdapter(
+            new SpApiClientFactory(),
+            new MarketplaceService()
+        );
 
-        $regionService = new RegionConfigService();
-        $regions = $regionService->spApiRegions();
-        if (empty($regions)) {
-            $regions = [$regionService->defaultSpApiRegion()];
-        }
-
-        $results = [];
-        $failed = [];
-        foreach ($regions as $configuredRegion) {
-            $result = $this->syncSingleRegion($days, $endBefore, $maxPages, $itemsLimit, $addressLimit, $configuredRegion, $source);
-            $results[] = $result;
-            if (!$result['ok']) {
-                $failed[] = $configuredRegion;
-            }
-        }
-
-        $messages = array_map(static fn (array $result) => (string) ($result['message'] ?? ''), $results);
-        $summary = implode(' | ', array_filter($messages, static fn (string $msg) => trim($msg) !== ''));
-
-        if (!empty($failed)) {
+        if (!$ordersAdapter->hasMarketplaceIds()) {
             return [
                 'ok' => false,
                 'message' => 'Region sync failed for: ' . implode(', ', $failed) . ($summary !== '' ? ' | ' . $summary : ''),
@@ -121,9 +102,7 @@ class OrderSyncService
         do {
             $page++;
             $response = $this->callSpApiWithRetries(
-                fn () => $nextToken
-                    ? $ordersApi->getOrders(marketplaceIds: $marketplaceIds, nextToken: $nextToken)
-                    : $ordersApi->getOrders(createdAfter: $createdAfter, createdBefore: $createdBefore, marketplaceIds: $marketplaceIds),
+                fn () => $ordersAdapter->getOrders($createdAfter, $createdBefore, $nextToken),
                 'orders.getOrders',
                 self::MAX_API_RETRY_ATTEMPTS
             );
@@ -245,7 +224,7 @@ class OrderSyncService
 
                     if (($needsDetails || $itemsMissing || $itemsShipmentOutdated) && $itemsFetched < $itemsLimit) {
                         $itemsResponse = $this->callSpApiWithRetries(
-                            fn () => $ordersApi->getOrderItems($orderId),
+                            fn () => $ordersAdapter->getOrderItems($orderId),
                             'orders.getOrderItems',
                             self::MAX_API_RETRY_ATTEMPTS
                         );
@@ -302,7 +281,7 @@ class OrderSyncService
 
                     if (($needsDetails || $addressMissing) && $addressesFetched < $addressLimit) {
                         $addrResponse = $this->callSpApiWithRetries(
-                            fn () => $ordersApi->getOrderAddress($orderId),
+                            fn () => $ordersAdapter->getOrderAddress($orderId),
                             'orders.getOrderAddress',
                             self::MAX_API_RETRY_ATTEMPTS
                         );
