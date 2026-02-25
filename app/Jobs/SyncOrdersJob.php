@@ -35,6 +35,6 @@ class SyncOrdersJob implements ShouldQueue
 
     public function handle(OrderSyncService $service): void
     {
-        $service->sync($this->days, $this->endBefore, $this->maxPages, $this->itemsLimit, $this->addressLimit);
+        $service->sync($this->days, $this->endBefore, $this->maxPages, $this->itemsLimit, $this->addressLimit, null, 'queue');
     }
 }

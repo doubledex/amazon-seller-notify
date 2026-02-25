@@ -11,11 +11,20 @@ use Illuminate\Support\Facades\Log;
 
 class DailyRegionMetricsService
 {
-    private const REGIONS = ['UK', 'EU'];
+    private const REGIONS = ['UK', 'EU', 'NA'];
+
+    private const UK_COUNTRY_CODES = ['GB', 'UK'];
+
+    private const EU_COUNTRY_CODES = [
+        'AT', 'BE', 'DE', 'DK', 'ES', 'FI', 'FR', 'IE', 'IT', 'LU', 'NL', 'NO', 'PL', 'SE', 'CH', 'TR',
+    ];
+
+    private const NA_COUNTRY_CODES = ['US', 'CA', 'MX', 'BR'];
 
     private const LOCAL_CURRENCY = [
         'UK' => 'GBP',
         'EU' => 'EUR',
+        'NA' => 'USD',
     ];
 
     public function __construct(private readonly FxRateService $fxRateService)
@@ -38,6 +47,33 @@ class DailyRegionMetricsService
         }
 
         return ['days' => $days, 'regions' => count(self::REGIONS)];
+    }
+
+    public function refreshDates(array $dates): array
+    {
+        $normalized = [];
+        foreach ($dates as $date) {
+            $date = trim((string) $date);
+            if ($date === '') {
+                continue;
+            }
+            try {
+                $normalized[Carbon::parse($date)->toDateString()] = true;
+            } catch (\Throwable) {
+                // Ignore invalid date values.
+            }
+        }
+
+        $dateList = array_keys($normalized);
+        sort($dateList);
+
+        foreach ($dateList as $date) {
+            foreach (self::REGIONS as $region) {
+                $this->refreshDayRegion($date, $region);
+            }
+        }
+
+        return ['days' => count($dateList), 'regions' => count(self::REGIONS)];
     }
 
     public function importAdSpendCsv(string $path, string $source = 'csv'): int
@@ -145,8 +181,8 @@ class DailyRegionMetricsService
         $itemTotals = DB::table('order_items')
             ->selectRaw("
                 amazon_order_id,
-                MAX(COALESCE(item_price_currency, '')) as item_currency,
-                SUM(COALESCE(quantity_ordered, 0) * COALESCE(item_price_amount, 0)) as item_total
+                MAX(COALESCE(line_net_currency, estimated_line_currency, item_price_currency, '')) as item_currency,
+                SUM(COALESCE(line_net_ex_tax, estimated_line_net_ex_tax, 0)) as item_total
             ")
             ->groupBy('amazon_order_id');
 
@@ -156,30 +192,45 @@ class DailyRegionMetricsService
                 $join->on('item_totals.amazon_order_id', '=', 'orders.amazon_order_id');
             })
             ->select(
-                DB::raw("COALESCE(NULLIF(orders.order_total_currency, ''), NULLIF(item_totals.item_currency, ''), 'GBP') as currency"),
+                DB::raw("COALESCE(NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(item_totals.item_currency, ''), NULLIF(orders.order_total_currency, ''), NULLIF(marketplaces.default_currency, ''), 'GBP') as currency"),
                 DB::raw("
                     SUM(
                         CASE
-                            WHEN COALESCE(orders.order_total_amount, 0) > 0 THEN orders.order_total_amount
+                            WHEN COALESCE(orders.order_net_ex_tax, 0) > 0 THEN orders.order_net_ex_tax
                             ELSE COALESCE(item_totals.item_total, 0)
                         END
                     ) as amount
                 "),
                 DB::raw('COUNT(*) as order_count')
             )
-            ->whereDate('orders.purchase_date', $date);
+            ->whereRaw("COALESCE(orders.purchase_date_local_date, DATE(orders.purchase_date)) = ?", [$date]);
 
         $query->whereRaw("UPPER(COALESCE(orders.order_status, '')) NOT IN ('CANCELED', 'CANCELLED')");
 
-        if ($region === 'UK') {
-            $query->where('marketplaces.country_code', 'GB');
-        } else {
-            $query->where('marketplaces.country_code', '!=', 'GB');
-        }
+        $this->applyRegionCountryFilter($query, $region);
 
         return $query
-            ->groupBy(DB::raw("COALESCE(NULLIF(orders.order_total_currency, ''), NULLIF(item_totals.item_currency, ''), 'GBP')"))
+            ->groupBy(DB::raw("COALESCE(NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(item_totals.item_currency, ''), NULLIF(orders.order_total_currency, ''), NULLIF(marketplaces.default_currency, ''), 'GBP')"))
             ->get();
+    }
+
+    private function applyRegionCountryFilter($query, string $region): void
+    {
+        $countryColumn = DB::raw('UPPER(marketplaces.country_code)');
+
+        if ($region === 'UK') {
+            $query->whereIn($countryColumn, self::UK_COUNTRY_CODES);
+            return;
+        }
+
+        if ($region === 'EU') {
+            $query->whereIn($countryColumn, self::EU_COUNTRY_CODES);
+            return;
+        }
+
+        if ($region === 'NA') {
+            $query->whereIn($countryColumn, self::NA_COUNTRY_CODES);
+        }
     }
 
     private function convertRows(Collection $rows, string $toCurrency, string $date): float

@@ -7,7 +7,7 @@ use Illuminate\Console\Command;
 
 class SyncMarketplaceListings extends Command
 {
-    protected $signature = 'listings:sync-europe {--marketplace=* : Optional marketplace IDs to sync} {--max-attempts=8 : Poll attempts per marketplace} {--sleep-seconds=3 : Seconds between poll attempts} {--report-type=GET_MERCHANT_LISTINGS_ALL_DATA : SP-API listings report type}';
+    protected $signature = 'listings:sync-europe {--marketplace=* : Optional marketplace IDs to sync} {--max-attempts=8 : Poll attempts per marketplace} {--sleep-seconds=3 : Seconds between poll attempts} {--report-type=GET_MERCHANT_LISTINGS_ALL_DATA : SP-API listings report type} {--region= : Optional SP-API region (EU|NA|FE)}';
     protected $description = 'Sync marketplace listings for Europe using SP-API reports.';
 
     public function handle(MarketplaceListingsSyncService $service): int
@@ -18,12 +18,14 @@ class SyncMarketplaceListings extends Command
         $maxAttempts = max(1, (int) $this->option('max-attempts'));
         $sleepSeconds = max(1, (int) $this->option('sleep-seconds'));
         $reportType = trim((string) $this->option('report-type'));
+        $region = $this->option('region') ? (string) $this->option('region') : null;
 
         $result = $service->syncEurope(
             $marketplaces ?: null,
             $maxAttempts,
             $sleepSeconds,
-            $reportType !== '' ? $reportType : MarketplaceListingsSyncService::DEFAULT_REPORT_TYPE
+            $reportType !== '' ? $reportType : MarketplaceListingsSyncService::DEFAULT_REPORT_TYPE,
+            $region
         );
 
         $this->info('Total listings synced: ' . (int) ($result['synced'] ?? 0));

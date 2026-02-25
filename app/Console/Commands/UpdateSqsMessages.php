@@ -44,12 +44,13 @@ class UpdateSqsMessages extends Command
             {
                 $notificationType = $body['NotificationType'] ?? $body['notificationType'];
                 $eventTime = $body['EventTime'] ?? $body['eventTime'];
+                $normalizedEventTime = $this->normalizeEventTime($eventTime);
 
                 DB::table('sqs_messages')
                     ->where('id', $message->id)
                     ->update([
                         'NotificationType' => $notificationType,
-                        'EventTime' => $eventTime,
+                        'EventTime' => $normalizedEventTime,
                     ]);
 
                 $this->info("Updated message ID: {$message->id}");
@@ -57,5 +58,19 @@ class UpdateSqsMessages extends Command
         }
 
         $this->info('Update completed.');
+    }
+
+    private function normalizeEventTime(mixed $eventTime): ?string
+    {
+        $raw = trim((string) $eventTime);
+        if ($raw === '') {
+            return null;
+        }
+
+        try {
+            return (new \DateTime($raw))->format('Y-m-d H:i:s');
+        } catch (\Exception) {
+            return null;
+        }
     }
 }

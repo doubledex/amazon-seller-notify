@@ -7,6 +7,7 @@ use App\Models\AmazonAdsReportRequest;
 use App\Models\DailyRegionAdSpend;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -21,7 +22,12 @@ class AmazonAdsSpendSyncService
         'AT', 'BE', 'DE', 'DK', 'ES', 'FI', 'FR', 'IE', 'IT', 'LU', 'NL', 'NO', 'PL', 'SE', 'CH', 'TR',
     ];
 
-    public function __construct(private readonly FxRateService $fxRateService)
+    private const NA_COUNTRY_CODES = ['US', 'CA', 'MX', 'BR'];
+
+    public function __construct(
+        private readonly FxRateService $fxRateService,
+        private readonly RegionConfigService $regionConfigService
+    )
     {
     }
 
@@ -33,12 +39,7 @@ class AmazonAdsSpendSyncService
         int $pollAttempts = 20,
         ?array $adProducts = null
     ): array {
-        $token = $this->getAccessToken();
-        if ($token === null) {
-            return ['ok' => false, 'message' => 'Unable to obtain Amazon Ads access token.', 'rows' => 0];
-        }
-
-        $profiles = $this->getProfiles($token);
+        [$profiles, $tokenByApiRegion, $adsConfigByApiRegion] = $this->loadProfilesByConfiguredAdsRegions();
         if (empty($profiles)) {
             return ['ok' => false, 'message' => 'No Amazon Ads profiles available.', 'rows' => 0];
         }
@@ -61,6 +62,7 @@ class AmazonAdsSpendSyncService
             $profileId = (string) ($profile['profileId'] ?? '');
             $countryCode = strtoupper((string) ($profile['countryCode'] ?? ''));
             $currency = strtoupper((string) ($profile['currencyCode'] ?? ''));
+            $apiRegion = strtoupper((string) ($profile['_ads_api_region'] ?? ''));
             if ($profileId === '' || $countryCode === '' || $currency === '') {
                 continue;
             }
@@ -69,10 +71,21 @@ class AmazonAdsSpendSyncService
             if ($region === null) {
                 continue;
             }
+
+            $adsConfig = $adsConfigByApiRegion[$apiRegion] ?? null;
+            $token = $tokenByApiRegion[$apiRegion] ?? null;
+            if (!is_array($adsConfig) || !is_string($token) || $token === '') {
+                Log::warning('Skipping profile due to missing ads API config/token', [
+                    'profile_id' => $profileId,
+                    'api_region' => $apiRegion,
+                    'country_code' => $countryCode,
+                ]);
+                continue;
+            }
             $rowsByProfile[$profileId] = 0;
 
             foreach ($this->splitRange($from, $to, 31) as [$chunkFrom, $chunkTo]) {
-                $rows = $this->fetchSpendRowsForProfile($token, $profileId, $chunkFrom, $chunkTo, $pollAttempts, $adProducts);
+                $rows = $this->fetchSpendRowsForProfile($token, $adsConfig, $profileId, $chunkFrom, $chunkTo, $pollAttempts, $adProducts);
                 foreach ($rows as $row) {
                     $date = (string) ($row['date'] ?? '');
                     $amount = (float) ($row['spend'] ?? 0);
@@ -80,7 +93,7 @@ class AmazonAdsSpendSyncService
                         continue;
                     }
 
-                    $targetCurrency = $region === 'UK' ? 'GBP' : 'EUR';
+                    $targetCurrency = $this->targetCurrencyForRegion($region);
                     $converted = $this->fxRateService->convert($amount, $currency, $targetCurrency, $date);
                     if ($converted === null) {
                         Log::warning('Amazon Ads spend conversion failed', [
@@ -100,7 +113,7 @@ class AmazonAdsSpendSyncService
             }
 
             if ($rowsByProfile[$profileId] === 0) {
-                $legacyRows = $this->fetchLegacySponsoredProductsSpend($token, $profileId, $from, $to);
+                $legacyRows = $this->fetchLegacySponsoredProductsSpend($token, $adsConfig, $profileId, $from, $to);
                 foreach ($legacyRows as $row) {
                     $date = (string) ($row['date'] ?? '');
                     $amount = (float) ($row['spend'] ?? 0);
@@ -108,7 +121,7 @@ class AmazonAdsSpendSyncService
                         continue;
                     }
 
-                    $targetCurrency = $region === 'UK' ? 'GBP' : 'EUR';
+                    $targetCurrency = $this->targetCurrencyForRegion($region);
                     $converted = $this->fxRateService->convert($amount, $currency, $targetCurrency, $date);
                     if ($converted === null) {
                         continue;
@@ -158,12 +171,7 @@ class AmazonAdsSpendSyncService
         ?int $maxProfiles = null,
         ?array $adProducts = null
     ): array {
-        $token = $this->getAccessToken();
-        if ($token === null) {
-            return ['ok' => false, 'message' => 'Unable to obtain Amazon Ads access token.'];
-        }
-
-        $profiles = $this->getProfiles($token);
+        [$profiles, $tokenByApiRegion, $adsConfigByApiRegion] = $this->loadProfilesByConfiguredAdsRegions();
         if (empty($profiles)) {
             return ['ok' => false, 'message' => 'No Amazon Ads profiles available.'];
         }
@@ -179,8 +187,6 @@ class AmazonAdsSpendSyncService
             $profiles = array_slice($profiles, 0, $maxProfiles);
         }
 
-        $baseUrl = rtrim((string) config('services.amazon_ads.base_url', 'https://advertising-api-eu.amazon.com'), '/');
-        $clientId = trim((string) config('services.amazon_ads.client_id'));
         $configs = $this->reportConfigs($adProducts);
 
         $created = 0;
@@ -191,6 +197,7 @@ class AmazonAdsSpendSyncService
             $profileId = (string) ($profile['profileId'] ?? '');
             $countryCode = strtoupper((string) ($profile['countryCode'] ?? ''));
             $currency = strtoupper((string) ($profile['currencyCode'] ?? ''));
+            $apiRegion = strtoupper((string) ($profile['_ads_api_region'] ?? ''));
             if ($profileId === '' || $countryCode === '' || $currency === '') {
                 continue;
             }
@@ -200,8 +207,39 @@ class AmazonAdsSpendSyncService
                 continue;
             }
 
+            $adsConfig = $adsConfigByApiRegion[$apiRegion] ?? null;
+            $token = $tokenByApiRegion[$apiRegion] ?? null;
+            if (!is_array($adsConfig) || !is_string($token) || $token === '') {
+                $failed++;
+                Log::warning('Ads queue skipped profile due missing config/token', [
+                    'profile_id' => $profileId,
+                    'api_region' => $apiRegion,
+                    'country_code' => $countryCode,
+                ]);
+                continue;
+            }
+
+            $baseUrl = rtrim((string) ($adsConfig['base_url'] ?? ''), '/');
+            $clientId = trim((string) ($adsConfig['client_id'] ?? ''));
+
             foreach ($this->splitRange($from, $to, 31) as [$chunkFrom, $chunkTo]) {
                 foreach ($configs as $config) {
+                    $existingOutstanding = $this->findOutstandingReportRequest(
+                        $profileId,
+                        $config['adProduct'],
+                        $config['reportTypeId'],
+                        $chunkFrom->toDateString(),
+                        $chunkTo->toDateString()
+                    );
+                    if ($existingOutstanding) {
+                        if ($existingOutstanding->next_check_at === null || $existingOutstanding->next_check_at->gt(now())) {
+                            $existingOutstanding->next_check_at = now();
+                            $existingOutstanding->save();
+                        }
+                        $existing++;
+                        continue;
+                    }
+
                     $reportName = strtolower($config['adProduct']) . '_daily_spend_' . $profileId . '_' . $chunkFrom->format('Ymd') . '_' . $chunkTo->format('Ymd');
                     $createResponse = null;
                     $reportId = '';
@@ -337,14 +375,6 @@ class AmazonAdsSpendSyncService
 
     public function processPendingReports(int $limit = 100): array
     {
-        $token = $this->getAccessToken();
-        if ($token === null) {
-            return ['ok' => false, 'message' => 'Unable to obtain Amazon Ads access token.'];
-        }
-
-        $baseUrl = rtrim((string) config('services.amazon_ads.base_url', 'https://advertising-api-eu.amazon.com'), '/');
-        $clientId = trim((string) config('services.amazon_ads.client_id'));
-
         $requests = AmazonAdsReportRequest::query()
             ->whereNull('processed_at')
             ->whereNotIn('status', ['FAILED', 'CANCELLED'])
@@ -360,11 +390,57 @@ class AmazonAdsSpendSyncService
         $processed = 0;
         $failed = 0;
         $affectedDates = [];
+        $tokenByApiRegion = [];
+        $adsConfigByApiRegion = [];
 
         foreach ($requests as $request) {
             $checked++;
 
             $this->maybeAlertStuckReport($request);
+
+            $apiRegion = $this->resolveAdsApiRegionForRequest($request);
+            if (!isset($adsConfigByApiRegion[$apiRegion])) {
+                $adsConfigByApiRegion[$apiRegion] = $this->adsConfigForRegion($apiRegion);
+            }
+            $adsConfig = $adsConfigByApiRegion[$apiRegion] ?? null;
+            if (!is_array($adsConfig)) {
+                $request->retry_count = (int) $request->retry_count + 1;
+                $request->processing_error = 'Missing Amazon Ads configuration for API region [' . $apiRegion . '].';
+                $request->next_check_at = now()->addSeconds($this->withJitter(300, 0.2));
+                if ((int) $request->retry_count >= self::MAX_BACKGROUND_RETRIES) {
+                    $request->status = 'FAILED';
+                    $request->failure_reason = $request->processing_error;
+                    $request->processed_at = now();
+                    $request->completed_at = now();
+                    $request->next_check_at = null;
+                    $failed++;
+                }
+                $request->save();
+                continue;
+            }
+
+            if (!isset($tokenByApiRegion[$apiRegion])) {
+                $tokenByApiRegion[$apiRegion] = $this->getAccessToken($adsConfig);
+            }
+            $token = $tokenByApiRegion[$apiRegion] ?? null;
+            if (!is_string($token) || $token === '') {
+                $request->retry_count = (int) $request->retry_count + 1;
+                $request->processing_error = 'Unable to obtain Amazon Ads token for API region [' . $apiRegion . '].';
+                $request->next_check_at = now()->addSeconds($this->withJitter(300, 0.2));
+                if ((int) $request->retry_count >= self::MAX_BACKGROUND_RETRIES) {
+                    $request->status = 'FAILED';
+                    $request->failure_reason = $request->processing_error;
+                    $request->processed_at = now();
+                    $request->completed_at = now();
+                    $request->next_check_at = null;
+                    $failed++;
+                }
+                $request->save();
+                continue;
+            }
+
+            $baseUrl = rtrim((string) ($adsConfig['base_url'] ?? ''), '/');
+            $clientId = trim((string) ($adsConfig['client_id'] ?? ''));
 
             $statusResponse = Http::timeout(30)
                 ->withToken($token)
@@ -464,6 +540,7 @@ class AmazonAdsSpendSyncService
             'processed' => $processed,
             'failed' => $failed,
             'aggregated_rows' => $aggregateRows,
+            'affected_dates' => array_values(array_keys($affectedDates)),
             'outstanding' => $outstanding['count'],
             'oldest_wait_seconds' => $outstanding['oldest_wait_seconds'],
         ];
@@ -471,12 +548,11 @@ class AmazonAdsSpendSyncService
 
     public function testConnection(): array
     {
-        $token = $this->getAccessToken();
-        if ($token === null) {
+        [$profiles, $tokensByApiRegion, $adsConfigByApiRegion] = $this->loadProfilesByConfiguredAdsRegions();
+        if (empty($tokensByApiRegion) || empty($adsConfigByApiRegion)) {
             return ['ok' => false, 'message' => 'Unable to obtain Amazon Ads access token.', 'profiles' => []];
         }
 
-        $profiles = $this->getProfiles($token);
         return [
             'ok' => true,
             'message' => 'Amazon Ads connection successful.',
@@ -484,14 +560,21 @@ class AmazonAdsSpendSyncService
         ];
     }
 
-    private function getAccessToken(): ?string
+    private function getAccessToken(array $adsConfig): ?string
     {
-        $clientId = trim((string) config('services.amazon_ads.client_id'));
-        $clientSecret = trim((string) config('services.amazon_ads.client_secret'));
-        $refreshToken = trim((string) config('services.amazon_ads.refresh_token'));
+        $clientId = trim((string) ($adsConfig['client_id'] ?? ''));
+        $clientSecret = trim((string) ($adsConfig['client_secret'] ?? ''));
+        $refreshToken = trim((string) ($adsConfig['refresh_token'] ?? ''));
+        $apiRegion = strtoupper((string) ($adsConfig['region'] ?? ''));
         if ($clientId === '' || $clientSecret === '' || $refreshToken === '') {
-            Log::warning('Amazon Ads credentials are missing.');
+            Log::warning('Amazon Ads credentials are missing.', ['api_region' => $apiRegion]);
             return null;
+        }
+
+        $cacheKey = 'amazon_ads:access_token:' . strtolower($apiRegion) . ':' . sha1($clientId . '|' . $refreshToken);
+        $cachedToken = Cache::get($cacheKey);
+        if (is_string($cachedToken) && trim($cachedToken) !== '') {
+            return $cachedToken;
         }
 
         $response = Http::asForm()->timeout(20)->post('https://api.amazon.com/auth/o2/token', [
@@ -503,6 +586,7 @@ class AmazonAdsSpendSyncService
 
         if (!$response->ok()) {
             Log::warning('Amazon Ads token request failed', [
+                'api_region' => $apiRegion,
                 'status' => $response->status(),
                 'request_id' => $this->extractRequestId($response),
                 'body' => $response->body(),
@@ -511,13 +595,26 @@ class AmazonAdsSpendSyncService
         }
 
         $token = (string) ($response->json('access_token') ?? '');
-        return $token !== '' ? $token : null;
+        if ($token === '') {
+            return null;
+        }
+
+        $expiresIn = (int) ($response->json('expires_in') ?? 3600);
+        $cacheSeconds = max(60, $expiresIn - 120);
+        Cache::put($cacheKey, $token, now()->addSeconds($cacheSeconds));
+
+        return $token;
     }
 
-    private function getProfiles(string $token): array
+    private function getProfiles(string $token, array $adsConfig): array
     {
-        $baseUrl = rtrim((string) config('services.amazon_ads.base_url', 'https://advertising-api-eu.amazon.com'), '/');
-        $clientId = trim((string) config('services.amazon_ads.client_id'));
+        $baseUrl = rtrim((string) ($adsConfig['base_url'] ?? ''), '/');
+        $clientId = trim((string) ($adsConfig['client_id'] ?? ''));
+        $apiRegion = strtoupper((string) ($adsConfig['region'] ?? ''));
+        if ($baseUrl === '' || $clientId === '') {
+            Log::warning('Amazon Ads base URL/client id missing for profiles request', ['api_region' => $apiRegion]);
+            return [];
+        }
 
         $response = Http::timeout(30)
             ->withToken($token)
@@ -528,6 +625,7 @@ class AmazonAdsSpendSyncService
 
         if (!$response->ok()) {
             Log::warning('Amazon Ads profiles request failed', [
+                'api_region' => $apiRegion,
                 'status' => $response->status(),
                 'request_id' => $this->extractRequestId($response),
                 'body' => $response->body(),
@@ -541,14 +639,15 @@ class AmazonAdsSpendSyncService
 
     private function fetchSpendRowsForProfile(
         string $token,
+        array $adsConfig,
         string $profileId,
         Carbon $from,
         Carbon $to,
         int $pollAttempts,
         ?array $adProducts = null
     ): array {
-        $baseUrl = rtrim((string) config('services.amazon_ads.base_url', 'https://advertising-api-eu.amazon.com'), '/');
-        $clientId = trim((string) config('services.amazon_ads.client_id'));
+        $baseUrl = rtrim((string) ($adsConfig['base_url'] ?? ''), '/');
+        $clientId = trim((string) ($adsConfig['client_id'] ?? ''));
         $configs = $this->reportConfigs($adProducts);
 
         $daily = [];
@@ -783,7 +882,7 @@ class AmazonAdsSpendSyncService
     {
         $region = (string) $request->region;
         $currencyCode = strtoupper((string) $request->currency_code);
-        $targetCurrency = $region === 'UK' ? 'GBP' : 'EUR';
+        $targetCurrency = $this->targetCurrencyForRegion($region);
         if ($region === '' || $currencyCode === '') {
             return [0, []];
         }
@@ -842,10 +941,28 @@ class AmazonAdsSpendSyncService
 
     private function refreshAggregatesForDates(array $dates): int
     {
-        $rows = DB::table('amazon_ads_report_daily_spends')
-            ->selectRaw('metric_date, region, currency, SUM(amount_local) as amount_local')
-            ->whereIn('metric_date', $dates)
-            ->groupBy('metric_date', 'region', 'currency')
+        $latestAdsRequests = DB::table('amazon_ads_report_daily_spends as ds_latest')
+            ->join('amazon_ads_report_requests as rr_latest', 'rr_latest.id', '=', 'ds_latest.report_request_id')
+            ->selectRaw("
+                ds_latest.metric_date as metric_date,
+                ds_latest.profile_id as profile_id,
+                rr_latest.ad_product as ad_product,
+                MAX(rr_latest.id) as latest_request_id
+            ")
+            ->whereIn('ds_latest.metric_date', $dates)
+            ->groupBy('ds_latest.metric_date', 'ds_latest.profile_id', 'rr_latest.ad_product');
+
+        $rows = DB::table('amazon_ads_report_daily_spends as ds')
+            ->join('amazon_ads_report_requests as rr', 'rr.id', '=', 'ds.report_request_id')
+            ->joinSub($latestAdsRequests, 'latest_ads', function ($join) {
+                $join->on('latest_ads.metric_date', '=', 'ds.metric_date')
+                    ->on('latest_ads.profile_id', '=', 'ds.profile_id')
+                    ->on('latest_ads.ad_product', '=', 'rr.ad_product')
+                    ->on('latest_ads.latest_request_id', '=', 'rr.id');
+            })
+            ->selectRaw('ds.metric_date as metric_date, ds.region as region, ds.currency as currency, SUM(ds.amount_local) as amount_local')
+            ->whereIn('ds.metric_date', $dates)
+            ->groupBy('ds.metric_date', 'ds.region', 'ds.currency')
             ->get();
 
         $upsertRows = [];
@@ -897,7 +1014,91 @@ class AmazonAdsSpendSyncService
             return 'UK';
         }
 
+        if (in_array($countryCode, self::NA_COUNTRY_CODES, true)) {
+            return 'NA';
+        }
+
         return in_array($countryCode, self::EU_COUNTRY_CODES, true) ? 'EU' : null;
+    }
+
+    private function targetCurrencyForRegion(string $region): string
+    {
+        return match (strtoupper(trim($region))) {
+            'UK' => 'GBP',
+            'NA' => 'USD',
+            default => 'EUR',
+        };
+    }
+
+    private function loadProfilesByConfiguredAdsRegions(): array
+    {
+        $profiles = [];
+        $tokenByApiRegion = [];
+        $adsConfigByApiRegion = [];
+        foreach ($this->regionConfigService->adsRegions() as $adsApiRegion) {
+            $adsConfig = $this->adsConfigForRegion((string) $adsApiRegion);
+            if (!is_array($adsConfig)) {
+                continue;
+            }
+
+            $token = $this->getAccessToken($adsConfig);
+            if ($token === null) {
+                continue;
+            }
+
+            $apiProfiles = $this->getProfiles($token, $adsConfig);
+            foreach ($apiProfiles as $apiProfile) {
+                if (!is_array($apiProfile)) {
+                    continue;
+                }
+                $apiProfile['_ads_api_region'] = $adsApiRegion;
+                $profiles[] = $apiProfile;
+            }
+
+            $tokenByApiRegion[$adsApiRegion] = $token;
+            $adsConfigByApiRegion[$adsApiRegion] = $adsConfig;
+        }
+
+        return [$profiles, $tokenByApiRegion, $adsConfigByApiRegion];
+    }
+
+    private function adsConfigForRegion(string $region): ?array
+    {
+        $normalizedRegion = strtoupper(trim($region));
+        if ($normalizedRegion === 'UK') {
+            $normalizedRegion = 'EU';
+        }
+
+        $config = $this->regionConfigService->adsConfig($normalizedRegion);
+        $clientId = trim((string) ($config['client_id'] ?? ''));
+        $clientSecret = trim((string) ($config['client_secret'] ?? ''));
+        $refreshToken = trim((string) ($config['refresh_token'] ?? ''));
+        $baseUrl = trim((string) ($config['base_url'] ?? ''));
+        if ($clientId === '' || $clientSecret === '' || $refreshToken === '' || $baseUrl === '') {
+            return null;
+        }
+
+        $config['region'] = $normalizedRegion;
+
+        return $config;
+    }
+
+    private function resolveAdsApiRegionForRequest(AmazonAdsReportRequest $request): string
+    {
+        $countryCode = strtoupper(trim((string) $request->country_code));
+        if ($countryCode !== '') {
+            $businessRegion = $this->toRegion($countryCode);
+            if ($businessRegion !== null) {
+                return $businessRegion === 'UK' ? 'EU' : $businessRegion;
+            }
+        }
+
+        $requestRegion = strtoupper(trim((string) $request->region));
+        if ($requestRegion === 'UK') {
+            return 'EU';
+        }
+
+        return in_array($requestRegion, ['EU', 'NA', 'FE'], true) ? $requestRegion : $this->regionConfigService->defaultAdsRegion();
     }
 
     private function splitRange(Carbon $from, Carbon $to, int $maxDaysPerChunk): array
@@ -919,10 +1120,10 @@ class AmazonAdsSpendSyncService
         return $chunks;
     }
 
-    private function fetchLegacySponsoredProductsSpend(string $token, string $profileId, Carbon $from, Carbon $to): array
+    private function fetchLegacySponsoredProductsSpend(string $token, array $adsConfig, string $profileId, Carbon $from, Carbon $to): array
     {
-        $baseUrl = rtrim((string) config('services.amazon_ads.base_url', 'https://advertising-api-eu.amazon.com'), '/');
-        $clientId = trim((string) config('services.amazon_ads.client_id'));
+        $baseUrl = rtrim((string) ($adsConfig['base_url'] ?? ''), '/');
+        $clientId = trim((string) ($adsConfig['client_id'] ?? ''));
         $date = $from->copy()->startOfDay();
         $end = $to->copy()->startOfDay();
         $daily = [];
@@ -1167,5 +1368,24 @@ class AmazonAdsSpendSyncService
             'x_amz_ratelimit_reset' => $response->header('x-amz-ratelimit-reset'),
             'x_ratelimit_reset' => $response->header('x-ratelimit-reset'),
         ]);
+    }
+
+    private function findOutstandingReportRequest(
+        string $profileId,
+        string $adProduct,
+        string $reportTypeId,
+        string $startDate,
+        string $endDate
+    ): ?AmazonAdsReportRequest {
+        return AmazonAdsReportRequest::query()
+            ->where('profile_id', $profileId)
+            ->where('ad_product', $adProduct)
+            ->where('report_type_id', $reportTypeId)
+            ->whereDate('start_date', $startDate)
+            ->whereDate('end_date', $endDate)
+            ->whereNull('processed_at')
+            ->whereNotIn('status', ['FAILED', 'CANCELLED'])
+            ->orderByDesc('id')
+            ->first();
     }
 }

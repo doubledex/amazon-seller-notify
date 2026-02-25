@@ -10,6 +10,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
+        "amzn-spapi/sdk": "^1.7",
         "aws/aws-sdk-php": "^3.339",
         "highsidelabs/laravel-spapi": "^2.1",
         "jlevers/selling-partner-api": "^7.2",

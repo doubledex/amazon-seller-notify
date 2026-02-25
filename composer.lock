@@ -4,8 +4,74 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "af227c9860b167e259a23e7d693f0832",
+    "content-hash": "c6a2d22b31ba9e37b7a8e48f6b7afac4",
     "packages": [
+        {
+            "name": "amzn-spapi/sdk",
+            "version": "1.7.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/amzn/selling-partner-api-php-release.git",
+                "reference": "f6ed8e44d8acb45b4f1f36f97d0087d3f2fa4c50"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/amzn/selling-partner-api-php-release/zipball/f6ed8e44d8acb45b4f1f36f97d0087d3f2fa4c50",
+                "reference": "f6ed8e44d8acb45b4f1f36f97d0087d3f2fa4c50",
+                "shasum": ""
+            },
+            "require": {
+                "aws/aws-sdk-php": "^3.228",
+                "dallgoot/yaml": "^1.0",
+                "ext-json": "*",
+                "ext-openssl": "*",
+                "guzzlehttp/guzzle": "^7.9",
+                "guzzlehttp/psr7": "^2.0",
+                "php": "^8.3",
+                "symfony/rate-limiter": "^7.2",
+                "vlucas/phpdotenv": "^5.6"
+            },
+            "conflict": {
+                "guzzlehttp/guzzle": ">=8.0"
+            },
+            "require-dev": {
+                "friendsofphp/php-cs-fixer": "^3.75",
+                "phpunit/phpunit": "^9.6",
+                "squizlabs/php_codesniffer": "^3.7"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "SpApi\\": "lib/",
+                    "SpApi\\Test\\": "test/",
+                    "SpApi\\AuthAndAuth\\": "src/authandauth"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "Apache-2.0"
+            ],
+            "authors": [
+                {
+                    "name": "Amazon API Services",
+                    "homepage": "https://developer-docs.amazon.com/sp-api"
+                }
+            ],
+            "description": "Amazon Selling Partner APIs official client library for PHP.",
+            "homepage": "https://github.com/amzn/selling-partner-api-sdk",
+            "keywords": [
+                "amazon",
+                "openapi-generator",
+                "php",
+                "rest",
+                "sdk",
+                "sp-api"
+            ],
+            "support": {
+                "source": "https://github.com/amzn/selling-partner-api-php-release/tree/1.7.1"
+            },
+            "time": "2026-02-05T09:11:04+00:00"
+        },
         {
             "name": "aws/aws-crt-php",
             "version": "v1.2.7",
@@ -285,6 +351,70 @@
                 }
             ],
             "time": "2024-02-09T16:56:22+00:00"
+        },
+        {
+            "name": "dallgoot/yaml",
+            "version": "1.0.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/dallgoot/yaml.git",
+                "reference": "973c8a646bbb984d93fd26166b1fcfe639bb9da5"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/dallgoot/yaml/zipball/973c8a646bbb984d93fd26166b1fcfe639bb9da5",
+                "reference": "973c8a646bbb984d93fd26166b1fcfe639bb9da5",
+                "shasum": ""
+            },
+            "require": {
+                "ext-json": "*",
+                "ext-pcre": "*",
+                "ext-spl": "*",
+                "lib-pcre": "*",
+                "php": ">=8.1"
+            },
+            "require-dev": {
+                "ext-reflection": "*",
+                "phan/phan": "*",
+                "phpmetrics/phpmetrics": "*",
+                "phpunit/phpunit": "^10",
+                "symfony/yaml": "^7.3"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Dallgoot\\Yaml\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "Apache-2.0"
+            ],
+            "authors": [
+                {
+                    "name": "dallgoot",
+                    "email": "stephane.rebai@gmail.com"
+                }
+            ],
+            "description": "Provides loader, dumper and an API for YAML content. Loader builds to equivalent data types in PHP 8.x",
+            "homepage": "https://github.com/dallgoot/yaml",
+            "keywords": [
+                "parser",
+                "reader",
+                "writer",
+                "yaml"
+            ],
+            "support": {
+                "issues": "https://github.com/dallgoot/yaml/issues",
+                "source": "https://github.com/dallgoot/yaml/tree/1.0.1"
+            },
+            "funding": [
+                {
+                    "url": "https://github.com/dallgoot",
+                    "type": "github"
+                }
+            ],
+            "time": "2025-06-11T08:27:09+00:00"
         },
         {
             "name": "dflydev/dot-access-data",
@@ -4777,6 +4907,77 @@
             "time": "2025-01-27T11:08:17+00:00"
         },
         {
+            "name": "symfony/options-resolver",
+            "version": "v7.4.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/symfony/options-resolver.git",
+                "reference": "b38026df55197f9e39a44f3215788edf83187b80"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/symfony/options-resolver/zipball/b38026df55197f9e39a44f3215788edf83187b80",
+                "reference": "b38026df55197f9e39a44f3215788edf83187b80",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.2",
+                "symfony/deprecation-contracts": "^2.5|^3"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Symfony\\Component\\OptionsResolver\\": ""
+                },
+                "exclude-from-classmap": [
+                    "/Tests/"
+                ]
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Fabien Potencier",
+                    "email": "fabien@symfony.com"
+                },
+                {
+                    "name": "Symfony Community",
+                    "homepage": "https://symfony.com/contributors"
+                }
+            ],
+            "description": "Provides an improved replacement for the array_replace PHP function",
+            "homepage": "https://symfony.com",
+            "keywords": [
+                "config",
+                "configuration",
+                "options"
+            ],
+            "support": {
+                "source": "https://github.com/symfony/options-resolver/tree/v7.4.0"
+            },
+            "funding": [
+                {
+                    "url": "https://symfony.com/sponsor",
+                    "type": "custom"
+                },
+                {
+                    "url": "https://github.com/fabpot",
+                    "type": "github"
+                },
+                {
+                    "url": "https://github.com/nicolas-grekas",
+                    "type": "github"
+                },
+                {
+                    "url": "https://tidelift.com/funding/github/packagist/symfony/symfony",
+                    "type": "tidelift"
+                }
+            ],
+            "time": "2025-11-12T15:39:26+00:00"
+        },
+        {
             "name": "symfony/polyfill-ctype",
             "version": "v1.31.0",
             "source": {
@@ -5472,6 +5673,80 @@
                 }
             ],
             "time": "2024-11-06T14:24:19+00:00"
+        },
+        {
+            "name": "symfony/rate-limiter",
+            "version": "v7.4.5",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/symfony/rate-limiter.git",
+                "reference": "7e275c57293cd2d894e126cc68855ecd82bcd173"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/symfony/rate-limiter/zipball/7e275c57293cd2d894e126cc68855ecd82bcd173",
+                "reference": "7e275c57293cd2d894e126cc68855ecd82bcd173",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.2",
+                "symfony/options-resolver": "^7.3|^8.0"
+            },
+            "require-dev": {
+                "psr/cache": "^1.0|^2.0|^3.0",
+                "symfony/lock": "^6.4|^7.0|^8.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Symfony\\Component\\RateLimiter\\": ""
+                },
+                "exclude-from-classmap": [
+                    "/Tests/"
+                ]
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Wouter de Jong",
+                    "email": "wouter@wouterj.nl"
+                },
+                {
+                    "name": "Symfony Community",
+                    "homepage": "https://symfony.com/contributors"
+                }
+            ],
+            "description": "Provides a Token Bucket implementation to rate limit input and output in your application",
+            "homepage": "https://symfony.com",
+            "keywords": [
+                "limiter",
+                "rate-limiter"
+            ],
+            "support": {
+                "source": "https://github.com/symfony/rate-limiter/tree/v7.4.5"
+            },
+            "funding": [
+                {
+                    "url": "https://symfony.com/sponsor",
+                    "type": "custom"
+                },
+                {
+                    "url": "https://github.com/fabpot",
+                    "type": "github"
+                },
+                {
+                    "url": "https://github.com/nicolas-grekas",
+                    "type": "github"
+                },
+                {
+                    "url": "https://tidelift.com/funding/github/packagist/symfony/symfony",
+                    "type": "tidelift"
+                }
+            ],
+            "time": "2026-01-27T16:16:02+00:00"
         },
         {
             "name": "symfony/routing",
@@ -9603,12 +9878,12 @@
     ],
     "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": {},
+    "stability-flags": [],
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
         "php": "^8.2"
     },
-    "platform-dev": {},
+    "platform-dev": [],
     "plugin-api-version": "2.6.0"
 }

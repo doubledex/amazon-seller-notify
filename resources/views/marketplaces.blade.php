@@ -10,28 +10,39 @@
         <h3 class="font-bold text-lg mb-3">Marketplaces You Participate In</h3>
         
         @if(count($marketplaces) > 0)
-            <table border="1" cellpadding="8" cellspacing="0" class="w-full">
-                <thead class="bg-gray-100 dark:bg-gray-700">
-                    <tr>
-                        <th>Marketplace ID</th>
-                        <th>Country Code</th>
-                        <th>Marketplace Name</th>
-                        <th>Currency</th>
-                        <th>Language</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach($marketplaces as $marketplace)
+            @foreach($marketplacesByRegion as $region => $rows)
+                <h4 class="font-bold mt-4 mb-2">Region: {{ $region }}</h4>
+                <table border="1" cellpadding="8" cellspacing="0" class="w-full mb-4">
+                    <thead class="bg-gray-100 dark:bg-gray-700">
                         <tr>
-                            <td><code>{{ $marketplace['id'] }}</code></td>
-                            <td><strong>{{ $marketplace['countryCode'] }}</strong></td>
-                            <td>{{ $marketplace['name'] }}</td>
-                            <td>{{ $marketplace['defaultCurrency'] }}</td>
-                            <td>{{ $marketplace['defaultLanguage'] }}</td>
+                            <th>Marketplace ID</th>
+                            <th>Country Code</th>
+                            <th>Marketplace Name</th>
+                            <th>Currency</th>
+                            <th>Language</th>
+                            <th>Source</th>
                         </tr>
-                    @endforeach
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        @foreach($rows as $marketplace)
+                            <tr>
+                                <td><code>{{ $marketplace['id'] }}</code></td>
+                                <td><strong>{{ $marketplace['countryCode'] }}</strong></td>
+                                <td>{{ $marketplace['name'] }}</td>
+                                <td>{{ $marketplace['defaultCurrency'] }}</td>
+                                <td>{{ $marketplace['defaultLanguage'] }}</td>
+                                <td>
+                                    @if(($marketplace['source'] ?? 'api') === 'fallback')
+                                        Fallback (config)
+                                    @else
+                                        API confirmed
+                                    @endif
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            @endforeach
             
             <div class="mt-6 p-4 bg-blue-50 dark:bg-blue-900 rounded">
                 <h4 class="font-bold mb-2">Marketplace IDs (stored in DB):</h4>
