@@ -29,6 +29,19 @@ class Product extends Model
         );
     }
 
+
+    public function salePrices()
+    {
+        return $this->hasManyThrough(
+            ProductIdentifierSalePrice::class,
+            ProductIdentifier::class,
+            'product_id',
+            'product_identifier_id',
+            'id',
+            'id'
+        );
+    }
+
     public function legacyCostLayers()
     {
         return $this->hasMany(ProductCostLayer::class);

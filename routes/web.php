@@ -11,6 +11,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\UsFcInventoryController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ReportJobsController;
+use App\Http\Controllers\ProductPricingController;
 
 use Illuminate\Support\Facades\Route;
 
@@ -63,6 +64,17 @@ Route::middleware('auth')->group(function () {
     Route::post('/products/{product}/identifiers', [ProductController::class, 'storeIdentifier'])->name('products.identifiers.store');
     Route::patch('/products/identifiers/{identifier}', [ProductController::class, 'updateIdentifier'])->name('products.identifiers.update');
     Route::delete('/products/identifiers/{identifier}', [ProductController::class, 'destroyIdentifier'])->name('products.identifiers.destroy');
+
+
+    Route::post('/products/{product}/identifiers/{identifier}/cost-layers', [ProductPricingController::class, 'storeCostLayer'])->name('products.identifiers.cost_layers.store');
+    Route::patch('/products/{product}/identifiers/{identifier}/cost-layers/{costLayer}', [ProductPricingController::class, 'updateCostLayer'])->name('products.identifiers.cost_layers.update');
+    Route::delete('/products/{product}/identifiers/{identifier}/cost-layers/{costLayer}', [ProductPricingController::class, 'destroyCostLayer'])->name('products.identifiers.cost_layers.destroy');
+    Route::post('/products/{product}/identifiers/{identifier}/cost-layers/{costLayer}/components', [ProductPricingController::class, 'storeCostComponent'])->name('products.identifiers.cost_components.store');
+    Route::patch('/products/{product}/identifiers/{identifier}/cost-layers/{costLayer}/components/{component}', [ProductPricingController::class, 'updateCostComponent'])->name('products.identifiers.cost_components.update');
+    Route::delete('/products/{product}/identifiers/{identifier}/cost-layers/{costLayer}/components/{component}', [ProductPricingController::class, 'destroyCostComponent'])->name('products.identifiers.cost_components.destroy');
+    Route::post('/products/{product}/identifiers/{identifier}/sale-prices', [ProductPricingController::class, 'storeSalePrice'])->name('products.identifiers.sale_prices.store');
+    Route::patch('/products/{product}/identifiers/{identifier}/sale-prices/{salePrice}', [ProductPricingController::class, 'updateSalePrice'])->name('products.identifiers.sale_prices.update');
+    Route::delete('/products/{product}/identifiers/{identifier}/sale-prices/{salePrice}', [ProductPricingController::class, 'destroySalePrice'])->name('products.identifiers.sale_prices.destroy');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');

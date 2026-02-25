@@ -25,6 +25,16 @@ class ProductIdentifier extends Model
         return $this->hasMany(ProductIdentifierCostLayer::class);
     }
 
+    public function salePrices()
+    {
+        return $this->hasMany(ProductIdentifierSalePrice::class);
+    }
+
+    public function marketplace()
+    {
+        return $this->belongsTo(Marketplace::class, 'marketplace_id');
+    }
+
     protected $casts = [
         'is_primary' => 'boolean',
     ];
