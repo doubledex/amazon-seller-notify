@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\ProductIdentifier;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class LinkOrderItemsToProducts extends Command
 {
@@ -41,20 +42,30 @@ class LinkOrderItemsToProducts extends Command
             $sellerSku = trim((string) ($row->seller_sku ?? ''));
             $asin = strtoupper(trim((string) ($row->asin ?? '')));
 
-            $productId = null;
+            $asinMarketplaceProductId = $asin !== '' ? $this->findProductId('asin', $asin, $marketplaceId) : null;
+            $skuMarketplaceProductId = $sellerSku !== '' ? $this->findProductId('seller_sku', $sellerSku, $marketplaceId) : null;
 
-            if ($asin !== '') {
-                $productId = $this->findProductId('asin', $asin, $marketplaceId);
-                if ($productId === null) {
-                    $productId = $this->findProductId('asin', $asin, null);
-                }
+            $productId = $asinMarketplaceProductId ?? $skuMarketplaceProductId;
+
+            if ($asinMarketplaceProductId !== null && $skuMarketplaceProductId !== null && $asinMarketplaceProductId !== $skuMarketplaceProductId) {
+                Log::warning('Product identifier conflict while linking order item', [
+                    'order_item_id' => (int) $row->id,
+                    'asin' => $asin,
+                    'seller_sku' => $sellerSku,
+                    'marketplace_id' => $marketplaceId !== '' ? $marketplaceId : null,
+                    'asin_product_id' => $asinMarketplaceProductId,
+                    'sku_product_id' => $skuMarketplaceProductId,
+                    'chosen_product_id' => $asinMarketplaceProductId,
+                    'resolution' => 'asin_precedence',
+                ]);
+            }
+
+            if ($productId === null && $asin !== '') {
+                $productId = $this->findProductId('asin', $asin, null);
             }
 
             if ($productId === null && $sellerSku !== '') {
-                $productId = $this->findProductId('seller_sku', $sellerSku, $marketplaceId);
-                if ($productId === null) {
-                    $productId = $this->findProductId('seller_sku', $sellerSku, null);
-                }
+                $productId = $this->findProductId('seller_sku', $sellerSku, null);
             }
 
             if ($productId === null) {
