@@ -545,11 +545,46 @@ class OrderController extends Controller
                     'raw_line',
                 ])
                 ->map(function ($line) {
-                    $line->duplicate_count = 1;
+                    $raw = $line->raw_line;
+                    if (is_string($raw)) {
+                        $decoded = json_decode($raw, true);
+                        $raw = is_array($decoded) ? $decoded : null;
+                    } elseif (!is_array($raw)) {
+                        $raw = null;
+                    }
+                    $canonicalTxnId = trim((string) data_get($raw, 'transaction.canonicalTransactionId', ''));
+                    $transactionId = trim((string) data_get($raw, 'transaction.transactionId', ''));
+                    $txKey = $canonicalTxnId !== '' ? $canonicalTxnId : $transactionId;
+                    $posted = '';
                     if (!empty($line->posted_date)) {
                         $line->posted_date = Carbon::parse($line->posted_date);
+                        $posted = $line->posted_date->format('Y-m-d H:i:s');
                     }
+                    $line->dedupe_key = implode('|', [
+                        $txKey,
+                        trim((string) ($line->event_type ?? '')),
+                        trim((string) ($line->fee_type ?? '')),
+                        trim((string) ($line->description ?? '')),
+                        number_format((float) ($line->amount ?? 0), 4, '.', ''),
+                        strtoupper(trim((string) ($line->currency ?? ''))),
+                        $posted,
+                    ]);
+                    $line->duplicate_count = 1;
                     return $line;
+                })
+                ->groupBy(function ($line) {
+                    return (string) ($line->dedupe_key ?? (string) ($line->id ?? ''));
+                })
+                ->map(function ($group) {
+                    $first = $group->sortBy('id')->first();
+                    $first->duplicate_count = $group->count();
+                    return $first;
+                })
+                ->sortBy(function ($line) {
+                    $posted = $line->posted_date instanceof Carbon
+                        ? $line->posted_date->timestamp
+                        : 0;
+                    return sprintf('%010d-%010d', $posted, (int) ($line->id ?? 0));
                 })
                 ->values();
         }
