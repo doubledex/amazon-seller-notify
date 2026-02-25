@@ -243,6 +243,17 @@ Minimum PR rules:
 Weekly target:
 - 3 feature PRs + 1 hardening PR (adjust based on incidents).
 
+## TODO Backlog (Review Later)
+- Low-Inventory-Level Fee attribution (Reports + Orders):
+  - Ingest `GET_FLAT_FILE_ECONOMICS_DATA` (SKU Economics) into a dedicated table.
+  - Build daily SKU/date low-inventory fee rollups with raw report lineage.
+  - Add allocation logic to attribute SKU/day low-inventory fee back to orders by ASIN + marketplace + business date, weighted by units.
+  - Persist attribution rows with method/confidence so values are auditable over time.
+  - Expose in UI:
+    - Order detail: attributed low-inventory fee value + attribution confidence.
+    - Time series: daily/weekly low-inventory fee trend by SKU/marketplace/orders.
+  - Keep Finances v2024-06-19 fee lines as posted-truth and reconcile against report-attributed values.
+
 ## Git Branch Safety (Dev -> GitHub -> Production)
 Use this when your production branch is `release/pre-us-baseline`.
 
@@ -345,4 +356,3 @@ A simple rhythm is:
 2. Merge `work` -> `release/pre-us-baseline`.
 3. Push `release/pre-us-baseline` and deploy from it.
 4. Checkout `work` again for the next round of edits.
-
