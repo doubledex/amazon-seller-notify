@@ -619,6 +619,28 @@ class OrderController extends Controller
                 ->orderBy('estimated_at')
                 ->orderBy('id')
                 ->get();
+
+            $estimatedFeeLines = $estimatedFeeLines
+                ->groupBy(function (OrderFeeEstimateLine $line) {
+                    return implode('|', [
+                        strtoupper(trim((string) ($line->asin ?? ''))),
+                        strtoupper(trim((string) ($line->marketplace_id ?? ''))),
+                        strtoupper(trim((string) ($line->fee_type ?? ''))),
+                        trim((string) ($line->description ?? '')),
+                        number_format((float) ($line->amount ?? 0), 2, '.', ''),
+                        strtoupper(trim((string) ($line->currency ?? ''))),
+                    ]);
+                })
+                ->map(function ($group) {
+                    /** @var OrderFeeEstimateLine $line */
+                    $line = $group->sortByDesc(function (OrderFeeEstimateLine $item) {
+                        return $item->estimated_at?->timestamp ?? 0;
+                    })->first();
+                    $line->duplicate_count = $group->count();
+                    return $line;
+                })
+                ->sortBy('estimated_at')
+                ->values();
         }
 
         return view('orders.show', [

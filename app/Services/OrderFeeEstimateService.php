@@ -193,7 +193,6 @@ class OrderFeeEstimateService
                         $feeType,
                         number_format($detailLineTotal, 2, '.', ''),
                         $detailCurrency,
-                        json_encode($rawLine, JSON_UNESCAPED_SLASHES),
                     ]);
 
                     $orderLineRows[] = [
@@ -243,6 +242,19 @@ class OrderFeeEstimateService
         }
 
         if (!empty($orderLineRows) && DB::getSchemaBuilder()->hasTable('order_fee_estimate_lines')) {
+            $orderIdsToReplace = array_values(array_unique(array_map(
+                fn (array $row): string => (string) ($row['amazon_order_id'] ?? ''),
+                $orderLineRows
+            )));
+            $orderIdsToReplace = array_values(array_filter($orderIdsToReplace, fn (string $id): bool => $id !== ''));
+
+            foreach (array_chunk($orderIdsToReplace, 500) as $orderChunk) {
+                DB::table('order_fee_estimate_lines')
+                    ->whereIn('amazon_order_id', $orderChunk)
+                    ->where('source', 'spapi_product_fees')
+                    ->delete();
+            }
+
             foreach (array_chunk($orderLineRows, 500) as $chunk) {
                 DB::table('order_fee_estimate_lines')->upsert(
                     $chunk,
