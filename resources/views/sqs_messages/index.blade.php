@@ -36,6 +36,8 @@
     <tbody class="bg-white divide-y divide-gray-200">
         @foreach ($messages as $message)
             @php($body = json_decode($message->body))
+            @php($reportNode = $body->payload->reportProcessingFinishedNotification ?? null)
+            @php($hasReportDocument = !empty($reportNode?->reportDocumentId) && !empty($reportNode?->reportType))
 
             <tr>
                 <td class="px-6 py-4 whitespace-nowrap">
@@ -63,6 +65,16 @@
                 <td class="px-6 py-4 whitespace-nowrap">{{ $message->flagged ? 'Yes' : 'No' }}</td>
                 <td class="px-6 py-4 whitespace-nowrap">
                     <a href="{{ route('sqs_messages.show', $message->id) }}">View</a>
+                    @if($hasReportDocument)
+                        |
+                        <a href="{{ route('sqs_messages.report_download', ['id' => $message->id, 'format' => 'excel']) }}">Excel</a>
+                        |
+                        <a href="{{ route('sqs_messages.report_download', ['id' => $message->id, 'format' => 'csv']) }}">CSV</a>
+                        |
+                        <a href="{{ route('sqs_messages.report_download', ['id' => $message->id, 'format' => 'xml']) }}">XML</a>
+                        |
+                        <a href="{{ route('sqs_messages.report_download', ['id' => $message->id, 'format' => 'raw']) }}">Raw</a>
+                    @endif
                     <form action="{{ route('sqs_messages.flag', $message->id) }}" method="POST" style="display: inline;">
                         @csrf
                         <button type="submit">Flag</button>

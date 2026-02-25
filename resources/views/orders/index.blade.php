@@ -267,7 +267,17 @@
     </div>
 
     <div class="mb-3 flex items-center justify-between gap-3">
-        <p>Report created: {{ $reportCreatedDate }} at {{ $reportCreatedTime }}</p>
+        <p>
+            Last sync run:
+            @if(!empty($lastOrderSyncRun))
+                @php
+                    $syncTime = $lastOrderSyncRun->finished_at ?: $lastOrderSyncRun->started_at;
+                @endphp
+                {{ \Illuminate\Support\Carbon::parse($syncTime)->timezone(config('app.timezone'))->format('Y-m-d H:i:s') }}
+            @else
+                Never
+            @endif
+        </p>
         <div class="flex items-center gap-2">
             @php $baseQuery = request()->except('view'); @endphp
             <a
@@ -302,15 +312,6 @@
     <div class="mb-3 text-sm text-gray-600">
         @if(session('sync_status'))
             {{ session('sync_status') }}
-        @endif
-        @if(session('orders_last_sync_request'))
-            @php $lastSyncRequest = session('orders_last_sync_request'); @endphp
-            <div class="mt-1 text-xs text-gray-500">
-                Last sync request: {{ $lastSyncRequest['created_after'] ?? 'n/a' }} → {{ $lastSyncRequest['created_before'] ?? 'n/a' }}
-                @if(!empty($lastSyncRequest['end_before']))
-                    | end_before: {{ $lastSyncRequest['end_before'] }}
-                @endif
-            </div>
         @endif
     </div>
 @if (request('view', 'table') === 'map')
@@ -399,12 +400,17 @@
                             : `Missing postal on ${data.missingPostal || 0} orders`;
 
                         const cityPins = data.cityFallbackPins || 0;
+                        const topPostalGroups = Array.isArray(data.topPostalGroups) ? data.topPostalGroups : [];
+                        const topGroupsText = topPostalGroups.length
+                            ? ` | Top groups: ${topPostalGroups.map(g => `${g.country} ${g.postal} (${g.count})`).join(', ')}`
+                            : '';
                         const geocodeMode = data.liveGeocoding === false
-                            ? 'Live geocode: off (wide date range)'
+                            ? 'Live geocode: off (map uses stored geocodes only)'
                             : 'Live geocode: on';
                         document.getElementById('map-meta').textContent =
                             `Orders: ${data.totalOrders || 0} | Postal groups: ${data.totalPostalGroups || 0} | Pins: ${points.length} | City pins: ${cityPins} | Invalid coords: ${invalidCoords} | ${missingText} | New geocodes: ${data.geocodedThisRequest || 0} | Geocode failed: ${data.geocodeFailed || 0}` +
                             (data.samplePostals && data.samplePostals.length ? ` | Samples: ${data.samplePostals.join(', ')}` : '') +
+                            topGroupsText +
                             ` | ${geocodeMode}`;
                     })
                     .catch(() => {
@@ -415,6 +421,10 @@
         </script>
     @else
         @if (count($orders) > 0)
+        <div class="mb-2 text-sm" style="display:flex; gap:16px; align-items:center;">
+            <span><span style="color:#0f9d58; font-size:16px; line-height:1;">●</span> Geocode exists</span>
+            <span><span style="color:#9aa3af; font-size:16px; line-height:1;">○</span> Geocode missing</span>
+        </div>
         <div class="overflow-x-auto">
         <table class="w-full border-collapse" border="1" cellpadding="5" cellspacing="0">
             <thead>
@@ -426,10 +436,12 @@
                 <th>MF</th>
                 <th>Ship To</th>
                 <th>Network</th>
+                <th>Geo</th>
                 <th>Unshipped</th>
                 <th>Shipped</th>
                 <th>Method</th>
-                <th>Value</th>
+                <th>Net (ex tax)</th>
+                <th>Amazon Fees</th>
                 <th>Currency</th>
                 <th>Ship to</th>
                 <th>Marketplace</th>
@@ -441,10 +453,25 @@
                 @php
                     $marketplaceId = $order['MarketplaceId'] ?? null;
                     $marketplaceName = $marketplaceId ? (($marketplaces[$marketplaceId]['name'] ?? '') ?: 'Unknown') : 'N/A';
+                    $purchaseLocal = $order['PurchaseDateLocal'] ?? null;
+                    $purchaseUtc = $order['PurchaseDate'] ?? null;
+                    $purchaseSource = $purchaseLocal ?: $purchaseUtc;
+                    $purchaseDateOut = 'N/A';
+                    $purchaseTimeOut = 'N/A';
+                    if (!empty($purchaseSource)) {
+                        try {
+                            $dt = new DateTime($purchaseSource);
+                            $purchaseDateOut = $dt->format('Y-m-d');
+                            $purchaseTimeOut = $dt->format('H:i:s');
+                        } catch (Exception $e) {
+                            $purchaseDateOut = 'N/A';
+                            $purchaseTimeOut = 'N/A';
+                        }
+                    }
                 @endphp
                 <tr>
-                    <td>{{ (new DateTime($order['PurchaseDate']))->format('Y-m-d') }}</td>
-                    <td>{{ (new DateTime($order['PurchaseDate']))->format('H:i:s') }}</td>
+                    <td>{{ $purchaseDateOut }}</td>
+                    <td>{{ $purchaseTimeOut }}</td>
                     <td>{{ $order['OrderStatus'] }}</td>
                     <td>
                         <a href="{{ route('orders.show', ['order_id' => $order['AmazonOrderId']]) }}" class="text-blue-600 hover:underline">
@@ -469,11 +496,34 @@
                     </td>
                     <td>{{ $order['ShippingAddress']['City'] ?? 'N/A' }}</td>
                     <td>{{ $order['FulfillmentChannel'] ?? 'N/A' }}</td>
+                    <td style="text-align:center;">
+                        @php
+                            $geo = $order['Geocode'] ?? ['exists' => false, 'lat' => null, 'lng' => null];
+                        @endphp
+                        @if(!empty($geo['exists']))
+                            <span
+                                title="Geocode found via {{ $geo['source'] ?? 'lookup' }} ({{ $geo['lat'] }}, {{ $geo['lng'] }})"
+                                style="display:inline-block; color:#0f9d58; font-size:16px; line-height:1;"
+                            >●</span>
+                        @else
+                            <span
+                                title="No geocode found for this postal code"
+                                style="display:inline-block; color:#9aa3af; font-size:16px; line-height:1;"
+                            >○</span>
+                        @endif
+                    </td>
                     <td style="text-align: center;">{{ $order['NumberOfItemsUnshipped'] ?? '' }}</td>
                     <td style="text-align: center;">{{ $order['NumberOfItemsShipped'] ?? '' }}</td>
                     <td>{{ $order['PaymentMethodDetails'][0] ?? 'N/A' }}</td>
-                    <td dir="rtl">{{ $order['OrderTotal']['Amount'] ?? 'N/A' }}</td>
-                    <td>{{ $order['OrderTotal']['CurrencyCode'] ?? '' }}</td>
+                    <td dir="rtl">{{ $order['OrderNetExTax']['Amount'] ?? 'N/A' }}</td>
+                    <td dir="rtl">
+                        @if(($order['AmazonFees']['Source'] ?? '') === 'estimated_product_fees')
+                            *
+                        @endif
+                        {{ $order['AmazonFees']['Amount'] ?? 'N/A' }}
+                        {{ $order['AmazonFees']['CurrencyCode'] ?? '' }}
+                    </td>
+                    <td>{{ $order['OrderNetExTax']['CurrencyCode'] ?? '' }}</td>
                     <td>{{ $order['ShippingAddress']['CountryCode'] ?? '' }}</td>
                     <td>
                         @if($marketplaceId)

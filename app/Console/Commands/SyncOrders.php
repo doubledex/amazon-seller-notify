@@ -7,7 +7,7 @@ use Illuminate\Console\Command;
 
 class SyncOrders extends Command
 {
-    protected $signature = 'orders:sync {--days=7} {--max-pages=5} {--items-limit=50} {--address-limit=50} {--end-before=}';
+    protected $signature = 'orders:sync {--days=7} {--max-pages=5} {--items-limit=50} {--address-limit=50} {--end-before=} {--region= : Optional SP-API region (EU|NA|FE)}';
     protected $description = 'Sync recent orders and persist them locally.';
 
     public function handle(): int
@@ -18,7 +18,9 @@ class SyncOrders extends Command
             $this->option('end-before'),
             (int) $this->option('max-pages'),
             (int) $this->option('items-limit'),
-            (int) $this->option('address-limit')
+            (int) $this->option('address-limit'),
+            $this->option('region') ? (string) $this->option('region') : null,
+            'artisan'
         );
 
         if (!$result['ok']) {

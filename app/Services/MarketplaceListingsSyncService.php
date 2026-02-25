@@ -8,7 +8,6 @@ use App\Models\SpApiReportRequest;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Saloon\Http\Response as SaloonResponse;
-use SellingPartnerApi\Enums\Endpoint;
 use SellingPartnerApi\Seller\ReportsV20210630\Dto\CreateReportSpecification;
 use SellingPartnerApi\SellingPartnerApi;
 
@@ -20,13 +19,18 @@ class MarketplaceListingsSyncService
     private const MAX_BACKGROUND_RETRIES = 20;
     private const STUCK_REPORT_SECONDS = 3600;
 
+    public function __construct(private readonly SpApiReportLifecycleService $reportLifecycle)
+    {
+    }
+
     public function syncEurope(
         ?array $marketplaceIds = null,
         int $maxAttempts = 8,
         int $sleepSeconds = 3,
-        string $reportType = self::DEFAULT_REPORT_TYPE
+        string $reportType = self::DEFAULT_REPORT_TYPE,
+        ?string $region = null
     ): array {
-        $queueResult = $this->queueEuropeReports($marketplaceIds, $reportType);
+        $queueResult = $this->queueEuropeReports($marketplaceIds, $reportType, $region);
         $reportIds = $queueResult['report_ids'] ?? [];
         if (empty($reportIds)) {
             return ['synced' => 0, 'marketplaces' => $queueResult['marketplaces'] ?? []];
@@ -34,7 +38,7 @@ class MarketplaceListingsSyncService
 
         $iterations = max(1, $maxAttempts);
         for ($i = 0; $i < $iterations; $i++) {
-            $pollResult = $this->pollQueuedReports(200, $marketplaceIds, $reportType, $reportIds);
+            $pollResult = $this->pollQueuedReports(200, $marketplaceIds, $reportType, $reportIds, $region);
             if (($pollResult['outstanding'] ?? 0) <= 0) {
                 break;
             }
@@ -66,14 +70,18 @@ class MarketplaceListingsSyncService
         ];
     }
 
-    public function queueEuropeReports(?array $marketplaceIds = null, string $reportType = self::DEFAULT_REPORT_TYPE): array
+    public function queueEuropeReports(
+        ?array $marketplaceIds = null,
+        string $reportType = self::DEFAULT_REPORT_TYPE,
+        ?string $region = null
+    ): array
     {
         $marketplaceIds = $this->resolveMarketplaceIds($marketplaceIds);
         if (empty($marketplaceIds)) {
             return ['created' => 0, 'existing' => 0, 'failed' => 0, 'outstanding' => 0, 'report_ids' => [], 'marketplaces' => []];
         }
 
-        $connector = $this->makeConnector();
+        $connector = $this->makeConnector($region);
         $reportsApi = $connector->reportsV20210630();
 
         $created = 0;
@@ -85,34 +93,20 @@ class MarketplaceListingsSyncService
         foreach ($marketplaceIds as $marketplaceId) {
             $reportId = null;
             $error = null;
-            $createResponse = null;
-
-            for ($attempt = 0; $attempt < 8; $attempt++) {
-                try {
-                    $createResponse = $reportsApi->createReport(new CreateReportSpecification($reportType, [$marketplaceId]));
-                    $reportId = (string) ($createResponse->json('reportId') ?? '');
-                    if ($reportId !== '') {
-                        break;
-                    }
-
-                    $error = 'No reportId in createReport response';
-                } catch (\Throwable $e) {
-                    $error = $e->getMessage();
-                    $response = $this->responseFromThrowable($e);
-                    $sleep = $this->withJitter($this->retryAfterSeconds($response, 4 + $attempt), 0.25);
-                    Log::warning('SP-API listings createReport retry', [
-                        'marketplace_id' => $marketplaceId,
-                        'report_type' => $reportType,
-                        'attempt' => $attempt,
-                        'sleep_seconds' => $sleep,
-                        'status' => $response?->status(),
-                        'request_id' => $this->extractRequestId($response),
-                        'error' => $e->getMessage(),
-                    ]);
-                    sleep($sleep);
-                    continue;
-                }
-            }
+            $createResponsePayload = null;
+            $createResult = $this->reportLifecycle->createReportWithRetry(
+                $reportsApi,
+                new CreateReportSpecification($reportType, [$marketplaceId]),
+                [
+                    'marketplace_id' => $marketplaceId,
+                    'report_type' => $reportType,
+                ]
+            );
+            $reportId = trim((string) ($createResult['report_id'] ?? ''));
+            $createResponsePayload = is_array($createResult['create_payload'] ?? null)
+                ? $createResult['create_payload']
+                : null;
+            $error = $createResult['error'] ?? null;
 
             if (!$reportId) {
                 $failed++;
@@ -125,12 +119,12 @@ class MarketplaceListingsSyncService
             $model->fill([
                 'marketplace_id' => $marketplaceId,
                 'report_type' => $reportType,
-                'status' => strtoupper((string) ($createResponse?->json('processingStatus') ?? 'IN_QUEUE')),
+                'status' => strtoupper((string) ($createResponsePayload['processingStatus'] ?? 'IN_QUEUE')),
                 'requested_at' => $model->requested_at ?? now(),
                 'next_check_at' => $model->next_check_at ?? now(),
                 'retry_count' => 0,
-                'last_http_status' => $createResponse ? (string) $createResponse->status() : null,
-                'last_request_id' => $this->extractRequestId($createResponse),
+                'last_http_status' => null,
+                'last_request_id' => null,
                 'error_message' => null,
             ]);
             $model->save();
@@ -164,9 +158,10 @@ class MarketplaceListingsSyncService
         int $limit = 100,
         ?array $marketplaceIds = null,
         string $reportType = self::DEFAULT_REPORT_TYPE,
-        ?array $reportIds = null
+        ?array $reportIds = null,
+        ?string $region = null
     ): array {
-        $connector = $this->makeConnector();
+        $connector = $this->makeConnector($region);
         $reportsApi = $connector->reportsV20210630();
 
         $query = SpApiReportRequest::query()
@@ -198,28 +193,30 @@ class MarketplaceListingsSyncService
             $this->maybeAlertStuck($request);
 
             try {
-                $response = $reportsApi->getReport($request->report_id);
-                $status = strtoupper((string) ($response->json('processingStatus') ?? 'IN_QUEUE'));
-                $documentId = (string) ($response->json('reportDocumentId') ?? '');
+                $pollResult = $this->reportLifecycle->pollReportOnce($reportsApi, $request->report_id);
+                $status = strtoupper((string) ($pollResult['processing_status'] ?? 'IN_QUEUE'));
+                $documentId = (string) ($pollResult['report_document_id'] ?? '');
 
                 $request->last_checked_at = now();
                 $request->check_attempts = (int) $request->check_attempts + 1;
                 $request->waited_seconds = $request->requested_at ? $request->requested_at->diffInSeconds(now()) : 0;
                 $request->status = $status;
                 $request->report_document_id = $documentId !== '' ? $documentId : $request->report_document_id;
-                $request->last_http_status = (string) $response->status();
-                $request->last_request_id = $this->extractRequestId($response);
+                $request->last_http_status = null;
+                $request->last_request_id = null;
                 $request->retry_count = 0;
 
                 if ($status === 'DONE' && $request->report_document_id) {
                     try {
-                        $documentResponse = $reportsApi->getReportDocument($request->report_document_id, $request->report_type);
-                        $request->last_http_status = (string) $documentResponse->status();
-                        $request->last_request_id = $this->extractRequestId($documentResponse);
-
-                        $document = $documentResponse->dto();
-                        $data = $document->download($request->report_type);
-                        $rows = is_array($data) ? collect($data) : collect();
+                        $download = $this->reportLifecycle->downloadReportRows(
+                            $reportsApi,
+                            $request->report_document_id,
+                            $request->report_type
+                        );
+                        if (!($download['ok'] ?? false)) {
+                            throw new \RuntimeException((string) ($download['error'] ?? 'Failed to download report document.'));
+                        }
+                        $rows = collect(is_array($download['rows'] ?? null) ? $download['rows'] : []);
 
                         $syncedCount = $this->upsertRows($request->marketplace_id, $rows, $request->report_id);
                         $parentCount = $this->syncParentAsinsFromCatalog($connector, $request->marketplace_id, $rows, $request->report_id);
@@ -292,13 +289,16 @@ class MarketplaceListingsSyncService
             ->all();
     }
 
-    private function makeConnector(): SellingPartnerApi
+    private function makeConnector(?string $region = null): SellingPartnerApi
     {
+        $regionService = new RegionConfigService();
+        $regionConfig = $regionService->spApiConfig($region);
+
         return SellingPartnerApi::seller(
-            clientId: (string) config('services.amazon_sp_api.client_id'),
-            clientSecret: (string) config('services.amazon_sp_api.client_secret'),
-            refreshToken: (string) config('services.amazon_sp_api.refresh_token'),
-            endpoint: Endpoint::tryFrom(strtoupper((string) config('services.amazon_sp_api.endpoint', 'EU'))) ?? Endpoint::EU,
+            clientId: (string) $regionConfig['client_id'],
+            clientSecret: (string) $regionConfig['client_secret'],
+            refreshToken: (string) $regionConfig['refresh_token'],
+            endpoint: $regionService->spApiEndpointEnum($region),
         );
     }
 

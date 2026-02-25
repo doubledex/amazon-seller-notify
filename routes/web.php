@@ -7,6 +7,10 @@ use App\Http\Controllers\SqsMessagesController;
 use App\Http\Controllers\AsinController;
 use App\Http\Controllers\MetricsController;
 use App\Http\Controllers\AdsReportController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\UsFcInventoryController;
+use App\Http\Controllers\ProductController;
+use App\Http\Controllers\ReportJobsController;
 
 use Illuminate\Support\Facades\Route;
 
@@ -14,9 +18,9 @@ Route::get('/', function () {
     return view('welcome');
 });
 
-Route::get('/dashboard', function () {
-    return view('dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
+Route::get('/dashboard', [DashboardController::class, 'index'])
+    ->middleware(['auth', 'verified'])
+    ->name('dashboard');
 
 
 Route::middleware('auth')->group(function () {
@@ -32,6 +36,7 @@ Route::middleware('auth')->group(function () {
 
 
     Route::get('/sqs-messages', [SqsMessagesController::class, 'index'])->name('sqs_messages.index');
+    Route::get('/sqs-messages/{id}/report-download', [SqsMessagesController::class, 'downloadReportDocument'])->name('sqs_messages.report_download');
     Route::get('/sqs-messages/{id}', [SqsMessagesController::class, 'show'])->name('sqs_messages.show');
     Route::post('/sqs-messages/{id}/flag', [SqsMessagesController::class, 'flag'])->name('sqs_messages.flag');
     Route::post('/sqs-messages/fetch-latest', [SqsMessagesController::class, 'fetchLatest'])->name('sqs_messages.fetch');
@@ -47,6 +52,17 @@ Route::middleware('auth')->group(function () {
     Route::get('/metrics/daily', [MetricsController::class, 'index'])->name('metrics.index');
     Route::get('/ads/reports', [AdsReportController::class, 'index'])->name('ads.reports');
     Route::post('/ads/reports/poll-now', [AdsReportController::class, 'pollNow'])->name('ads.reports.poll');
+    Route::get('/reports/jobs', [ReportJobsController::class, 'index'])->name('reports.jobs');
+    Route::post('/reports/jobs/poll-now', [ReportJobsController::class, 'pollNow'])->name('reports.jobs.poll');
+    Route::get('/reports/jobs/{id}/download-csv', [ReportJobsController::class, 'downloadCsv'])->name('reports.jobs.download_csv');
+    Route::get('/inventory/us-fc', [UsFcInventoryController::class, 'index'])->name('inventory.us_fc');
+    Route::get('/products', [ProductController::class, 'index'])->name('products.index');
+    Route::post('/products', [ProductController::class, 'store'])->name('products.store');
+    Route::get('/products/{product}', [ProductController::class, 'show'])->name('products.show');
+    Route::patch('/products/{product}', [ProductController::class, 'update'])->name('products.update');
+    Route::post('/products/{product}/identifiers', [ProductController::class, 'storeIdentifier'])->name('products.identifiers.store');
+    Route::patch('/products/identifiers/{identifier}', [ProductController::class, 'updateIdentifier'])->name('products.identifiers.update');
+    Route::delete('/products/identifiers/{identifier}', [ProductController::class, 'destroyIdentifier'])->name('products.identifiers.destroy');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');

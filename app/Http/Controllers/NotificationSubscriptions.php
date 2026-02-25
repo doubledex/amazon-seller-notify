@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\RegionConfigService;
 use Illuminate\Http\Request;
 use SellingPartnerApi\SellingPartnerApi;
-use SellingPartnerApi\Enums\Endpoint;
 use Illuminate\Support\Facades\Log;
 // use function config;
 use SellingPartnerApi\Seller\NotificationsV1\Dto\DestinationResourceSpecification;
@@ -18,13 +18,14 @@ class NotificationSubscriptions extends Controller
 
     public function __construct()
     {
-        $endpoint = config('services.amazon_sp_api.endpoint', 'EU');
-        $endpointEnum = Endpoint::tryFrom($endpoint) ?? Endpoint::EU;
+        $regionService = new RegionConfigService();
+        $regionConfig = $regionService->spApiConfig();
+        $endpointEnum = $regionService->spApiEndpointEnum();
 
         $this->connector = SellingPartnerApi::seller(
-            clientId: config('services.amazon_sp_api.client_id'),
-            clientSecret: config('services.amazon_sp_api.client_secret'),
-            refreshToken: config('services.amazon_sp_api.refresh_token'),
+            clientId: (string) $regionConfig['client_id'],
+            clientSecret: (string) $regionConfig['client_secret'],
+            refreshToken: (string) $regionConfig['refresh_token'],
             endpoint: $endpointEnum
         );
     }

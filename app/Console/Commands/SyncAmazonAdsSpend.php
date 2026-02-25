@@ -10,7 +10,7 @@ use Illuminate\Support\Carbon;
 class SyncAmazonAdsSpend extends Command
 {
     protected $signature = 'ads:sync-spend {--from=} {--to=} {--refresh-metrics=1} {--profile-id=*} {--max-profiles=} {--poll-attempts=60} {--ad-product=* : SPONSORED_PRODUCTS|SPONSORED_BRANDS|SPONSORED_DISPLAY}';
-    protected $description = 'Sync Amazon Ads daily spend for UK/EU and optionally refresh daily metrics.';
+    protected $description = 'Sync Amazon Ads daily spend for UK/EU/NA and optionally refresh daily metrics.';
 
     public function handle(AmazonAdsSpendSyncService $adsService, DailyRegionMetricsService $metricsService): int
     {

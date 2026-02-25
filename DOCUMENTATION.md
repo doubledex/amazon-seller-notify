@@ -21,12 +21,28 @@ Minimum required for current scheduled flows:
   - `AMAZON_SP_API_APPLICATION_ID`
   - `AMAZON_SP_API_MARKETPLACE_IDS` (comma-separated)
   - `AMAZON_SP_API_ENDPOINT` (default `EU`)
+  - Legacy fallback supported: `AMAZON_SP_API_ENDPOINTS`
+  - Optional multi-region keys (for EU/NA/FE foundations):
+    - `AMAZON_SP_API_REGIONS`
+    - `AMAZON_SP_API_{EU|NA|FE}_ENDPOINT`
+    - `AMAZON_SP_API_{EU|NA|FE}_CLIENT_ID`
+    - `AMAZON_SP_API_{EU|NA|FE}_CLIENT_SECRET`
+    - `AMAZON_SP_API_{EU|NA|FE}_REFRESH_TOKEN`
+    - `AMAZON_SP_API_{EU|NA|FE}_APPLICATION_ID`
+    - `AMAZON_SP_API_{EU|NA|FE}_MARKETPLACE_IDS`
 
 - Amazon Ads API
   - `AMAZON_ADS_CLIENT_ID`
   - `AMAZON_ADS_CLIENT_SECRET`
   - `AMAZON_ADS_REFRESH_TOKEN`
   - `AMAZON_ADS_BASE_URL` (default `https://advertising-api-eu.amazon.com`)
+  - Optional multi-region keys (for EU/NA/FE foundations):
+    - `AMAZON_ADS_DEFAULT_REGION` (default `EU`)
+    - `AMAZON_ADS_REGIONS`
+    - `AMAZON_ADS_{EU|NA|FE}_CLIENT_ID`
+    - `AMAZON_ADS_{EU|NA|FE}_CLIENT_SECRET`
+    - `AMAZON_ADS_{EU|NA|FE}_REFRESH_TOKEN`
+    - `AMAZON_ADS_{EU|NA|FE}_BASE_URL`
 
 - AWS / SQS
   - `AWS_ACCESS_KEY_ID`
@@ -34,14 +50,22 @@ Minimum required for current scheduled flows:
   - `AWS_DEFAULT_REGION`
   - `SQS_QUEUE_URL`
 
-### 2. One-Time Deploy Commands
+### 2. Pull / Build / Deploy Commands
 Run on deploy (or after pulling changes):
 
 ```bash
+git pull
+composer install --no-interaction --prefer-dist --optimize-autoloader
+npm ci
+npm run build
 php artisan migrate --force
 php artisan config:clear
 php artisan cache:clear
 ```
+
+Why `npm run build` is required:
+- Tailwind classes are compiled into `public/build` by Vite during build.
+- If build is skipped, CSS/JS changes in `resources/` are not reflected in production.
 
 ### 3. Cron for Laravel Scheduler (Required)
 Add this to crontab for the app user:
@@ -59,7 +83,9 @@ Defined in `routes/console.php`:
 - `listings:queue-reports` daily at 03:30
 - `listings:poll-reports --limit=200` every ten minutes
 - `map:geocode-missing --limit=250` daily at 02:30
+- `map:geocode-missing-cities --limit=250 --older-than-days=14` daily at 02:35
 - `orders:sync --days=7 --max-pages=5 --items-limit=50 --address-limit=50` hourly
+- `orders:refresh-estimates --days=14 --limit=300 --max-lookups=80 --stale-minutes=180` every 30 minutes
 - `orders:sync --days=30 --max-pages=20 --items-limit=300 --address-limit=300` daily at 03:50 (reconciliation for late status changes)
 - `sqs:process` every minute
 - `ads:queue-reports` daily at 04:40
@@ -95,11 +121,15 @@ Check logs:
 
 ### Metrics
 - `php artisan metrics:refresh --from=YYYY-MM-DD --to=YYYY-MM-DD`
-  - Why: recalculate daily UK/EU sales + ad spend + ACOS metrics.
+  - Why: recalculate daily UK/EU/NA sales + ad spend + ACOS metrics.
 
 ### Listings / Catalog
 - `php artisan listings:sync-europe`
   - Why: refresh European listing/SKU/ASIN status data.
+
+### US FC Inventory
+- `php artisan inventory:sync-us-fc --region=NA --marketplace=ATVPDKIKX0DER`
+  - Why: pull latest US FBA inventory by fulfillment center into local tables for reporting.
 
 - `php artisan listings:queue-reports [--marketplace=...] [--report-type=...]`
   - Why: queue SP-API listings reports for persistent background processing.
@@ -114,6 +144,12 @@ Check logs:
 - `php artisan orders:sync --days=7 --max-pages=5 --items-limit=50 --address-limit=50`
   - Why: fetch and persist recent orders/items/addresses.
 
+- `php artisan orders:refresh-estimates --days=14 --limit=300 --max-lookups=80 --stale-minutes=180`
+  - Why: refresh temporary estimated line sales values for pending/unshipped items via SP-API pricing.
+
+- `php artisan orders:link-products --limit=1000`
+  - Why: link `order_items.product_id` using configured `product_identifiers` (SKU first, then ASIN).
+
 - `php artisan orders:sync --days=30 --max-pages=20 --items-limit=300 --address-limit=300`
   - Why: daily reconciliation window to catch delayed status/total updates (for example pending to canceled).
 
@@ -122,6 +158,10 @@ Check logs:
 
 - `php artisan orders:backfill-dates`
   - Why: repair/backfill `purchase_date` from raw order payloads.
+
+### Products (Source Of Truth)
+- `php artisan products:bootstrap-from-orders --limit=1000 [--reset=1]`
+  - Why: seed `products` from unique ASINs, attach identifiers, and link `order_items.product_id`. Use `--reset=1` to rebuild from scratch.
 
 ### SQS / Notifications
 - `php artisan sqs:process [--detail]`
@@ -133,6 +173,12 @@ Check logs:
 ### Geocoding
 - `php artisan map:geocode-missing --limit=250`
   - Why: backfill missing postal-code geocoding data.
+
+- `php artisan map:geocode-missing-cities --limit=250 --older-than-days=14`
+  - Why: persist city-level fallback geocodes for older stable orders when postal code is unavailable.
+
+- Map rendering (`/orders?view=map`) is DB-only for geocoding.
+  - Why: avoid slow/variable page loads and third-party geocoder calls during page requests.
 
 ## Notes on Ads Async Reliability
 - Queue + poll flow is the primary path for long-running reports.

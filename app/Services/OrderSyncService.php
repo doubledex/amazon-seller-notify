@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\OrderSyncRun;
 use App\Models\OrderShipAddress;
 use App\Models\PostalCodeGeo;
 use App\Integrations\Amazon\SpApi\OrdersAdapter;
@@ -23,7 +24,9 @@ class OrderSyncService
         ?string $endBefore,
         int $maxPages,
         int $itemsLimit,
-        int $addressLimit
+        int $addressLimit,
+        ?string $region = null,
+        ?string $source = null
     ): array {
         $days = max(1, min($days, 30));
         $maxPages = max(1, min($maxPages, 20));
@@ -38,12 +41,47 @@ class OrderSyncService
         if (!$ordersAdapter->hasMarketplaceIds()) {
             return [
                 'ok' => false,
-                'message' => 'No marketplace IDs configured.',
+                'message' => 'Region sync failed for: ' . implode(', ', $failed) . ($summary !== '' ? ' | ' . $summary : ''),
             ];
         }
 
+        return [
+            'ok' => true,
+            'message' => $summary !== '' ? $summary : 'All configured regions synced.',
+        ];
+    }
+
+    private function syncSingleRegion(
+        int $days,
+        ?string $endBefore,
+        int $maxPages,
+        int $itemsLimit,
+        int $addressLimit,
+        string $region,
+        ?string $source = null
+    ): array {
+        $regionService = new RegionConfigService();
+        $regionConfig = $regionService->spApiConfig($region);
+        $endpoint = $regionService->spApiEndpointEnum($region);
+
+        $connector = SellingPartnerApi::seller(
+            clientId: (string) $regionConfig['client_id'],
+            clientSecret: (string) $regionConfig['client_secret'],
+            refreshToken: (string) $regionConfig['refresh_token'],
+            endpoint: $endpoint
+        );
+
         $createdBefore = $this->normalizeEndBefore($endBefore);
         $createdAfter = (new \DateTime($createdBefore))->modify("-{$days} days")->format('Y-m-d\TH:i:s\Z');
+
+        $run = $this->startSyncRun($region, $days, $maxPages, $itemsLimit, $addressLimit, $createdAfter, $createdBefore, $source);
+
+        $ordersApi = $connector->ordersV0();
+        $marketplaceService = new MarketplaceService();
+        $marketplaceTimezoneService = new MarketplaceTimezoneService();
+        $orderNetValueService = new OrderNetValueService();
+        $marketplaceCountryMap = $marketplaceService->getMarketplaceMap();
+        $marketplaceIds = $marketplaceService->getMarketplaceIds($connector);
 
         $nextToken = null;
         $page = 0;
@@ -51,6 +89,15 @@ class OrderSyncService
         $itemsFetched = 0;
         $addressesFetched = 0;
         $geocoded = 0;
+
+        if (empty($marketplaceIds)) {
+            $result = [
+                'ok' => false,
+                'message' => "[{$region}] No marketplace IDs configured.",
+            ];
+            $this->finishSyncRun($run, $result['ok'], $result['message'], $totalOrders, $itemsFetched, $addressesFetched, $geocoded);
+            return $result;
+        }
 
         do {
             $page++;
@@ -61,10 +108,12 @@ class OrderSyncService
             );
 
             if (!$response) {
-                return [
+                $result = [
                     'ok' => false,
-                    'message' => 'Orders API error after retries.',
+                    'message' => "[{$region}] Orders API error after retries.",
                 ];
+                $this->finishSyncRun($run, $result['ok'], $result['message'], $totalOrders, $itemsFetched, $addressesFetched, $geocoded);
+                return $result;
             }
 
             if ($response->status() >= 400) {
@@ -73,10 +122,12 @@ class OrderSyncService
                     'request_id' => $this->extractRequestId($response),
                     'body' => $response->body(),
                 ]);
-                return [
+                $result = [
                     'ok' => false,
-                    'message' => 'Orders API error: ' . $response->status(),
+                    'message' => "[{$region}] Orders API error: " . $response->status(),
                 ];
+                $this->finishSyncRun($run, $result['ok'], $result['message'], $totalOrders, $itemsFetched, $addressesFetched, $geocoded);
+                return $result;
             }
 
             $data = $response->json();
@@ -89,6 +140,7 @@ class OrderSyncService
                 foreach ($orders as $order) {
                     $ship = $order['ShippingAddress'] ?? [];
                     $paymentMethod = $order['PaymentMethodDetails'][0] ?? ($order['PaymentMethod'] ?? null);
+                    $marketplaceId = $order['MarketplaceId'] ?? null;
                     $purchaseDate = $order['PurchaseDate'] ?? null;
                     if ($purchaseDate) {
                         try {
@@ -97,14 +149,18 @@ class OrderSyncService
                             $purchaseDate = null;
                         }
                     }
+                    $localized = $marketplaceTimezoneService->localizeFromUtc($order['PurchaseDate'] ?? null, $marketplaceId, $region);
                     $rows[] = [
                         'amazon_order_id' => $order['AmazonOrderId'] ?? null,
                         'purchase_date' => $purchaseDate,
+                        'purchase_date_local' => $localized['purchase_date_local'],
+                        'purchase_date_local_date' => $localized['purchase_date_local_date'],
                         'order_status' => $order['OrderStatus'] ?? null,
                         'fulfillment_channel' => $order['FulfillmentChannel'] ?? null,
                         'payment_method' => $paymentMethod,
                         'sales_channel' => $order['SalesChannel'] ?? null,
-                        'marketplace_id' => $order['MarketplaceId'] ?? null,
+                        'marketplace_id' => $marketplaceId,
+                        'marketplace_timezone' => $localized['marketplace_timezone'],
                         'is_business_order' => !empty($order['IsBusinessOrder']),
                         'order_total_amount' => $order['OrderTotal']['Amount'] ?? null,
                         'order_total_currency' => $order['OrderTotal']['CurrencyCode'] ?? null,
@@ -127,11 +183,14 @@ class OrderSyncService
                         ['amazon_order_id'],
                         [
                             'purchase_date',
+                            'purchase_date_local',
+                            'purchase_date_local_date',
                             'order_status',
                             'fulfillment_channel',
                             'payment_method',
                             'sales_channel',
                             'marketplace_id',
+                            'marketplace_timezone',
                             'is_business_order',
                             'order_total_amount',
                             'order_total_currency',
@@ -158,9 +217,12 @@ class OrderSyncService
                     $status = $order['OrderStatus'] ?? null;
                     $needsDetails = !$status || !in_array($status, self::FINAL_STATUSES, true);
                     $itemsMissing = OrderItem::query()->where('amazon_order_id', $orderId)->count() === 0;
+                    $orderItemsShipped = (int) ($order['NumberOfItemsShipped'] ?? 0);
+                    $storedItemsShipped = (int) OrderItem::query()->where('amazon_order_id', $orderId)->sum('quantity_shipped');
+                    $itemsShipmentOutdated = $orderItemsShipped > 0 && $storedItemsShipped < $orderItemsShipped;
                     $addressMissing = OrderShipAddress::query()->where('order_id', $orderId)->count() === 0;
 
-                    if (($needsDetails || $itemsMissing) && $itemsFetched < $itemsLimit) {
+                    if (($needsDetails || $itemsMissing || $itemsShipmentOutdated) && $itemsFetched < $itemsLimit) {
                         $itemsResponse = $this->callSpApiWithRetries(
                             fn () => $ordersAdapter->getOrderItems($orderId),
                             'orders.getOrderItems',
@@ -176,6 +238,16 @@ class OrderSyncService
                                 if (!$itemId) {
                                     continue;
                                 }
+                                $marketplaceCountry = strtoupper(trim((string) ($marketplaceCountryMap[$order['MarketplaceId'] ?? ''] ?? '')));
+                                $lineNet = $orderNetValueService->valuesFromApiItem($item, $marketplaceCountry);
+                                $orderedQty = isset($item['QuantityOrdered']) ? (int) $item['QuantityOrdered'] : null;
+                                $shippedQty = isset($item['QuantityShipped']) ? (int) $item['QuantityShipped'] : null;
+                                $unshippedQty = null;
+                                if (isset($item['QuantityUnshipped'])) {
+                                    $unshippedQty = (int) $item['QuantityUnshipped'];
+                                } elseif ($orderedQty !== null && $shippedQty !== null) {
+                                    $unshippedQty = max(0, $orderedQty - $shippedQty);
+                                }
                                 OrderItem::updateOrCreate(
                                     ['order_item_id' => $itemId],
                                     [
@@ -183,9 +255,13 @@ class OrderSyncService
                                         'asin' => $item['ASIN'] ?? null,
                                         'seller_sku' => $item['SellerSKU'] ?? null,
                                         'title' => $item['Title'] ?? null,
-                                        'quantity_ordered' => $item['QuantityOrdered'] ?? null,
+                                        'quantity_ordered' => $orderedQty,
+                                        'quantity_shipped' => $shippedQty,
+                                        'quantity_unshipped' => $unshippedQty,
                                         'item_price_amount' => $item['ItemPrice']['Amount'] ?? null,
+                                        'line_net_ex_tax' => $lineNet['line_net_ex_tax'],
                                         'item_price_currency' => $item['ItemPrice']['CurrencyCode'] ?? null,
+                                        'line_net_currency' => $lineNet['line_net_currency'],
                                         'raw_item' => json_encode($item),
                                     ]
                                 );
@@ -198,6 +274,7 @@ class OrderSyncService
                             Order::query()
                                 ->where('amazon_order_id', $orderId)
                                 ->update(['is_marketplace_facilitator' => $isMarketplaceFacilitator]);
+                            $orderNetValueService->refreshOrderNet($orderId);
                             $itemsFetched++;
                         }
                     }
@@ -260,10 +337,12 @@ class OrderSyncService
 
         } while ($nextToken && $page < $maxPages);
 
-        return [
+        $result = [
             'ok' => true,
-            'message' => "Synced orders: {$totalOrders}, items fetched: {$itemsFetched}, addresses fetched: {$addressesFetched}, geocoded: {$geocoded}",
+            'message' => "[{$region}] Synced orders: {$totalOrders}, items fetched: {$itemsFetched}, addresses fetched: {$addressesFetched}, geocoded: {$geocoded}",
         ];
+        $this->finishSyncRun($run, $result['ok'], $result['message'], $totalOrders, $itemsFetched, $addressesFetched, $geocoded);
+        return $result;
     }
 
     private function normalizeEndBefore($value): string
@@ -282,6 +361,78 @@ class OrderSyncService
         } catch (\Exception $e) {
             return now()->subMinutes(2)->format('Y-m-d\TH:i:s\Z');
         }
+    }
+
+    private function startSyncRun(
+        string $region,
+        int $days,
+        int $maxPages,
+        int $itemsLimit,
+        int $addressLimit,
+        string $createdAfter,
+        string $createdBefore,
+        ?string $source = null
+    ): OrderSyncRun {
+        return OrderSyncRun::create([
+            'source' => $this->normalizeSource($source),
+            'region' => strtoupper(trim($region)),
+            'days' => $days,
+            'max_pages' => $maxPages,
+            'items_limit' => $itemsLimit,
+            'address_limit' => $addressLimit,
+            'created_after_at' => $this->parseSyncTime($createdAfter),
+            'created_before_at' => $this->parseSyncTime($createdBefore),
+            'started_at' => now(),
+            'status' => 'running',
+        ]);
+    }
+
+    private function finishSyncRun(
+        ?OrderSyncRun $run,
+        bool $ok,
+        string $message,
+        int $ordersSynced,
+        int $itemsFetched,
+        int $addressesFetched,
+        int $geocoded
+    ): void {
+        if ($run === null) {
+            return;
+        }
+
+        $run->update([
+            'finished_at' => now(),
+            'status' => $ok ? 'success' : 'failed',
+            'message' => $message,
+            'orders_synced' => max(0, $ordersSynced),
+            'items_fetched' => max(0, $itemsFetched),
+            'addresses_fetched' => max(0, $addressesFetched),
+            'geocoded' => max(0, $geocoded),
+        ]);
+    }
+
+    private function parseSyncTime(string $value): ?Carbon
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($value);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function normalizeSource(?string $source): string
+    {
+        $source = strtolower(trim((string) $source));
+        if ($source !== '') {
+            return substr($source, 0, 32);
+        }
+
+        return app()->runningInConsole() ? 'console' : 'web';
     }
 
     private function retryAfterSeconds(?Response $response): int
