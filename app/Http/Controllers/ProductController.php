@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
+use App\Models\Marketplace;
 use App\Models\ProductIdentifier;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\RedirectResponse;
@@ -81,14 +82,25 @@ class ProductController extends Controller
 
     public function show(Product $product): View
     {
-        $product->load(['identifiers' => function ($q) {
-            $q->orderByDesc('is_primary')->orderBy('identifier_type')->orderBy('identifier_value');
-        }, 'costLayers' => function ($q) {
-            $q->orderByDesc('effective_from');
-        }]);
+        $product->load([
+            'identifiers' => function ($q) {
+                $q->with([
+                    'marketplace',
+                    'costLayers' => function ($layerQuery) {
+                        $layerQuery->with('components')->orderByDesc('effective_from');
+                    },
+                    'salePrices' => function ($salePriceQuery) {
+                        $salePriceQuery->orderByDesc('effective_from');
+                    },
+                ])->orderByDesc('is_primary')->orderBy('identifier_type')->orderBy('identifier_value');
+            },
+        ]);
+
+        $marketplaces = Marketplace::query()->orderBy('name')->get(['id', 'name', 'country_code']);
 
         return view('products.show', [
             'product' => $product,
+            'marketplaces' => $marketplaces,
         ]);
     }
 
