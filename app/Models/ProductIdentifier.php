@@ -20,6 +20,11 @@ class ProductIdentifier extends Model
         return $this->belongsTo(Product::class);
     }
 
+    public function costLayers()
+    {
+        return $this->hasMany(ProductIdentifierCostLayer::class);
+    }
+
     protected $casts = [
         'is_primary' => 'boolean',
     ];
