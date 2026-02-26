@@ -213,6 +213,9 @@ class UsFcInventorySyncService
         $rows = is_array($downloadResult['rows'] ?? null) ? $downloadResult['rows'] : [];
         $documentUrlSha256 = $downloadResult['report_document_url_sha256'] ?? null;
         $locationRowsUpserted = $this->fcLocationRegistry->ingestRows($rows, $marketplaceId);
+        $latestRowDate = strtoupper(trim($reportType)) === 'GET_LEDGER_SUMMARY_VIEW_DATA'
+            ? $this->latestRowDate($rows)
+            : null;
 
         $parsedRowPreview = array_slice($rows, 0, 2);
         $upsertRows = [];
@@ -221,6 +224,15 @@ class UsFcInventorySyncService
         $sampleKeys = [];
         $now = now();
         foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            if ($latestRowDate !== null) {
+                $rowDate = $this->rowDateString($row);
+                if ($rowDate === null || $rowDate !== $latestRowDate) {
+                    continue;
+                }
+            }
             $normalized = $this->normalizeRow($row);
             $fc = $normalized['fulfillment_center_id'];
             $sku = $normalized['seller_sku'];
@@ -251,7 +263,7 @@ class UsFcInventorySyncService
                 'raw_row' => json_encode($row, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
                 'report_id' => $reportId,
                 'report_type' => $reportType,
-                'report_date' => $reportDate,
+                'report_date' => $latestRowDate ?? $reportDate,
                 'last_seen_at' => $now,
                 'created_at' => $now,
                 'updated_at' => $now,
@@ -328,7 +340,7 @@ class UsFcInventorySyncService
             ]);
         }
 
-        $sku = $this->pick($flat, ['seller-sku', 'seller_sku', 'sku', 'merchant-sku', 'merchant_sku', 'merchant sku']);
+        $sku = $this->pick($flat, ['seller-sku', 'seller_sku', 'sku', 'merchant-sku', 'merchant_sku', 'merchant sku', 'msku']);
         $asin = $this->pick($flat, ['asin']);
         $fnsku = $this->pick($flat, ['fnsku', 'fnsku']);
         $condition = $this->pick($flat, ['condition', 'item-condition', 'item_condition']);
@@ -450,6 +462,55 @@ class UsFcInventorySyncService
         }
 
         return [$requested];
+    }
+
+    private function latestRowDate(array $rows): ?string
+    {
+        $max = null;
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $date = $this->rowDateString($row);
+            if ($date === null) {
+                continue;
+            }
+            if ($max === null || strcmp($date, $max) > 0) {
+                $max = $date;
+            }
+        }
+
+        return $max;
+    }
+
+    private function rowDateString(array $row): ?string
+    {
+        $value = '';
+        foreach (['Date', 'date', 'Report Date', 'report_date'] as $key) {
+            if (!array_key_exists($key, $row)) {
+                continue;
+            }
+            $value = trim((string) $row[$key]);
+            if ($value !== '') {
+                break;
+            }
+        }
+        if ($value === '') {
+            return null;
+        }
+
+        foreach (['m/d/Y', 'm/d/y', 'Y-m-d', 'n/j/Y', 'n/j/y'] as $format) {
+            $dt = \DateTime::createFromFormat($format, $value);
+            if ($dt !== false) {
+                return $dt->format('Y-m-d');
+            }
+        }
+
+        try {
+            return (new \DateTime($value))->format('Y-m-d');
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function reportOptionsForType(string $reportType): ?array
