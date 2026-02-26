@@ -168,8 +168,30 @@ class SpApiReportLifecycleService
             $documentUrlSha256 = $meta['report_document_url_sha256'] ?? null;
 
             $document = $documentResponse->dto();
-            $downloaded = $document->download($reportType);
-            $rows = $this->normalizeDownloadedRows($downloaded);
+            if (!is_object($document) || !method_exists($document, 'download')) {
+                return [
+                    'ok' => false,
+                    'rows' => [],
+                    'document_payload' => $documentPayload,
+                    'report_document_url_sha256' => $documentUrlSha256,
+                    'error' => 'Report document DTO missing or does not support download.',
+                ];
+            }
+
+            try {
+                $downloaded = $document->download($reportType);
+                $rows = $this->normalizeDownloadedRows($downloaded);
+            } catch (\Throwable $parseError) {
+                // Some documents return an empty/malformed spreadsheet body that the SDK parser cannot iterate.
+                // Fallback to raw document bytes and parse as delimited text in this service.
+                $rawDownloaded = $document->download($reportType, false);
+                $rows = $this->normalizeDownloadedRows($rawDownloaded);
+                Log::warning('SP-API report parser fallback used', [
+                    'report_document_id' => $reportDocumentId,
+                    'report_type' => $reportType,
+                    'error' => $parseError->getMessage(),
+                ]);
+            }
 
             return [
                 'ok' => true,
