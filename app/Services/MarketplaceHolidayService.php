@@ -16,13 +16,15 @@ class MarketplaceHolidayService
         $aheadDays = max(1, min($aheadDays, 120));
         $from = Carbon::now()->subDays($lookbackDays)->startOfDay();
         $to = Carbon::now()->addDays($aheadDays)->endOfDay();
+        $marketplaceFingerprint = $this->marketplaceFingerprint();
 
         $cacheKey = sprintf(
-            'dashboard_holidays_%s_%s_%d_%d',
+            'dashboard_holidays_%s_%s_%d_%d_%s',
             $from->toDateString(),
             $to->toDateString(),
             $lookbackDays,
-            $aheadDays
+            $aheadDays,
+            $marketplaceFingerprint
         );
 
         return Cache::remember($cacheKey, now()->addHours(6), function () use ($from, $to) {
@@ -147,5 +149,26 @@ class MarketplaceHolidayService
             return '';
         }
         return $country;
+    }
+
+    private function marketplaceFingerprint(): string
+    {
+        $snapshot = Marketplace::query()
+            ->selectRaw('COUNT(*) as total, MAX(updated_at) as max_updated_at')
+            ->first();
+
+        $count = (int) ($snapshot->total ?? 0);
+        $maxUpdatedAt = (string) ($snapshot->max_updated_at ?? '');
+        if ($maxUpdatedAt === '') {
+            return (string) $count;
+        }
+
+        try {
+            $timestamp = Carbon::parse($maxUpdatedAt)->timestamp;
+        } catch (\Throwable $e) {
+            $timestamp = 0;
+        }
+
+        return $count . '_' . $timestamp;
     }
 }
