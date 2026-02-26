@@ -339,7 +339,8 @@
                         `${p.city}, ${p.state}<br>` +
                         `Qty: ${qty.toLocaleString()}<br>` +
                         `Rows: ${Number(p.rows || 0).toLocaleString()}<br>` +
-                        `Data Date: ${p.data_date || 'N/A'}`
+                        `Data Date: ${p.data_date || 'N/A'}` +
+                        `${p.approximate ? '<br><em>Approximate map position</em>' : ''}`
                     );
 
                     clusterGroup.addLayer(marker);

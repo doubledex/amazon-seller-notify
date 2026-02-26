@@ -22,7 +22,26 @@ class UsFcInventoryController extends Controller
         $stateFilter = strtoupper(trim((string) $request->query('state', '')));
         $perPageInput = strtolower(trim((string) $request->query('per_page', '100')));
         $latestReportDate = UsFcInventory::query()->max('report_date');
-        $reportDate = trim((string) $request->query('report_date', $latestReportDate ?? ''));
+        $requestedReportDate = trim((string) $request->query('report_date', ''));
+        $defaultReportDate = UsFcInventory::query()
+            ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
+            ->when($q !== '', function ($query) use ($q) {
+                $query->where(function ($w) use ($q) {
+                    $w->where('us_fc_inventories.seller_sku', 'like', '%' . $q . '%')
+                        ->orWhere('us_fc_inventories.asin', 'like', '%' . $q . '%')
+                        ->orWhere('us_fc_inventories.fnsku', 'like', '%' . $q . '%')
+                        ->orWhere('us_fc_inventories.fulfillment_center_id', 'like', '%' . $q . '%')
+                        ->orWhere('loc.city', 'like', '%' . $q . '%')
+                        ->orWhere('loc.state', 'like', '%' . $q . '%');
+                });
+            })
+            ->when(!empty($skuSelection), fn ($query) => $query->whereIn('us_fc_inventories.seller_sku', $skuSelection))
+            ->when($asin !== '', fn ($query) => $query->where('us_fc_inventories.asin', 'like', '%' . $asin . '%'))
+            ->when($stateFilter !== '', fn ($query) => $query->whereRaw('upper(coalesce(loc.state, "")) = ?', [$stateFilter]))
+            ->max('us_fc_inventories.report_date');
+        $reportDate = $requestedReportDate !== ''
+            ? $requestedReportDate
+            : ($defaultReportDate ?? $latestReportDate ?? '');
 
         $query = UsFcInventory::query()
             ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
@@ -219,17 +238,19 @@ class UsFcInventoryController extends Controller
             $hash = $hashByFc[$fc] ?? null;
             $lat = null;
             $lng = null;
+            $isApproximate = false;
 
             if ($hash && isset($geoByHash[$hash])) {
                 $geo = $geoByHash[$hash];
                 $lat = (float) $geo->lat;
                 $lng = (float) $geo->lng;
             } else {
-                $state = strtoupper(trim((string) ($row->state ?? '')));
-                if (isset($stateCentroids[$state])) {
-                    $lat = (float) $stateCentroids[$state][0];
-                    $lng = (float) $stateCentroids[$state][1];
-                }
+                [$lat, $lng] = $this->fallbackMapCoords(
+                    (string) ($row->state ?? ''),
+                    $fc,
+                    $stateCentroids
+                );
+                $isApproximate = true;
             }
 
             if ($lat === null || $lng === null) {
@@ -248,6 +269,7 @@ class UsFcInventoryController extends Controller
                 'data_date' => (string) ($row->data_date ?? ''),
                 'lat' => $lat,
                 'lng' => $lng,
+                'approximate' => $isApproximate,
             ];
         }
 
@@ -291,5 +313,22 @@ class UsFcInventoryController extends Controller
             'VA' => [37.769337, -78.169968], 'WA' => [47.400902, -121.490494], 'WV' => [38.491226, -80.954453],
             'WI' => [44.268543, -89.616508], 'WY' => [42.755966, -107.302490], 'DC' => [38.9072, -77.0369],
         ];
+    }
+
+    private function fallbackMapCoords(string $state, string $fc, array $stateCentroids): array
+    {
+        $state = strtoupper(trim($state));
+        [$baseLat, $baseLng] = $stateCentroids[$state] ?? [39.8283, -98.5795];
+
+        $seedSource = strtoupper(trim($fc)) !== '' ? strtoupper(trim($fc)) : ($state !== '' ? $state : 'US');
+        $seed = (int) sprintf('%u', crc32($seedSource));
+
+        $latOffset = ((($seed % 1000) / 999) - 0.5) * 0.6; // +/- 0.30
+        $lngOffset = ((((int) floor($seed / 1000) % 1000) / 999) - 0.5) * 1.0; // +/- 0.50
+
+        $lat = max(-90.0, min(90.0, (float) $baseLat + $latOffset));
+        $lng = max(-180.0, min(180.0, (float) $baseLng + $lngOffset));
+
+        return [$lat, $lng];
     }
 }
