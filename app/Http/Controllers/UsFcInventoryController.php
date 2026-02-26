@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\CityGeo;
 use App\Models\UsFcInventory;
+use App\Models\UsFcLocation;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 
 class UsFcInventoryController extends Controller
@@ -23,6 +25,7 @@ class UsFcInventoryController extends Controller
         $perPageInput = strtolower(trim((string) $request->query('per_page', '100')));
         $latestReportDate = UsFcInventory::query()->max('report_date');
         $requestedReportDate = trim((string) $request->query('report_date', ''));
+
         $defaultReportDate = UsFcInventory::query()
             ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
             ->when($q !== '', function ($query) use ($q) {
@@ -32,13 +35,15 @@ class UsFcInventoryController extends Controller
                         ->orWhere('us_fc_inventories.fnsku', 'like', '%' . $q . '%')
                         ->orWhere('us_fc_inventories.fulfillment_center_id', 'like', '%' . $q . '%')
                         ->orWhere('loc.city', 'like', '%' . $q . '%')
-                        ->orWhere('loc.state', 'like', '%' . $q . '%');
+                        ->orWhere('loc.state', 'like', '%' . $q . '%')
+                        ->orWhere('loc.country_code', 'like', '%' . $q . '%');
                 });
             })
             ->when(!empty($skuSelection), fn ($query) => $query->whereIn('us_fc_inventories.seller_sku', $skuSelection))
             ->when($asin !== '', fn ($query) => $query->where('us_fc_inventories.asin', 'like', '%' . $asin . '%'))
             ->when($stateFilter !== '', fn ($query) => $query->whereRaw('upper(coalesce(loc.state, "")) = ?', [$stateFilter]))
             ->max('us_fc_inventories.report_date');
+
         $reportDate = $requestedReportDate !== ''
             ? $requestedReportDate
             : ($defaultReportDate ?? $latestReportDate ?? '');
@@ -58,7 +63,8 @@ class UsFcInventoryController extends Controller
                 'us_fc_inventories.updated_at',
                 'loc.city as fc_city',
                 'loc.state as fc_state',
-                'loc.label as fc_label',
+                'loc.country_code as fc_country_code',
+                'loc.label as fc_label'
             );
 
         if ($reportDate !== '') {
@@ -72,7 +78,8 @@ class UsFcInventoryController extends Controller
                     ->orWhere('us_fc_inventories.fnsku', 'like', '%' . $q . '%')
                     ->orWhere('us_fc_inventories.fulfillment_center_id', 'like', '%' . $q . '%')
                     ->orWhere('loc.city', 'like', '%' . $q . '%')
-                    ->orWhere('loc.state', 'like', '%' . $q . '%');
+                    ->orWhere('loc.state', 'like', '%' . $q . '%')
+                    ->orWhere('loc.country_code', 'like', '%' . $q . '%');
             });
         }
         if (!empty($skuSelection)) {
@@ -81,7 +88,6 @@ class UsFcInventoryController extends Controller
         if ($asin !== '') {
             $query->where('us_fc_inventories.asin', 'like', '%' . $asin . '%');
         }
-
         if ($stateFilter !== '') {
             $query->whereRaw('upper(coalesce(loc.state, "")) = ?', [$stateFilter]);
         }
@@ -98,6 +104,7 @@ class UsFcInventoryController extends Controller
         }
 
         $rows = $query
+            ->orderByRaw('coalesce(loc.country_code, "ZZ") asc')
             ->orderByRaw('coalesce(loc.state, "ZZ") asc')
             ->orderByRaw('coalesce(loc.city, "ZZZZZZ") asc')
             ->orderBy('us_fc_inventories.fulfillment_center_id')
@@ -107,8 +114,12 @@ class UsFcInventoryController extends Controller
 
         $hierarchy = [];
         foreach ($rows->items() as $row) {
-            $nodeState = trim((string) ($row->fc_state ?? ''));
-            $nodeState = $nodeState !== '' ? strtoupper($nodeState) : 'Unknown';
+            $country = strtoupper(trim((string) ($row->fc_country_code ?? '')));
+            $country = $country !== '' ? $country : 'Unknown';
+            $state = strtoupper(trim((string) ($row->fc_state ?? '')));
+            $state = $state !== '' ? $state : 'Unknown';
+            $nodeKey = $country . '|' . $state;
+
             $fc = trim((string) ($row->fulfillment_center_id ?? ''));
             $fc = $fc !== '' ? $fc : 'Unknown';
             $city = trim((string) ($row->fc_city ?? ''));
@@ -116,52 +127,57 @@ class UsFcInventoryController extends Controller
             $qty = (int) ($row->quantity_available ?? 0);
             $dataDate = (string) ($row->report_date ?? '');
 
-            if (!isset($hierarchy[$nodeState])) {
-                $hierarchy[$nodeState] = [
-                    'state' => $nodeState,
+            if (!isset($hierarchy[$nodeKey])) {
+                $hierarchy[$nodeKey] = [
+                    'country' => $country,
+                    'state' => $state,
+                    'group_label' => $country . ' / ' . $state,
                     'qty' => 0,
                     'data_date' => $dataDate,
                     'fcs' => [],
                 ];
             }
-            $hierarchy[$nodeState]['qty'] += $qty;
-            if ($dataDate !== '' && ($hierarchy[$nodeState]['data_date'] === '' || strcmp($dataDate, $hierarchy[$nodeState]['data_date']) > 0)) {
-                $hierarchy[$nodeState]['data_date'] = $dataDate;
+            $hierarchy[$nodeKey]['qty'] += $qty;
+            if ($dataDate !== '' && ($hierarchy[$nodeKey]['data_date'] === '' || strcmp($dataDate, $hierarchy[$nodeKey]['data_date']) > 0)) {
+                $hierarchy[$nodeKey]['data_date'] = $dataDate;
             }
 
-            if (!isset($hierarchy[$nodeState]['fcs'][$fc])) {
-                $hierarchy[$nodeState]['fcs'][$fc] = [
+            if (!isset($hierarchy[$nodeKey]['fcs'][$fc])) {
+                $hierarchy[$nodeKey]['fcs'][$fc] = [
                     'fc' => $fc,
                     'city' => $city,
-                    'state' => $nodeState,
+                    'state' => $state,
+                    'country' => $country,
                     'qty' => 0,
                     'row_count' => 0,
                     'data_date' => $dataDate,
                     'details' => [],
                 ];
             }
-            $hierarchy[$nodeState]['fcs'][$fc]['qty'] += $qty;
-            $hierarchy[$nodeState]['fcs'][$fc]['row_count']++;
-            if ($dataDate !== '' && ($hierarchy[$nodeState]['fcs'][$fc]['data_date'] === '' || strcmp($dataDate, $hierarchy[$nodeState]['fcs'][$fc]['data_date']) > 0)) {
-                $hierarchy[$nodeState]['fcs'][$fc]['data_date'] = $dataDate;
+            $hierarchy[$nodeKey]['fcs'][$fc]['qty'] += $qty;
+            $hierarchy[$nodeKey]['fcs'][$fc]['row_count']++;
+            if ($dataDate !== '' && ($hierarchy[$nodeKey]['fcs'][$fc]['data_date'] === '' || strcmp($dataDate, $hierarchy[$nodeKey]['fcs'][$fc]['data_date']) > 0)) {
+                $hierarchy[$nodeKey]['fcs'][$fc]['data_date'] = $dataDate;
             }
-            $hierarchy[$nodeState]['fcs'][$fc]['details'][] = $row;
+            $hierarchy[$nodeKey]['fcs'][$fc]['details'][] = $row;
         }
 
-        $hierarchy = array_values(array_map(static function (array $stateNode): array {
-            $stateNode['fcs'] = array_values($stateNode['fcs']);
-            return $stateNode;
+        $hierarchy = array_values(array_map(static function (array $group): array {
+            $group['fcs'] = array_values($group['fcs']);
+            return $group;
         }, $hierarchy));
 
         $summary = UsFcInventory::query()
             ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
+            ->selectRaw('coalesce(loc.country_code, "Unknown") as country_code')
             ->selectRaw('coalesce(loc.state, "Unknown") as state')
             ->selectRaw('sum(us_fc_inventories.quantity_available) as qty')
             ->selectRaw('max(us_fc_inventories.report_date) as data_date')
             ->when($reportDate !== '', fn ($q) => $q->whereDate('us_fc_inventories.report_date', '=', $reportDate))
             ->when(!empty($skuSelection), fn ($q) => $q->whereIn('us_fc_inventories.seller_sku', $skuSelection))
             ->when($asin !== '', fn ($q) => $q->where('us_fc_inventories.asin', 'like', '%' . $asin . '%'))
-            ->groupBy(DB::raw('coalesce(loc.state, "Unknown")'))
+            ->groupBy(DB::raw('coalesce(loc.country_code, "Unknown")'), DB::raw('coalesce(loc.state, "Unknown")'))
+            ->orderBy('country_code')
             ->orderBy('state')
             ->get();
 
@@ -170,6 +186,9 @@ class UsFcInventoryController extends Controller
             ->selectRaw('us_fc_inventories.fulfillment_center_id as fc')
             ->selectRaw('coalesce(loc.city, "Unknown") as city')
             ->selectRaw('coalesce(loc.state, "Unknown") as state')
+            ->selectRaw('coalesce(loc.country_code, "Unknown") as country_code')
+            ->selectRaw('max(loc.lat) as lat')
+            ->selectRaw('max(loc.lng) as lng')
             ->selectRaw('sum(us_fc_inventories.quantity_available) as qty')
             ->selectRaw('count(*) as row_count')
             ->selectRaw('max(us_fc_inventories.report_date) as data_date')
@@ -184,10 +203,17 @@ class UsFcInventoryController extends Controller
                         ->orWhere('us_fc_inventories.fnsku', 'like', '%' . $q . '%')
                         ->orWhere('us_fc_inventories.fulfillment_center_id', 'like', '%' . $q . '%')
                         ->orWhere('loc.city', 'like', '%' . $q . '%')
-                        ->orWhere('loc.state', 'like', '%' . $q . '%');
+                        ->orWhere('loc.state', 'like', '%' . $q . '%')
+                        ->orWhere('loc.country_code', 'like', '%' . $q . '%');
                 });
             })
-            ->groupBy('us_fc_inventories.fulfillment_center_id', DB::raw('coalesce(loc.city, "Unknown")'), DB::raw('coalesce(loc.state, "Unknown")'))
+            ->groupBy(
+                'us_fc_inventories.fulfillment_center_id',
+                DB::raw('coalesce(loc.city, "Unknown")'),
+                DB::raw('coalesce(loc.state, "Unknown")'),
+                DB::raw('coalesce(loc.country_code, "Unknown")')
+            )
+            ->orderByRaw('coalesce(loc.country_code, "ZZ") asc')
             ->orderByRaw('coalesce(loc.state, "ZZ") asc')
             ->orderByRaw('coalesce(loc.city, "ZZZZZZ") asc')
             ->orderBy('us_fc_inventories.fulfillment_center_id')
@@ -216,44 +242,55 @@ class UsFcInventoryController extends Controller
             ->values()
             ->all();
 
-        $hashByFc = [];
+        $hashByFcKey = [];
         foreach ($fcSummary as $row) {
             $city = trim((string) ($row->city ?? ''));
             $region = trim((string) ($row->state ?? ''));
-            if ($city === '' || $region === '' || strtoupper($city) === 'UNKNOWN' || strtoupper($region) === 'UNKNOWN') {
+            $countryCode = strtoupper(trim((string) ($row->country_code ?? '')));
+            if ($city === '' || strtoupper($city) === 'UNKNOWN') {
                 continue;
             }
-            $hashByFc[(string) $row->fc] = CityGeo::lookupHash('US', $city, $region);
+            if ($countryCode === '' || $countryCode === 'UNKNOWN') {
+                continue;
+            }
+            $hashByFcKey[$this->fcHashKey((string) $row->fc, $countryCode)] = CityGeo::lookupHash($countryCode, $city, $region);
         }
 
         $geoByHash = CityGeo::query()
-            ->whereIn('lookup_hash', array_values(array_unique(array_values($hashByFc))))
+            ->whereIn('lookup_hash', array_values(array_unique(array_values($hashByFcKey))))
             ->get(['lookup_hash', 'lat', 'lng'])
             ->keyBy('lookup_hash');
 
         $fcMapPoints = [];
         $stateCentroids = $this->usStateCentroids();
+        $countryCentroids = $this->countryCentroids();
         $knownFcCoordinates = $this->knownFcCoordinates();
+
         foreach ($fcSummary as $row) {
             $fc = (string) $row->fc;
             $fcCode = strtoupper(trim($fc));
-            $hash = $hashByFc[$fc] ?? null;
+            $countryCode = strtoupper(trim((string) ($row->country_code ?? '')));
+            $countryCode = $countryCode !== '' ? $countryCode : 'US';
+            $stateCode = strtoupper(trim((string) ($row->state ?? '')));
+            $hash = $hashByFcKey[$this->fcHashKey($fc, $countryCode)] ?? null;
+
             $lat = null;
             $lng = null;
             $isApproximate = false;
 
-            if (isset($knownFcCoordinates[$fcCode])) {
+            $rowLat = is_numeric($row->lat) ? (float) $row->lat : null;
+            $rowLng = is_numeric($row->lng) ? (float) $row->lng : null;
+            if ($rowLat !== null && $rowLng !== null) {
+                $lat = $rowLat;
+                $lng = $rowLng;
+            } elseif (isset($knownFcCoordinates[$fcCode])) {
                 [$lat, $lng] = $knownFcCoordinates[$fcCode];
             } elseif ($hash && isset($geoByHash[$hash])) {
                 $geo = $geoByHash[$hash];
                 $lat = (float) $geo->lat;
                 $lng = (float) $geo->lng;
             } else {
-                [$lat, $lng] = $this->fallbackMapCoords(
-                    (string) ($row->state ?? ''),
-                    $fc,
-                    $stateCentroids
-                );
+                [$lat, $lng] = $this->fallbackMapCoords($countryCode, $stateCode, $fc, $stateCentroids, $countryCentroids);
                 $isApproximate = true;
             }
 
@@ -268,6 +305,7 @@ class UsFcInventoryController extends Controller
                 'fc' => $fc,
                 'city' => (string) $row->city,
                 'state' => (string) $row->state,
+                'country_code' => $countryCode,
                 'qty' => (int) $row->qty,
                 'rows' => (int) $row->row_count,
                 'data_date' => (string) ($row->data_date ?? ''),
@@ -296,6 +334,210 @@ class UsFcInventoryController extends Controller
         ]);
     }
 
+    public function downloadLocationsCsv()
+    {
+        $rows = UsFcLocation::query()
+            ->orderBy('country_code')
+            ->orderBy('state')
+            ->orderBy('city')
+            ->orderBy('fulfillment_center_id')
+            ->get(['fulfillment_center_id', 'city', 'state', 'country_code', 'lat', 'lng', 'label', 'location_source', 'updated_at']);
+
+        $filename = 'fc-locations-' . now()->format('Ymd-His') . '.csv';
+
+        return response()->streamDownload(function () use ($rows): void {
+            $out = fopen('php://output', 'w');
+            if ($out === false) {
+                return;
+            }
+
+            fputcsv($out, ['fc_code', 'city', 'state_or_region', 'country_code', 'lat', 'lng', 'label', 'location_source', 'updated_at']);
+
+            foreach ($rows as $row) {
+                fputcsv($out, [
+                    (string) $row->fulfillment_center_id,
+                    (string) ($row->city ?? ''),
+                    (string) ($row->state ?? ''),
+                    (string) ($row->country_code ?? ''),
+                    $row->lat !== null ? (string) $row->lat : '',
+                    $row->lng !== null ? (string) $row->lng : '',
+                    (string) ($row->label ?? ''),
+                    (string) ($row->location_source ?? ''),
+                    (string) optional($row->updated_at)->format('Y-m-d H:i:s'),
+                ]);
+            }
+
+            fclose($out);
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
+    public function uploadLocationsCsv(Request $request)
+    {
+        $validated = $request->validate([
+            'locations_csv' => ['required', 'file', 'mimes:csv,txt'],
+        ]);
+
+        /** @var UploadedFile $file */
+        $file = $validated['locations_csv'];
+        $handle = fopen($file->getRealPath(), 'r');
+        if ($handle === false) {
+            return redirect()->route('inventory.fc')->with('inventory_fc_error', 'Unable to read uploaded CSV file.');
+        }
+
+        $header = fgetcsv($handle);
+        if (!is_array($header)) {
+            fclose($handle);
+            return redirect()->route('inventory.fc')->with('inventory_fc_error', 'CSV appears to be empty.');
+        }
+
+        $headerMap = [];
+        foreach ($header as $index => $column) {
+            $normalized = strtolower(trim((string) $column));
+            if ($normalized !== '') {
+                $headerMap[$normalized] = (int) $index;
+            }
+        }
+
+        $fcIndex = $headerMap['fc_code'] ?? $headerMap['fulfillment_center_id'] ?? null;
+        if (!is_int($fcIndex)) {
+            fclose($handle);
+            return redirect()->route('inventory.fc')->with('inventory_fc_error', 'CSV must include an fc_code column.');
+        }
+
+        $updates = 0;
+        while (($data = fgetcsv($handle)) !== false) {
+            $fc = strtoupper(trim((string) ($data[$fcIndex] ?? '')));
+            if ($fc === '') {
+                continue;
+            }
+
+            $location = UsFcLocation::query()->firstOrNew(['fulfillment_center_id' => $fc]);
+            $changed = false;
+
+            $city = $this->csvField($data, $headerMap, ['city']);
+            if ($city !== null) {
+                $location->city = $city;
+                $changed = true;
+            }
+
+            $state = $this->csvField($data, $headerMap, ['state_or_region', 'state', 'region']);
+            if ($state !== null) {
+                $location->state = $state;
+                $changed = true;
+            }
+
+            $country = $this->csvField($data, $headerMap, ['country_code', 'country']);
+            if ($country !== null) {
+                $country = strtoupper($country);
+                if ($country === 'UK') {
+                    $country = 'GB';
+                }
+                $location->country_code = $country;
+                $changed = true;
+            }
+
+            $lat = $this->csvCoordinate($data, $headerMap, ['lat', 'latitude'], -90.0, 90.0);
+            if ($lat !== null) {
+                $location->lat = $lat;
+                $changed = true;
+            }
+
+            $lng = $this->csvCoordinate($data, $headerMap, ['lng', 'lon', 'longitude', 'long'], -180.0, 180.0);
+            if ($lng !== null) {
+                $location->lng = $lng;
+                $changed = true;
+            }
+
+            $label = $this->csvField($data, $headerMap, ['label']);
+            if ($label !== null) {
+                $location->label = $label;
+                $changed = true;
+            }
+
+            if ($changed) {
+                if ($location->label === null || trim((string) $location->label) === '') {
+                    $location->label = $this->locationLabel(
+                        $fc,
+                        (string) ($location->city ?? ''),
+                        (string) ($location->state ?? ''),
+                        (string) ($location->country_code ?? '')
+                    );
+                }
+                if ($location->country_code === null || trim((string) $location->country_code) === '') {
+                    $location->country_code = 'US';
+                }
+                $location->location_source = 'csv_upload';
+                $location->save();
+                $updates++;
+            }
+        }
+
+        fclose($handle);
+
+        return redirect()->route('inventory.fc')->with('inventory_fc_status', "Location CSV imported. Updated {$updates} FC records.");
+    }
+
+    private function csvField(array $row, array $headerMap, array $keys): ?string
+    {
+        foreach ($keys as $key) {
+            if (!isset($headerMap[$key])) {
+                continue;
+            }
+            $value = trim((string) ($row[$headerMap[$key]] ?? ''));
+            if ($value === '') {
+                return null;
+            }
+
+            return $value;
+        }
+
+        return null;
+    }
+
+    private function csvCoordinate(array $row, array $headerMap, array $keys, float $min, float $max): ?float
+    {
+        foreach ($keys as $key) {
+            if (!isset($headerMap[$key])) {
+                continue;
+            }
+            $value = trim((string) ($row[$headerMap[$key]] ?? ''));
+            if ($value === '' || !is_numeric($value)) {
+                continue;
+            }
+            $number = (float) $value;
+            if ($number < $min || $number > $max) {
+                continue;
+            }
+
+            return $number;
+        }
+
+        return null;
+    }
+
+    private function fcHashKey(string $fc, string $countryCode): string
+    {
+        return strtoupper(trim($countryCode)) . '|' . strtoupper(trim($fc));
+    }
+
+    private function locationLabel(string $fc, string $city, string $state, string $country): string
+    {
+        $parts = [];
+        if (trim($city) !== '') {
+            $parts[] = trim($city);
+        }
+        if (trim($state) !== '') {
+            $parts[] = strtoupper(trim($state));
+        }
+        if (empty($parts) && trim($country) !== '') {
+            $parts[] = strtoupper(trim($country));
+        }
+
+        return empty($parts) ? $fc : ($fc . ' - ' . implode(', ', $parts));
+    }
+
     private function usStateCentroids(): array
     {
         return [
@@ -319,16 +561,48 @@ class UsFcInventoryController extends Controller
         ];
     }
 
-    private function fallbackMapCoords(string $state, string $fc, array $stateCentroids): array
+    private function countryCentroids(): array
     {
-        $state = strtoupper(trim($state));
-        [$baseLat, $baseLng] = $stateCentroids[$state] ?? [39.8283, -98.5795];
+        return [
+            'US' => [39.8283, -98.5795],
+            'GB' => [54.0, -2.0],
+            'DE' => [51.1657, 10.4515],
+            'FR' => [46.2276, 2.2137],
+            'IT' => [41.8719, 12.5674],
+            'ES' => [40.4637, -3.7492],
+            'NL' => [52.1326, 5.2913],
+            'SE' => [60.1282, 18.6435],
+            'PL' => [51.9194, 19.1451],
+            'BE' => [50.5039, 4.4699],
+            'IE' => [53.1424, -7.6921],
+            'AT' => [47.5162, 14.5501],
+            'CZ' => [49.8175, 15.4730],
+            'TR' => [38.9637, 35.2433],
+            'AE' => [23.4241, 53.8478],
+            'SA' => [23.8859, 45.0792],
+            'JP' => [36.2048, 138.2529],
+            'AU' => [-25.2744, 133.7751],
+            'CA' => [56.1304, -106.3468],
+            'MX' => [23.6345, -102.5528],
+        ];
+    }
 
-        $seedSource = strtoupper(trim($fc)) !== '' ? strtoupper(trim($fc)) : ($state !== '' ? $state : 'US');
+    private function fallbackMapCoords(string $countryCode, string $state, string $fc, array $stateCentroids, array $countryCentroids): array
+    {
+        $countryCode = strtoupper(trim($countryCode));
+        $state = strtoupper(trim($state));
+
+        if ($countryCode === 'US' && isset($stateCentroids[$state])) {
+            [$baseLat, $baseLng] = $stateCentroids[$state];
+        } else {
+            [$baseLat, $baseLng] = $countryCentroids[$countryCode] ?? [20.0, 0.0];
+        }
+
+        $seedSource = strtoupper(trim($fc)) !== '' ? strtoupper(trim($fc)) : ($countryCode !== '' ? $countryCode : 'GLOBAL');
         $seed = (int) sprintf('%u', crc32($seedSource));
 
-        $latOffset = ((($seed % 1000) / 999) - 0.5) * 0.6; // +/- 0.30
-        $lngOffset = ((((int) floor($seed / 1000) % 1000) / 999) - 0.5) * 1.0; // +/- 0.50
+        $latOffset = ((($seed % 1000) / 999) - 0.5) * 0.6;
+        $lngOffset = ((((int) floor($seed / 1000) % 1000) / 999) - 0.5) * 1.0;
 
         $lat = max(-90.0, min(90.0, (float) $baseLat + $latOffset));
         $lng = max(-180.0, min(180.0, (float) $baseLng + $lngOffset));

@@ -4,9 +4,14 @@ namespace App\Services\ReportJobs;
 
 use App\Models\ReportJob;
 use App\Models\UsFcInventory;
+use App\Services\FcLocationRegistryService;
 
 class UsFcInventoryReportJobProcessor implements ReportJobProcessor
 {
+    public function __construct(private readonly FcLocationRegistryService $fcLocationRegistry)
+    {
+    }
+
     public function process(ReportJob $job, array $rows): array
     {
         if (strtoupper(trim((string) $job->report_type)) !== 'GET_LEDGER_SUMMARY_VIEW_DATA') {
@@ -25,6 +30,7 @@ class UsFcInventoryReportJobProcessor implements ReportJobProcessor
         $sampleKeys = [];
         $now = now();
         $reportDate = $latestDate ?? $job->completed_at?->toDateString();
+        $locationRows = [];
 
         foreach ($rows as $row) {
             if (!is_array($row)) {
@@ -37,6 +43,7 @@ class UsFcInventoryReportJobProcessor implements ReportJobProcessor
                 }
             }
 
+            $locationRows[] = $row;
             $normalized = $this->normalizeRow($row);
             $fc = $normalized['fulfillment_center_id'];
             $sku = $normalized['seller_sku'];
@@ -82,11 +89,14 @@ class UsFcInventoryReportJobProcessor implements ReportJobProcessor
             );
         }
 
+        $locationRowsUpserted = $this->fcLocationRegistry->ingestRows($locationRows, (string) $job->marketplace_id);
+
         return [
             'rows_ingested' => count($upsertRows),
             'rows_missing_fc' => $missingFcRows,
             'rows_missing_sku' => $missingSkuRows,
             'sample_row_keys' => $sampleKeys,
+            'location_rows_upserted' => $locationRowsUpserted,
         ];
     }
 

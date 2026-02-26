@@ -26,7 +26,7 @@ Schedule::command('reports:poll --processor=us_fc_inventory --region=NA --limit=
     ->everyFiveMinutes()
     ->name('us-fc-summary-poll')
     ->withoutOverlapping();
-Schedule::command('inventory:sync-us-fc')->dailyAt('03:10')->name('us-fc-legacy-sync-fallback')->withoutOverlapping();
+Schedule::command('inventory:sync-fc')->dailyAt('03:10')->name('fc-legacy-sync-fallback')->withoutOverlapping();
 Schedule::command('sqs:process')->everyMinute()->withoutOverlapping();
 Schedule::command('ads:queue-reports')->dailyAt('04:40')->withoutOverlapping();
 Schedule::call(function () {

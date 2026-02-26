@@ -1,14 +1,37 @@
 <x-app-layout>
     <x-slot name="header">
         <h2 class="font-semibold text-xl text-gray-800 dark:text-gray-200 leading-tight">
-            {{ __('US FC Inventory') }}
+            {{ __('Global FC Inventory') }}
         </h2>
     </x-slot>
 
     <div class="py-6">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-4">
             <div class="bg-white dark:bg-gray-800 shadow-sm sm:rounded-lg p-4">
-                <form method="GET" action="{{ route('inventory.us_fc') }}" class="flex flex-wrap items-end gap-3">
+                @if (session('inventory_fc_status'))
+                    <div class="mb-3 rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800">
+                        {{ session('inventory_fc_status') }}
+                    </div>
+                @endif
+                @if (session('inventory_fc_error'))
+                    <div class="mb-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
+                        {{ session('inventory_fc_error') }}
+                    </div>
+                @endif
+
+                <div class="mb-4 flex flex-wrap items-end gap-3">
+                    <a href="{{ route('inventory.fc.locations.csv') }}" class="px-3 py-2 rounded-md border text-sm border-gray-300 bg-white text-gray-700">Download FC Locations CSV</a>
+                    <form method="POST" action="{{ route('inventory.fc.locations.upload') }}" enctype="multipart/form-data" class="flex flex-wrap items-end gap-2">
+                        @csrf
+                        <div>
+                            <label for="locations_csv" class="block text-sm font-medium mb-1">Upload Locations CSV</label>
+                            <input id="locations_csv" name="locations_csv" type="file" accept=".csv,text/csv" class="border rounded px-2 py-1 text-sm" required>
+                        </div>
+                        <button type="submit" class="px-3 py-2 rounded-md border text-sm border-gray-300 bg-white text-gray-700">Import</button>
+                    </form>
+                </div>
+
+                <form method="GET" action="{{ route('inventory.fc') }}" class="flex flex-wrap items-end gap-3">
                     <div>
                         <label for="q" class="block text-sm font-medium mb-1">Search</label>
                         <input id="q" name="q" value="{{ $search }}" class="border rounded px-2 py-1" placeholder="SKU / ASIN / FNSKU / FC / city / state">
@@ -31,7 +54,7 @@
                         <input id="asin" name="asin" value="{{ $asin ?? '' }}" class="border rounded px-2 py-1" placeholder="B0...">
                     </div>
                     <div>
-                        <label for="state" class="block text-sm font-medium mb-1">State</label>
+                        <label for="state" class="block text-sm font-medium mb-1">State / Region</label>
                         <input id="state" name="state" value="{{ $state }}" class="border rounded px-2 py-1" placeholder="TX">
                     </div>
                     <div>
@@ -49,7 +72,7 @@
                         </select>
                     </div>
                     <button type="submit" class="px-3 py-2 rounded-md border text-sm border-gray-300 bg-white text-gray-700">Apply</button>
-                    <a href="{{ route('inventory.us_fc') }}" class="px-3 py-2 rounded-md border text-sm border-gray-300 bg-white text-gray-700">Clear</a>
+                    <a href="{{ route('inventory.fc') }}" class="px-3 py-2 rounded-md border text-sm border-gray-300 bg-white text-gray-700">Clear</a>
                 </form>
                 <div class="mt-3 text-sm text-gray-700 dark:text-gray-200">
                     <strong>Snapshot Date:</strong> {{ $reportDate !== '' ? $reportDate : 'N/A' }}
@@ -66,13 +89,13 @@
                     foreach ($mapPoints as $p) {
                         $mapTotalQty += (int) ($p['qty'] ?? 0);
                     }
-                    $mapStateCount = count(array_unique(array_map(static fn ($p) => (string) ($p['state'] ?? ''), $mapPoints)));
+                    $mapStateCount = count(array_unique(array_map(static fn ($p) => (string) (($p['country_code'] ?? '') . '|' . ($p['state'] ?? '')), $mapPoints)));
                     $mapFcCount = count($mapPoints);
                 @endphp
                 <div class="mb-2 text-sm text-gray-700 dark:text-gray-200">
                     Total Qty: <strong>{{ number_format($mapTotalQty) }}</strong>
                     <span class="mx-2">|</span>
-                    States on page: <strong>{{ number_format($mapStateCount) }}</strong>
+                    Regions on page: <strong>{{ number_format($mapStateCount) }}</strong>
                     <span class="mx-2">|</span>
                     FCs on page: <strong>{{ number_format($mapFcCount) }}</strong>
                     <span class="mx-2">|</span>
@@ -93,9 +116,9 @@
             </div>
 
             <div class="bg-white dark:bg-gray-800 shadow-sm sm:rounded-lg p-4 overflow-x-auto">
-                <h3 class="font-semibold mb-2">Inventory Hierarchy (State → FC → Detail)</h3>
+                <h3 class="font-semibold mb-2">Inventory Hierarchy (Country/State → FC → Detail)</h3>
                 <div class="mb-2 text-sm text-gray-700 dark:text-gray-200">
-                    States on this page: <strong>{{ count($hierarchy ?? []) }}</strong>
+                    Groups on this page: <strong>{{ count($hierarchy ?? []) }}</strong>
                     <span class="mx-2">|</span>
                     Detail rows on this page: <strong>{{ count($rows) }}</strong>
                     <span class="mx-2">|</span>
@@ -108,6 +131,7 @@
                         <th class="text-left">FC ID</th>
                         <th class="text-left">City</th>
                         <th class="text-left">State</th>
+                        <th class="text-left">Country</th>
                         <th class="text-left">SKU</th>
                         <th class="text-left">ASIN</th>
                         <th class="text-left">FNSKU</th>
@@ -147,11 +171,12 @@
                         <tr class="bg-gray-100 dark:bg-gray-700">
                             <td>
                                 <button type="button" class="toggle-state font-mono text-xs px-2 py-1 border rounded" data-state-id="{{ $stateId }}" data-state-code="{{ $stateCode }}">+</button>
-                                <strong class="ml-2">State</strong>
+                                <strong class="ml-2">Group</strong>
                             </td>
                             <td></td>
                             <td></td>
-                            <td><strong>{{ $stateLabel }}</strong></td>
+                            <td><strong>{{ $stateNode['group_label'] ?? $stateLabel }}</strong></td>
+                            <td></td>
                             <td></td>
                             <td></td>
                             <td></td>
@@ -170,6 +195,7 @@
                                 <td><strong>{{ $fcNode['fc'] }}</strong></td>
                                 <td>{{ $fcNode['city'] }}</td>
                                 <td>{{ $fcNode['state'] }}</td>
+                                <td>{{ $fcNode['country'] ?? 'Unknown' }}</td>
                                 <td></td>
                                 <td></td>
                                 <td></td>
@@ -184,6 +210,7 @@
                                     <td>{{ $detailRow->fulfillment_center_id }}</td>
                                     <td>{{ $detailRow->fc_city ?? 'Unknown' }}</td>
                                     <td>{{ $detailRow->fc_state ?? 'Unknown' }}</td>
+                                    <td>{{ $detailRow->fc_country_code ?? 'Unknown' }}</td>
                                     <td>{{ $detailRow->seller_sku }}</td>
                                     <td>{{ $detailRow->asin }}</td>
                                     <td>{{ $detailRow->fnsku }}</td>
@@ -195,7 +222,7 @@
                             @endforeach
                         @endforeach
                     @empty
-                        <tr><td colspan="11">No US FC inventory rows found. Run <code>php artisan inventory:sync-us-fc</code>.</td></tr>
+                        <tr><td colspan="12">No FC inventory rows found. Run <code>php artisan inventory:sync-fc</code>.</td></tr>
                     @endforelse
                     </tbody>
                 </table>
@@ -266,7 +293,7 @@
         <script>
             (function () {
                 const points = @json($mapPoints);
-                console.log('[US FC MAP] points', points.length, points.slice(0, 5));
+                console.log('[FC MAP] points', points.length, points.slice(0, 5));
                 const selectedState = @json($state ?? '');
                 let stateLayer = null;
                 let usStatesGeoJson = null;
@@ -336,7 +363,7 @@
 
                     marker.bindPopup(
                         `<strong>${p.fc}</strong><br>` +
-                        `${p.city}, ${p.state}<br>` +
+                        `${p.city}, ${p.state}, ${p.country_code || ''}<br>` +
                         `Qty: ${qty.toLocaleString()}<br>` +
                         `Rows: ${Number(p.rows || 0).toLocaleString()}<br>` +
                         `Data Date: ${p.data_date || 'N/A'}` +
@@ -347,8 +374,8 @@
                     bounds.push([lat, lng]);
                 }
 
-                console.log('[US FC MAP] bounds count', bounds.length);
-                console.log('[US FC MAP] invalid points skipped', invalidPoints);
+                console.log('[FC MAP] bounds count', bounds.length);
+                console.log('[FC MAP] invalid points skipped', invalidPoints);
 
                 if (bounds.length > 1) {
                     map.fitBounds(bounds, { padding: [24, 24] });
@@ -401,7 +428,7 @@
                                 return nameNorm === stateNorm || nameNorm === codeNorm;
                             });
                             if (!feature) {
-                                console.warn('[US FC MAP] no boundary feature found for', code, stateName);
+                                console.warn('[FC MAP] no boundary feature found for', code, stateName);
                                 return;
                             }
                             if (stateLayer) {
@@ -421,7 +448,7 @@
                             }
                         })
                         .catch((err) => {
-                            console.warn('[US FC MAP] state boundary load failed', err);
+                            console.warn('[FC MAP] state boundary load failed', err);
                         });
                 };
 

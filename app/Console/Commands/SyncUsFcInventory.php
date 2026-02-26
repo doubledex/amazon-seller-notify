@@ -19,7 +19,7 @@ class SyncUsFcInventory extends Command
         {--start-date= : Start date (YYYY-MM-DD)}
         {--end-date= : End date (YYYY-MM-DD)}';
 
-    protected $description = 'Sync US FBA inventory by fulfillment center from SP-API report data.';
+    protected $description = 'Sync FBA inventory by fulfillment center from SP-API report data (legacy command name).';
 
     public function handle(UsFcInventorySyncService $service): int
     {
@@ -44,7 +44,7 @@ class SyncUsFcInventory extends Command
         );
 
         if (!($result['ok'] ?? false)) {
-            $this->error((string) ($result['message'] ?? 'US FC inventory sync failed.'));
+            $this->error((string) ($result['message'] ?? 'FC inventory sync failed.'));
             if (!empty($result['report_document_url_sha256'])) {
                 $this->line('Report document URL SHA-256: ' . (string) $result['report_document_url_sha256']);
             }
@@ -56,7 +56,7 @@ class SyncUsFcInventory extends Command
             return self::FAILURE;
         }
 
-        $this->info((string) ($result['message'] ?? 'US FC inventory sync complete.'));
+        $this->info((string) ($result['message'] ?? 'FC inventory sync complete.'));
         $this->line('Report ID: ' . (string) ($result['report_id'] ?? 'n/a'));
         if (!empty($result['report_type_used'])) {
             $this->line('Report type used: ' . (string) $result['report_type_used']);
@@ -71,6 +71,7 @@ class SyncUsFcInventory extends Command
         }
         $this->line('Rows upserted: ' . (int) ($result['rows'] ?? 0));
         $this->line('Rows parsed: ' . (int) ($result['rows_parsed'] ?? 0));
+        $this->line('Location rows upserted: ' . (int) ($result['location_rows_upserted'] ?? 0));
         $this->line('Rows missing FC ID: ' . (int) ($result['rows_missing_fc'] ?? 0));
         $this->line('Rows missing SKU/FNSKU: ' . (int) ($result['rows_missing_sku'] ?? 0));
 

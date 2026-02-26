@@ -127,9 +127,12 @@ Check logs:
 - `php artisan listings:sync-europe`
   - Why: refresh European listing/SKU/ASIN status data.
 
-### US FC Inventory
+### FC Inventory (Global)
+- `php artisan inventory:sync-fc --region=NA --marketplace=ATVPDKIKX0DER`
+  - Why: pull latest FBA inventory by fulfillment center into local tables for reporting.
+
 - `php artisan inventory:sync-us-fc --region=NA --marketplace=ATVPDKIKX0DER`
-  - Why: pull latest US FBA inventory by fulfillment center into local tables for reporting.
+  - Why: legacy command alias for compatibility.
 
 - `php artisan listings:queue-reports [--marketplace=...] [--report-type=...]`
   - Why: queue SP-API listings reports for persistent background processing.

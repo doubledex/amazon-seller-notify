@@ -16,8 +16,10 @@ class UsFcInventorySyncService
         'GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA',
         'GET_LEDGER_SUMMARY_VIEW_DATA',
     ];
-    public function __construct(private readonly SpApiReportLifecycleService $reportLifecycle)
-    {
+    public function __construct(
+        private readonly SpApiReportLifecycleService $reportLifecycle,
+        private readonly FcLocationRegistryService $fcLocationRegistry
+    ) {
     }
 
     public function sync(
@@ -75,7 +77,7 @@ class UsFcInventorySyncService
 
         return [
             'ok' => false,
-            'message' => 'US FC inventory sync failed before any report attempt.',
+            'message' => 'FC inventory sync failed before any report attempt.',
             'rows' => 0,
             'attempted_report_types' => array_values(array_unique($attempted)),
         ];
@@ -210,6 +212,7 @@ class UsFcInventorySyncService
         }
         $rows = is_array($downloadResult['rows'] ?? null) ? $downloadResult['rows'] : [];
         $documentUrlSha256 = $downloadResult['report_document_url_sha256'] ?? null;
+        $locationRowsUpserted = $this->fcLocationRegistry->ingestRows($rows, $marketplaceId);
 
         $parsedRowPreview = array_slice($rows, 0, 2);
         $upsertRows = [];
@@ -263,7 +266,7 @@ class UsFcInventorySyncService
             );
         }
 
-        Log::info('US FC inventory sync complete', [
+        Log::info('FC inventory sync complete', [
             'report_id' => $reportId,
             'report_type' => $reportType,
             'rows_parsed' => count($rows),
@@ -272,12 +275,13 @@ class UsFcInventorySyncService
 
         return [
             'ok' => true,
-            'message' => 'US FC inventory sync complete.',
+            'message' => 'FC inventory sync complete.',
             'report_id' => $reportId,
             'rows' => count($upsertRows),
             'rows_parsed' => count($rows),
             'rows_missing_fc' => $missingFcRows,
             'rows_missing_sku' => $missingSkuRows,
+            'location_rows_upserted' => $locationRowsUpserted,
             'sample_row_keys' => $sampleKeys,
             'parsed_row_preview' => $parsedRowPreview,
             'report_type' => $reportType,

@@ -11,6 +11,14 @@ class UsFcLocation extends Model
         'city',
         'state',
         'country_code',
+        'lat',
+        'lng',
+        'location_source',
         'label',
+    ];
+
+    protected $casts = [
+        'lat' => 'float',
+        'lng' => 'float',
     ];
 }

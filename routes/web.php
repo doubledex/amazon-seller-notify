@@ -56,6 +56,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/reports/jobs', [ReportJobsController::class, 'index'])->name('reports.jobs');
     Route::post('/reports/jobs/poll-now', [ReportJobsController::class, 'pollNow'])->name('reports.jobs.poll');
     Route::get('/reports/jobs/{id}/download-csv', [ReportJobsController::class, 'downloadCsv'])->name('reports.jobs.download_csv');
+    Route::get('/inventory/fc', [UsFcInventoryController::class, 'index'])->name('inventory.fc');
+    Route::get('/inventory/fc/locations.csv', [UsFcInventoryController::class, 'downloadLocationsCsv'])->name('inventory.fc.locations.csv');
+    Route::post('/inventory/fc/locations.csv', [UsFcInventoryController::class, 'uploadLocationsCsv'])->name('inventory.fc.locations.upload');
     Route::get('/inventory/us-fc', [UsFcInventoryController::class, 'index'])->name('inventory.us_fc');
     Route::get('/products', [ProductController::class, 'index'])->name('products.index');
     Route::post('/products', [ProductController::class, 'store'])->name('products.store');
