@@ -10,31 +10,50 @@ use SellingPartnerApi\SellingPartnerApi;
 class SyncMarketplaces extends Command
 {
     protected $signature = 'marketplaces:sync {--region= : Optional SP-API region (EU|NA|FE)}';
-    protected $description = 'Sync Amazon marketplace participation data from SP-API.';
+    protected $description = 'Sync Amazon marketplace participation data from SP-API (all configured regions by default).';
 
     public function handle(): int
     {
-        $region = (string) ($this->option('region') ?? '');
         $regionService = new RegionConfigService();
-        $regionConfig = $regionService->spApiConfig($region);
-        $endpoint = $regionService->spApiEndpointEnum($region);
+        $regionOption = strtoupper(trim((string) ($this->option('region') ?? '')));
+        $regions = $regionOption !== '' ? [$regionOption] : $regionService->spApiRegions();
 
-        $connector = SellingPartnerApi::seller(
-            clientId: (string) $regionConfig['client_id'],
-            clientSecret: (string) $regionConfig['client_secret'],
-            refreshToken: (string) $regionConfig['refresh_token'],
-            endpoint: $endpoint
-        );
+        $validRegions = ['EU', 'NA', 'FE'];
+        $regions = array_values(array_filter(
+            $regions,
+            static fn (string $region): bool => in_array(strtoupper(trim($region)), $validRegions, true)
+        ));
 
         $service = new MarketplaceService();
-        $marketplaces = $service->syncFromApi($connector);
+        $succeededRegions = [];
 
-        if ($marketplaces->isEmpty()) {
-            $this->warn('Marketplace sync returned no results.');
+        foreach ($regions as $region) {
+            $region = strtoupper(trim($region));
+            $regionConfig = $regionService->spApiConfig($region);
+            $endpoint = $regionService->spApiEndpointEnum($region);
+
+            $connector = SellingPartnerApi::seller(
+                clientId: (string) $regionConfig['client_id'],
+                clientSecret: (string) $regionConfig['client_secret'],
+                refreshToken: (string) $regionConfig['refresh_token'],
+                endpoint: $endpoint
+            );
+
+            $marketplaces = $service->syncFromApi($connector);
+            if ($marketplaces->isEmpty()) {
+                $this->warn("[{$region}] Marketplace sync returned no results.");
+                continue;
+            }
+
+            $succeededRegions[] = $region;
+            $this->info("[{$region}] Marketplace sync completed.");
+        }
+
+        if (empty($succeededRegions)) {
             return Command::FAILURE;
         }
 
-        $this->info('Marketplace sync completed: ' . $marketplaces->count() . ' marketplaces.');
+        $this->info('Marketplace sync completed for region(s): ' . implode(', ', $succeededRegions) . '.');
         return Command::SUCCESS;
     }
 }
