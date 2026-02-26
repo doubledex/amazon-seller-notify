@@ -249,6 +249,16 @@
 
     <script>
         (function () {
+            const regionSelect = document.getElementById('region');
+            const reportDateInput = document.getElementById('report_date');
+            if (regionSelect && reportDateInput) {
+                regionSelect.addEventListener('change', () => {
+                    if (String(regionSelect.value || '').trim() === '') {
+                        reportDateInput.value = '';
+                    }
+                });
+            }
+
             const hideAllForState = (stateId) => {
                 document.querySelectorAll(`.fc-row[data-state-parent="${stateId}"]`).forEach((row) => {
                     row.classList.add('hidden');
