@@ -454,7 +454,13 @@
             @foreach ($orders as $order)
                 @php
                     $marketplaceId = $order['MarketplaceId'] ?? null;
-                    $marketplaceName = $marketplaceId ? (($marketplaces[$marketplaceId]['name'] ?? '') ?: 'Unknown') : 'N/A';
+                    $marketplaceName = $marketplaceId ? trim((string) (($marketplaces[$marketplaceId]['name'] ?? '') ?: '')) : '';
+                    $marketplaceCountryCode = $marketplaceId
+                        ? strtoupper(trim((string) (($marketplaces[$marketplaceId]['countryCode'] ?? $marketplaces[$marketplaceId]['country'] ?? ''))))
+                        : '';
+                    $marketplaceFlagUrl = strlen($marketplaceCountryCode) === 2
+                        ? 'https://flagcdn.com/24x18/' . strtolower($marketplaceCountryCode) . '.png'
+                        : null;
                     $purchaseLocal = $order['PurchaseDateLocal'] ?? null;
                     $purchaseUtc = $order['PurchaseDate'] ?? null;
                     $purchaseSource = $purchaseLocal ?: $purchaseUtc;
@@ -537,7 +543,12 @@
                     <td>{{ $order['ShippingAddress']['CountryCode'] ?? '' }}</td>
                     <td>
                         @if($marketplaceId)
-                            {{ $marketplaceId }} — {{ $marketplaceName }}
+                            <div class="inline-flex items-center gap-2">
+                                @if($marketplaceFlagUrl)
+                                    <img src="{{ $marketplaceFlagUrl }}" alt="{{ $marketplaceCountryCode }} flag" class="w-5 h-3 rounded-sm" loading="lazy" onerror="this.style.display='none'">
+                                @endif
+                                <span>{{ $marketplaceName !== '' ? $marketplaceName : $marketplaceId }}</span>
+                            </div>
                         @else
                             N/A
                         @endif

@@ -25,10 +25,24 @@
                     </thead>
                     <tbody>
                         @foreach($rows as $marketplace)
+                            @php
+                                $countryCode = strtoupper(trim((string) ($marketplace['countryCode'] ?? '')));
+                                $marketplaceName = trim((string) ($marketplace['name'] ?? ''));
+                                $flagUrl = strlen($countryCode) === 2
+                                    ? 'https://flagcdn.com/24x18/' . strtolower($countryCode) . '.png'
+                                    : null;
+                            @endphp
                             <tr>
                                 <td><code>{{ $marketplace['id'] }}</code></td>
-                                <td><strong>{{ $marketplace['countryCode'] }}</strong></td>
-                                <td>{{ $marketplace['name'] }}</td>
+                                <td><strong>{{ $countryCode }}</strong></td>
+                                <td>
+                                    <div class="inline-flex items-center gap-2">
+                                        @if($flagUrl)
+                                            <img src="{{ $flagUrl }}" alt="{{ $countryCode }} flag" class="w-5 h-3 rounded-sm" loading="lazy" onerror="this.style.display='none'">
+                                        @endif
+                                        <span>{{ $marketplaceName !== '' ? $marketplaceName : $marketplace['id'] }}</span>
+                                    </div>
+                                </td>
                                 <td>{{ $marketplace['defaultCurrency'] }}</td>
                                 <td>{{ $marketplace['defaultLanguage'] }}</td>
                                 <td>
