@@ -227,9 +227,9 @@ class UsFcInventoryController extends Controller
                 DB::raw('coalesce(loc.state, "Unknown")'),
                 DB::raw('coalesce(loc.country_code, upper(mp.country_code), "Unknown")')
             )
-            ->orderByRaw('coalesce(loc.country_code, upper(mp.country_code), "ZZ") asc')
-            ->orderByRaw('coalesce(loc.state, "ZZ") asc')
-            ->orderByRaw('coalesce(loc.city, "ZZZZZZ") asc')
+            ->orderByRaw('coalesce(max(loc.country_code), max(upper(mp.country_code)), "ZZ") asc')
+            ->orderByRaw('coalesce(max(loc.state), "ZZ") asc')
+            ->orderByRaw('coalesce(max(loc.city), "ZZZZZZ") asc')
             ->orderBy('us_fc_inventories.fulfillment_center_id')
             ->get();
 
