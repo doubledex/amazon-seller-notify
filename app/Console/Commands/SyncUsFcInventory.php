@@ -15,6 +15,8 @@ class SyncUsFcInventory extends Command
         {--max-attempts=30}
         {--sleep-seconds=5}
         {--debug-json : Print raw SP-API reply payloads}
+        {--dump-rows : Save parsed report rows to storage/app/fc-report-dumps}
+        {--dump-limit=5000 : Maximum rows to dump when --dump-rows is enabled}
         {--yesterday : Use yesterday in app timezone}
         {--start-date= : Start date (YYYY-MM-DD)}
         {--end-date= : End date (YYYY-MM-DD)}';
@@ -41,6 +43,8 @@ class SyncUsFcInventory extends Command
             $startDate !== '' ? $startDate : null,
             $endDate !== '' ? $endDate : null,
             (bool) $this->option('debug-json'),
+            (bool) $this->option('dump-rows'),
+            (int) $this->option('dump-limit'),
         );
 
         if (!($result['ok'] ?? false)) {
@@ -72,6 +76,9 @@ class SyncUsFcInventory extends Command
         $this->line('Rows upserted: ' . (int) ($result['rows'] ?? 0));
         $this->line('Rows parsed: ' . (int) ($result['rows_parsed'] ?? 0));
         $this->line('Location rows upserted: ' . (int) ($result['location_rows_upserted'] ?? 0));
+        if (!empty($result['dump_file'])) {
+            $this->line('Report rows dump file: ' . (string) $result['dump_file']);
+        }
         $this->line('Rows missing FC ID: ' . (int) ($result['rows_missing_fc'] ?? 0));
         $this->line('Rows missing SKU/FNSKU: ' . (int) ($result['rows_missing_sku'] ?? 0));
 

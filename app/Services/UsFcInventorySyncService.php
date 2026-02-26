@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\UsFcInventory;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use SellingPartnerApi\Seller\ReportsV20210630\Dto\CreateReportSpecification;
 use SellingPartnerApi\SellingPartnerApi;
 
@@ -30,7 +31,9 @@ class UsFcInventorySyncService
         int $sleepSeconds = 5,
         ?string $startDate = null,
         ?string $endDate = null,
-        bool $debugJson = false
+        bool $debugJson = false,
+        bool $dumpRows = false,
+        int $dumpLimit = 5000
     ): array {
         $reportType = strtoupper(trim($reportType));
         if ($reportType === '') {
@@ -55,7 +58,9 @@ class UsFcInventorySyncService
                 $sleepSeconds,
                 $dataStartTime,
                 $dataEndTime,
-                $debugJson
+                $debugJson,
+                $dumpRows,
+                $dumpLimit
             );
             $result['attempted_report_types'] = array_values(array_unique([...$attempted, $candidateType]));
             $last = $result;
@@ -91,7 +96,9 @@ class UsFcInventorySyncService
         int $sleepSeconds,
         ?\DateTimeInterface $dataStartTime = null,
         ?\DateTimeInterface $dataEndTime = null,
-        bool $debugJson = false
+        bool $debugJson = false,
+        bool $dumpRows = false,
+        int $dumpLimit = 5000
     ): array {
         $debugPayload = [
             'create_report' => null,
@@ -216,6 +223,9 @@ class UsFcInventorySyncService
         $latestRowDate = strtoupper(trim($reportType)) === 'GET_LEDGER_SUMMARY_VIEW_DATA'
             ? $this->latestRowDate($rows)
             : null;
+        $dumpFile = $dumpRows
+            ? $this->dumpRowsToFile($rows, $reportId, $reportType, $marketplaceId, $dumpLimit)
+            : null;
 
         $parsedRowPreview = array_slice($rows, 0, 2);
         $upsertRows = [];
@@ -300,7 +310,44 @@ class UsFcInventorySyncService
             'report_date' => $reportDate,
             'debug_payload' => $debugJson ? $debugPayload : null,
             'report_document_url_sha256' => $documentUrlSha256,
+            'dump_file' => $dumpFile,
         ];
+    }
+
+    private function dumpRowsToFile(array $rows, string $reportId, string $reportType, string $marketplaceId, int $dumpLimit): ?string
+    {
+        try {
+            $dumpLimit = max(1, min($dumpLimit, 50000));
+            $trimmedRows = array_slice($rows, 0, $dumpLimit);
+            $payload = [
+                'generated_at' => now()->toIso8601String(),
+                'report_id' => $reportId,
+                'report_type' => $reportType,
+                'marketplace_id' => $marketplaceId,
+                'rows_total' => count($rows),
+                'rows_dumped' => count($trimmedRows),
+                'truncated' => count($rows) > count($trimmedRows),
+                'rows' => $trimmedRows,
+            ];
+
+            $fileName = sprintf(
+                'fc-report-dumps/%s-%s-%s.json',
+                now()->format('Ymd-His'),
+                preg_replace('/[^A-Za-z0-9_-]/', '', $marketplaceId) ?: 'marketplace',
+                preg_replace('/[^A-Za-z0-9_-]/', '', $reportId) ?: 'report'
+            );
+            Storage::disk('local')->put($fileName, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+            return 'storage/app/' . $fileName;
+        } catch (\Throwable $e) {
+            Log::warning('Unable to write FC report dump file', [
+                'report_id' => $reportId,
+                'marketplace_id' => $marketplaceId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
     }
 
     private function makeConnector(string $region): SellingPartnerApi
