@@ -336,12 +336,32 @@ class UsFcInventoryController extends Controller
 
     public function downloadLocationsCsv()
     {
-        $rows = UsFcLocation::query()
-            ->orderBy('country_code')
-            ->orderBy('state')
-            ->orderBy('city')
-            ->orderBy('fulfillment_center_id')
-            ->get(['fulfillment_center_id', 'city', 'state', 'country_code', 'lat', 'lng', 'label', 'location_source', 'updated_at']);
+        $inventoryFcSubquery = UsFcInventory::query()
+            ->select('fulfillment_center_id')
+            ->whereNotNull('fulfillment_center_id')
+            ->whereRaw('trim(fulfillment_center_id) <> ""')
+            ->distinct();
+
+        $rows = DB::query()
+            ->fromSub($inventoryFcSubquery, 'inv_fc')
+            ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'inv_fc.fulfillment_center_id')
+            ->leftJoin('us_fc_inventories as inv', 'inv.fulfillment_center_id', '=', 'inv_fc.fulfillment_center_id')
+            ->leftJoin('marketplaces as mp', 'mp.id', '=', 'inv.marketplace_id')
+            ->selectRaw('inv_fc.fulfillment_center_id as fulfillment_center_id')
+            ->selectRaw('coalesce(max(loc.city), "") as city')
+            ->selectRaw('coalesce(max(loc.state), "") as state')
+            ->selectRaw('coalesce(max(loc.country_code), max(upper(mp.country_code)), "") as country_code')
+            ->selectRaw('max(loc.lat) as lat')
+            ->selectRaw('max(loc.lng) as lng')
+            ->selectRaw('coalesce(max(loc.label), "") as label')
+            ->selectRaw('coalesce(max(loc.location_source), "") as location_source')
+            ->selectRaw('max(loc.updated_at) as updated_at')
+            ->groupBy('inv_fc.fulfillment_center_id')
+            ->orderByRaw('coalesce(max(loc.country_code), max(upper(mp.country_code)), "ZZ") asc')
+            ->orderByRaw('coalesce(max(loc.state), "ZZ") asc')
+            ->orderByRaw('coalesce(max(loc.city), "ZZZZZZ") asc')
+            ->orderBy('inv_fc.fulfillment_center_id')
+            ->get();
 
         $filename = 'fc-locations-' . now()->format('Ymd-His') . '.csv';
 
