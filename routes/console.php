@@ -16,6 +16,7 @@ Schedule::command('map:geocode-missing-cities --limit=250 --older-than-days=14')
 Schedule::command('orders:sync --days=1 --max-pages=3 --items-limit=20 --address-limit=20')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('orders:refresh-estimates --days=14 --limit=300 --max-lookups=80 --stale-minutes=180')->everyThirtyMinutes()->withoutOverlapping();
 Schedule::command('orders:refresh-fee-estimates --days=14 --limit=300 --max-lookups=120 --stale-minutes=360')->hourly()->withoutOverlapping();
+Schedule::command('fees:sync-v2 --days=2')->hourly()->name('fees-sync-v2-hourly')->withoutOverlapping();
 Schedule::command('orders:sync --days=30 --max-pages=20 --items-limit=300 --address-limit=300')->dailyAt('03:50')->withoutOverlapping();
 Schedule::command('reports:queue --processor=us_fc_inventory --region=NA --marketplace=ATVPDKIKX0DER --report-type=GET_LEDGER_SUMMARY_VIEW_DATA')
     ->dailyAt('00:05')
