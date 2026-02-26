@@ -11,7 +11,7 @@ class SyncUsFcInventory extends Command
     protected $signature = 'inventory:sync-us-fc
         {--region=NA}
         {--marketplace=ATVPDKIKX0DER}
-        {--report-type=GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA}
+        {--report-type=GET_LEDGER_SUMMARY_VIEW_DATA}
         {--max-attempts=30}
         {--sleep-seconds=5}
         {--debug-json : Print raw SP-API reply payloads}

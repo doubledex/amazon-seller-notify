@@ -11,12 +11,8 @@ use SellingPartnerApi\SellingPartnerApi;
 
 class UsFcInventorySyncService
 {
-    public const DEFAULT_REPORT_TYPE = 'GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA';
+    public const DEFAULT_REPORT_TYPE = 'GET_LEDGER_SUMMARY_VIEW_DATA';
     public const DEFAULT_US_MARKETPLACE_ID = 'ATVPDKIKX0DER';
-    private const FALLBACK_REPORT_TYPES = [
-        'GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA',
-        'GET_LEDGER_SUMMARY_VIEW_DATA',
-    ];
     public function __construct(
         private readonly SpApiReportLifecycleService $reportLifecycle,
         private readonly FcLocationRegistryService $fcLocationRegistry
@@ -46,48 +42,25 @@ class UsFcInventorySyncService
 
         $connector = $this->makeConnector($region);
         $reportsApi = $connector->reportsV20210630();
-        $reportTypes = $this->resolveReportTypes($reportType);
-
-        $attempted = [];
-        $last = null;
-        foreach ($reportTypes as $candidateType) {
-            $result = $this->syncSingleReportType(
-                $reportsApi,
-                $marketplaceId,
-                $candidateType,
-                $maxAttempts,
-                $sleepSeconds,
-                $dataStartTime,
-                $dataEndTime,
-                $debugJson,
-                $dumpRows,
-                $dumpLimit,
-                $dumpCsv
-            );
-            $result['attempted_report_types'] = array_values(array_unique([...$attempted, $candidateType]));
-            $last = $result;
-            $attempted[] = $candidateType;
-
-            if (($result['ok'] ?? false) && (int) ($result['rows'] ?? 0) > 0) {
-                $result['report_type_used'] = $candidateType;
-                return $result;
-            }
+        $result = $this->syncSingleReportType(
+            $reportsApi,
+            $marketplaceId,
+            $reportType,
+            $maxAttempts,
+            $sleepSeconds,
+            $dataStartTime,
+            $dataEndTime,
+            $debugJson,
+            $dumpRows,
+            $dumpLimit,
+            $dumpCsv
+        );
+        $result['attempted_report_types'] = [$reportType];
+        if (($result['ok'] ?? false) && (int) ($result['rows'] ?? 0) > 0) {
+            $result['report_type_used'] = $reportType;
         }
 
-        if (is_array($last)) {
-            $last['attempted_report_types'] = array_values(array_unique($attempted));
-            $last['message'] = trim((string) ($last['message'] ?? '')) !== ''
-                ? (string) $last['message']
-                : 'No inventory rows returned from any report type attempted.';
-            return $last;
-        }
-
-        return [
-            'ok' => false,
-            'message' => 'FC inventory sync failed before any report attempt.',
-            'rows' => 0,
-            'attempted_report_types' => array_values(array_unique($attempted)),
-        ];
+        return $result;
     }
 
     private function syncSingleReportType(
@@ -535,21 +508,6 @@ class UsFcInventorySyncService
         }
 
         return 0;
-    }
-
-    private function resolveReportTypes(string $reportType): array
-    {
-        $requested = strtoupper(trim($reportType));
-
-        if ($requested === '' || $requested === 'AUTO') {
-            return self::FALLBACK_REPORT_TYPES;
-        }
-
-        if ($requested === self::DEFAULT_REPORT_TYPE) {
-            return array_values(array_unique([$requested, ...self::FALLBACK_REPORT_TYPES]));
-        }
-
-        return [$requested];
     }
 
     private function latestRowDate(array $rows): ?string
