@@ -53,6 +53,32 @@ class UsFcInventoryController extends Controller
         $reportDate = $requestedReportDate !== ''
             ? $requestedReportDate
             : ($defaultReportDate ?? $latestReportDate ?? '');
+        if ($requestedReportDate !== '') {
+            $requestedDateHasRows = UsFcInventory::query()
+                ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
+                ->leftJoin('marketplaces as mp', 'mp.id', '=', 'us_fc_inventories.marketplace_id')
+                ->when($q !== '', function ($query) use ($q) {
+                    $query->where(function ($w) use ($q) {
+                        $w->where('us_fc_inventories.seller_sku', 'like', '%' . $q . '%')
+                            ->orWhere('us_fc_inventories.asin', 'like', '%' . $q . '%')
+                            ->orWhere('us_fc_inventories.fnsku', 'like', '%' . $q . '%')
+                            ->orWhere('us_fc_inventories.fulfillment_center_id', 'like', '%' . $q . '%')
+                            ->orWhere('loc.city', 'like', '%' . $q . '%')
+                            ->orWhere('loc.state', 'like', '%' . $q . '%')
+                            ->orWhere('loc.country_code', 'like', '%' . $q . '%');
+                    });
+                })
+                ->when(!empty($skuSelection), fn ($query) => $query->whereIn('us_fc_inventories.seller_sku', $skuSelection))
+                ->when($asin !== '', fn ($query) => $query->where('us_fc_inventories.asin', 'like', '%' . $asin . '%'))
+                ->when($regionFilter !== '', fn ($query) => $this->applyRegionFilter($query, $regionFilter))
+                ->when($stateFilter !== '', fn ($query) => $query->whereRaw('upper(coalesce(loc.state, "")) = ?', [$stateFilter]))
+                ->whereDate('us_fc_inventories.report_date', '=', $requestedReportDate)
+                ->exists();
+
+            if (!$requestedDateHasRows) {
+                $reportDate = $defaultReportDate ?? $latestReportDate ?? '';
+            }
+        }
 
         $query = UsFcInventory::query()
             ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
