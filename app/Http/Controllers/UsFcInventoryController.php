@@ -537,7 +537,7 @@ class UsFcInventoryController extends Controller
 
     private function applyRegionFilter(object $query, string $region): void
     {
-        $countryColumn = DB::raw('upper(coalesce(mp.country_code, ""))');
+        $countryColumn = DB::raw('upper(coalesce(loc.country_code, mp.country_code, ""))');
         $marketplaceColumn = 'us_fc_inventories.marketplace_id';
 
         $ukMarketplaceIds = [
