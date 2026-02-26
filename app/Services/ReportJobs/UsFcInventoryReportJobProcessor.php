@@ -158,22 +158,15 @@ class UsFcInventoryReportJobProcessor implements ReportJobProcessor
 
         $fc = $this->pickValidFc($flat);
 
-        $sku = $this->pick($flat, ['seller-sku', 'seller_sku', 'sku', 'merchant-sku', 'merchant_sku', 'merchant sku', 'msku']);
+        $sku = $this->pick($flat, ['msku', 'seller-sku', 'seller_sku', 'sku', 'merchant-sku', 'merchant_sku', 'merchant sku']);
         $asin = $this->pick($flat, ['asin']);
         $fnsku = $this->pick($flat, ['fnsku']);
-        $condition = $this->pick($flat, ['condition', 'item-condition', 'item_condition', 'disposition']);
+        $condition = $this->pick($flat, ['disposition', 'condition', 'item-condition', 'item_condition']);
         $qtyRaw = $this->pick($flat, [
             'ending warehouse balance',
             'ending_warehouse_balance',
             'ending-warehouse-balance',
-            'ending balance',
-            'ending_balance',
-            'ending-balance',
-            'closing balance',
-            'closing_balance',
-            'closing-balance',
-            'warehouse balance',
-            'warehouse_balance',
+            'endingwarehousebalance',
         ]);
         $qty = $this->parseQuantity($qtyRaw);
 
@@ -190,10 +183,10 @@ class UsFcInventoryReportJobProcessor implements ReportJobProcessor
     private function pickValidFc(array $flat): string
     {
         $priorityGroups = [
+            ['location', 'location-id', 'location_id', 'location id', 'locationid'],
             ['fulfillment-center-id', 'fulfillment_center_id', 'fulfillment center id', 'fulfillmentcenterid'],
             ['fulfillment center', 'fulfillment-center', 'fulfillment_center'],
             ['warehouse-id', 'warehouse_id', 'warehouse id', 'warehouseid'],
-            ['location-id', 'location_id', 'location id', 'locationid', 'location'],
             ['store', 'fc'],
         ];
 

@@ -246,7 +246,8 @@ class UsFcInventorySyncService
                     continue;
                 }
             }
-            $normalized = $this->normalizeRow($row, strtoupper(trim($reportType)) === 'GET_LEDGER_SUMMARY_VIEW_DATA');
+            $isLedger = strtoupper(trim($reportType)) === 'GET_LEDGER_SUMMARY_VIEW_DATA';
+            $normalized = $this->normalizeRow($row, $isLedger);
             $fc = $normalized['fulfillment_center_id'];
             $sku = $normalized['seller_sku'];
             $fnsku = $normalized['fnsku'];
@@ -407,40 +408,34 @@ class UsFcInventorySyncService
             $flat[strtolower(trim((string) $key))] = is_scalar($value) || $value === null ? (string) ($value ?? '') : '';
         }
 
-        $fc = $this->pick($flat, ['fulfillment-center-id', 'fulfillment_center_id', 'fulfillment center id', 'fulfillmentcenterid']);
+        $fc = $ledgerMode
+            ? $this->pick($flat, ['location', 'location-id', 'location_id', 'location id', 'locationid', 'fulfillment-center-id', 'fulfillment_center_id'])
+            : $this->pick($flat, ['fulfillment-center-id', 'fulfillment_center_id', 'fulfillment center id', 'fulfillmentcenterid']);
         if ($fc === '') {
             $fc = $this->pick($flat, [
                 'warehouse-id',
                 'warehouse_id',
                 'warehouse id',
                 'warehouseid',
-                'location-id',
-                'location_id',
-                'location id',
-                'locationid',
-                'location',
                 'store',
                 'fc',
             ]);
         }
 
-        $sku = $this->pick($flat, ['seller-sku', 'seller_sku', 'sku', 'merchant-sku', 'merchant_sku', 'merchant sku', 'msku']);
+        $sku = $ledgerMode
+            ? $this->pick($flat, ['msku', 'seller-sku', 'seller_sku', 'sku', 'merchant-sku', 'merchant_sku', 'merchant sku'])
+            : $this->pick($flat, ['seller-sku', 'seller_sku', 'sku', 'merchant-sku', 'merchant_sku', 'merchant sku', 'msku']);
         $asin = $this->pick($flat, ['asin']);
         $fnsku = $this->pick($flat, ['fnsku', 'fnsku']);
-        $condition = $this->pick($flat, ['condition', 'item-condition', 'item_condition']);
+        $condition = $ledgerMode
+            ? $this->pick($flat, ['disposition', 'condition', 'item-condition', 'item_condition'])
+            : $this->pick($flat, ['condition', 'item-condition', 'item_condition']);
         $qtyRaw = $this->pick($flat, $ledgerMode
             ? [
                 'ending warehouse balance',
                 'ending_warehouse_balance',
                 'ending-warehouse-balance',
-                'ending balance',
-                'ending_balance',
-                'ending-balance',
-                'closing balance',
-                'closing_balance',
-                'closing-balance',
-                'warehouse balance',
-                'warehouse_balance',
+                'endingwarehousebalance',
             ]
             : [
                 'quantity',
