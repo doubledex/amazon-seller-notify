@@ -233,14 +233,18 @@ class UsFcInventoryController extends Controller
 
         $fcMapPoints = [];
         $stateCentroids = $this->usStateCentroids();
+        $knownFcCoordinates = $this->knownFcCoordinates();
         foreach ($fcSummary as $row) {
             $fc = (string) $row->fc;
+            $fcCode = strtoupper(trim($fc));
             $hash = $hashByFc[$fc] ?? null;
             $lat = null;
             $lng = null;
             $isApproximate = false;
 
-            if ($hash && isset($geoByHash[$hash])) {
+            if (isset($knownFcCoordinates[$fcCode])) {
+                [$lat, $lng] = $knownFcCoordinates[$fcCode];
+            } elseif ($hash && isset($geoByHash[$hash])) {
                 $geo = $geoByHash[$hash];
                 $lat = (float) $geo->lat;
                 $lng = (float) $geo->lng;
@@ -330,5 +334,23 @@ class UsFcInventoryController extends Controller
         $lng = max(-180.0, min(180.0, (float) $baseLng + $lngOffset));
 
         return [$lat, $lng];
+    }
+
+    private function knownFcCoordinates(): array
+    {
+        return [
+            'BFI4' => [47.4141, -122.2613],
+            'BHM1' => [33.3758, -87.0100],
+            'DAB2' => [41.7061, -93.4687],
+            'DEN4' => [38.7739, -104.7181],
+            'FWA4' => [40.9948, -85.2178],
+            'JAN1' => [32.5539, -90.0264],
+            'JAX2' => [30.4654, -81.6825],
+            'LAS2' => [36.2300, -115.1051],
+            'LBE1' => [40.2283, -79.6284],
+            'OMA2' => [41.1390, -96.0465],
+            'RMN3' => [38.3923, -77.4662],
+            'SBD1' => [34.0537, -117.3879],
+        ];
     }
 }
