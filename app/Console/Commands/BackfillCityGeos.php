@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
 
 class BackfillCityGeos extends Command
 {
-    protected $signature = 'map:geocode-missing-cities {--limit=250} {--older-than-days=14} {--statuses=Shipped,Canceled,Unfulfillable}';
+    protected $signature = 'map:geocode-missing-cities {--limit=250} {--older-than-days=14} {--statuses=Shipped,Canceled,Unfulfillable} {--show-failures=20}';
     protected $description = 'Backfill persistent city geocodes for older, stable orders missing postal geocodes.';
 
     public function handle(): int
@@ -83,6 +83,7 @@ class BackfillCityGeos extends Command
         $created = 0;
         $skippedExisting = 0;
         $failed = 0;
+        $failedEntries = [];
 
         foreach ($entries as $hash => $entry) {
             if (isset($existing[$hash])) {
@@ -99,6 +100,7 @@ class BackfillCityGeos extends Command
 
             if (!$result) {
                 $failed++;
+                $failedEntries[] = $entry;
                 continue;
             }
 
@@ -118,6 +120,22 @@ class BackfillCityGeos extends Command
         }
 
         $this->info("City geocode backfill complete. created={$created} failed={$failed} skipped_existing={$skippedExisting} attempted={$processed}");
+        $this->line('Eligible city groups: ' . count($entries));
+        $this->line("Existing city geocodes in-scope: {$skippedExisting}");
+
+        $showFailures = max(0, min((int) $this->option('show-failures'), 200));
+        if ($failed > 0 && $showFailures > 0) {
+            $this->warn("Failed city lookups (showing up to {$showFailures}):");
+            foreach (array_slice($failedEntries, 0, $showFailures) as $entry) {
+                $region = trim((string) ($entry['region'] ?? ''));
+                $this->line(
+                    '- ' . $entry['country']
+                    . ' | ' . $entry['city']
+                    . ($region !== '' ? " | {$region}" : ' | (no region)')
+                );
+            }
+        }
+
         return Command::SUCCESS;
     }
 }
