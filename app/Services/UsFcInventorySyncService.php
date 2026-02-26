@@ -33,7 +33,8 @@ class UsFcInventorySyncService
         ?string $endDate = null,
         bool $debugJson = false,
         bool $dumpRows = false,
-        int $dumpLimit = 5000
+        int $dumpLimit = 5000,
+        bool $dumpCsv = false
     ): array {
         $reportType = strtoupper(trim($reportType));
         if ($reportType === '') {
@@ -60,7 +61,8 @@ class UsFcInventorySyncService
                 $dataEndTime,
                 $debugJson,
                 $dumpRows,
-                $dumpLimit
+                $dumpLimit,
+                $dumpCsv
             );
             $result['attempted_report_types'] = array_values(array_unique([...$attempted, $candidateType]));
             $last = $result;
@@ -98,7 +100,8 @@ class UsFcInventorySyncService
         ?\DateTimeInterface $dataEndTime = null,
         bool $debugJson = false,
         bool $dumpRows = false,
-        int $dumpLimit = 5000
+        int $dumpLimit = 5000,
+        bool $dumpCsv = false
     ): array {
         $debugPayload = [
             'create_report' => null,
@@ -224,7 +227,7 @@ class UsFcInventorySyncService
             ? $this->latestRowDate($rows)
             : null;
         $dumpFile = $dumpRows
-            ? $this->dumpRowsToFile($rows, $reportId, $reportType, $marketplaceId, $dumpLimit)
+            ? $this->dumpRowsToFile($rows, $reportId, $reportType, $marketplaceId, $dumpLimit, $dumpCsv)
             : null;
 
         $parsedRowPreview = array_slice($rows, 0, 2);
@@ -314,29 +317,63 @@ class UsFcInventorySyncService
         ];
     }
 
-    private function dumpRowsToFile(array $rows, string $reportId, string $reportType, string $marketplaceId, int $dumpLimit): ?string
+    private function dumpRowsToFile(array $rows, string $reportId, string $reportType, string $marketplaceId, int $dumpLimit, bool $dumpCsv): ?string
     {
         try {
             $dumpLimit = max(1, min($dumpLimit, 50000));
             $trimmedRows = array_slice($rows, 0, $dumpLimit);
-            $payload = [
-                'generated_at' => now()->toIso8601String(),
-                'report_id' => $reportId,
-                'report_type' => $reportType,
-                'marketplace_id' => $marketplaceId,
-                'rows_total' => count($rows),
-                'rows_dumped' => count($trimmedRows),
-                'truncated' => count($rows) > count($trimmedRows),
-                'rows' => $trimmedRows,
-            ];
-
             $fileName = sprintf(
-                'fc-report-dumps/%s-%s-%s.json',
+                'fc-report-dumps/%s-%s-%s.%s',
                 now()->format('Ymd-His'),
                 preg_replace('/[^A-Za-z0-9_-]/', '', $marketplaceId) ?: 'marketplace',
-                preg_replace('/[^A-Za-z0-9_-]/', '', $reportId) ?: 'report'
+                preg_replace('/[^A-Za-z0-9_-]/', '', $reportId) ?: 'report',
+                $dumpCsv ? 'csv' : 'json'
             );
-            Storage::disk('local')->put($fileName, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            if ($dumpCsv) {
+                $headers = [];
+                foreach ($trimmedRows as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
+                    foreach (array_keys($row) as $key) {
+                        $key = (string) $key;
+                        if (!in_array($key, $headers, true)) {
+                            $headers[] = $key;
+                        }
+                    }
+                }
+                $stream = fopen('php://temp', 'w+');
+                if ($stream === false) {
+                    return null;
+                }
+                fputcsv($stream, $headers);
+                foreach ($trimmedRows as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
+                    $line = [];
+                    foreach ($headers as $header) {
+                        $line[] = (string) ($row[$header] ?? '');
+                    }
+                    fputcsv($stream, $line);
+                }
+                rewind($stream);
+                $csv = stream_get_contents($stream);
+                fclose($stream);
+                Storage::disk('local')->put($fileName, $csv !== false ? $csv : '');
+            } else {
+                $payload = [
+                    'generated_at' => now()->toIso8601String(),
+                    'report_id' => $reportId,
+                    'report_type' => $reportType,
+                    'marketplace_id' => $marketplaceId,
+                    'rows_total' => count($rows),
+                    'rows_dumped' => count($trimmedRows),
+                    'truncated' => count($rows) > count($trimmedRows),
+                    'rows' => $trimmedRows,
+                ];
+                Storage::disk('local')->put($fileName, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            }
 
             return 'storage/app/' . $fileName;
         } catch (\Throwable $e) {

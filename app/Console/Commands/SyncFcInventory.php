@@ -16,6 +16,7 @@ class SyncFcInventory extends Command
         {--sleep-seconds=5}
         {--debug-json : Print raw SP-API reply payloads}
         {--dump-rows : Save parsed report rows to storage/app/fc-report-dumps}
+        {--dump-csv : With --dump-rows, write CSV instead of JSON}
         {--dump-limit=5000 : Maximum rows to dump when --dump-rows is enabled}
         {--yesterday : Use yesterday in app timezone}
         {--start-date= : Start date (YYYY-MM-DD)}
@@ -45,6 +46,7 @@ class SyncFcInventory extends Command
             (bool) $this->option('debug-json'),
             (bool) $this->option('dump-rows'),
             (int) $this->option('dump-limit'),
+            (bool) $this->option('dump-csv'),
         );
 
         if (!($result['ok'] ?? false)) {
