@@ -537,7 +537,28 @@ class UsFcInventoryController extends Controller
 
     private function applyRegionFilter(object $query, string $region): void
     {
-        $countryColumn = DB::raw('upper(coalesce(loc.country_code, mp.country_code, ""))');
+        $countrySql = <<<SQL
+coalesce(
+    nullif(
+        case
+            when upper(trim(coalesce(loc.country_code, ''))) in ('', 'UNKNOWN') then ''
+            when upper(trim(loc.country_code)) = 'UK' then 'GB'
+            else upper(trim(loc.country_code))
+        end,
+        ''
+    ),
+    nullif(
+        case
+            when upper(trim(coalesce(mp.country_code, ''))) in ('', 'UNKNOWN') then ''
+            when upper(trim(mp.country_code)) = 'UK' then 'GB'
+            else upper(trim(mp.country_code))
+        end,
+        ''
+    ),
+    ''
+)
+SQL;
+        $countryColumn = DB::raw($countrySql);
         $marketplaceColumn = 'us_fc_inventories.marketplace_id';
 
         $ukMarketplaceIds = [
@@ -561,25 +582,34 @@ class UsFcInventoryController extends Controller
         ];
 
         if ($region === 'UK') {
-            $query->where(function ($w) use ($countryColumn, $marketplaceColumn, $ukMarketplaceIds) {
+            $query->where(function ($w) use ($countryColumn, $countrySql, $marketplaceColumn, $ukMarketplaceIds) {
                 $w->whereIn($countryColumn, ['GB', 'UK'])
-                    ->orWhereIn($marketplaceColumn, $ukMarketplaceIds);
+                    ->orWhere(function ($fallback) use ($countrySql, $marketplaceColumn, $ukMarketplaceIds) {
+                        $fallback->whereRaw("{$countrySql} = ''")
+                            ->whereIn($marketplaceColumn, $ukMarketplaceIds);
+                    });
             });
             return;
         }
 
         if ($region === 'EU') {
-            $query->where(function ($w) use ($countryColumn, $marketplaceColumn, $euMarketplaceIds) {
+            $query->where(function ($w) use ($countryColumn, $countrySql, $marketplaceColumn, $euMarketplaceIds) {
                 $w->whereIn($countryColumn, ['AT', 'BE', 'CH', 'CZ', 'DE', 'DK', 'ES', 'FI', 'FR', 'IE', 'IT', 'LU', 'NL', 'NO', 'PL', 'SE'])
-                    ->orWhereIn($marketplaceColumn, $euMarketplaceIds);
+                    ->orWhere(function ($fallback) use ($countrySql, $marketplaceColumn, $euMarketplaceIds) {
+                        $fallback->whereRaw("{$countrySql} = ''")
+                            ->whereIn($marketplaceColumn, $euMarketplaceIds);
+                    });
             });
             return;
         }
 
         if ($region === 'NA') {
-            $query->where(function ($w) use ($countryColumn, $marketplaceColumn, $naMarketplaceIds) {
+            $query->where(function ($w) use ($countryColumn, $countrySql, $marketplaceColumn, $naMarketplaceIds) {
                 $w->whereIn($countryColumn, ['US', 'CA', 'MX', 'BR'])
-                    ->orWhereIn($marketplaceColumn, $naMarketplaceIds);
+                    ->orWhere(function ($fallback) use ($countrySql, $marketplaceColumn, $naMarketplaceIds) {
+                        $fallback->whereRaw("{$countrySql} = ''")
+                            ->whereIn($marketplaceColumn, $naMarketplaceIds);
+                    });
             });
         }
     }
