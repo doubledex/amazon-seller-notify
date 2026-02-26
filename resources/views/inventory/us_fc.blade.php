@@ -84,7 +84,12 @@
                     <a href="{{ route('inventory.fc') }}" class="px-3 py-2 rounded-md border text-sm border-gray-300 bg-white text-gray-700">Clear</a>
                 </form>
                 <div class="mt-3 text-sm text-gray-700 dark:text-gray-200">
-                    <strong>Snapshot Date:</strong> {{ $reportDate !== '' ? $reportDate : 'N/A' }}
+                    <strong>Snapshot Date:</strong>
+                    @if(!empty($usesPerMarketplaceLatestDate))
+                        Latest per marketplace
+                    @else
+                        {{ $reportDate !== '' ? $reportDate : 'N/A' }}
+                    @endif
                     <span class="mx-2">|</span>
                     <strong>Latest Available Date:</strong> {{ $latestReportDate ?? 'N/A' }}
                 </div>

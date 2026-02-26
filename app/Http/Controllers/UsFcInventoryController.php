@@ -29,6 +29,7 @@ class UsFcInventoryController extends Controller
         $perPageInput = strtolower(trim((string) $request->query('per_page', '100')));
         $latestReportDate = UsFcInventory::query()->max('report_date');
         $requestedReportDate = trim((string) $request->query('report_date', ''));
+        $usePerMarketplaceLatestDate = $regionFilter === '' && $requestedReportDate === '';
 
         $defaultReportDate = UsFcInventory::query()
             ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
@@ -50,10 +51,10 @@ class UsFcInventoryController extends Controller
             ->when($stateFilter !== '', fn ($query) => $query->whereRaw('upper(coalesce(loc.state, "")) = ?', [$stateFilter]))
             ->max('us_fc_inventories.report_date');
 
-        $reportDate = $requestedReportDate !== ''
-            ? $requestedReportDate
-            : ($defaultReportDate ?? $latestReportDate ?? '');
-        if ($requestedReportDate !== '') {
+        $reportDate = $usePerMarketplaceLatestDate
+            ? ''
+            : ($requestedReportDate !== '' ? $requestedReportDate : ($defaultReportDate ?? $latestReportDate ?? ''));
+        if ($requestedReportDate !== '' && !$usePerMarketplaceLatestDate) {
             $requestedDateHasRows = UsFcInventory::query()
                 ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
                 ->leftJoin('marketplaces as mp', 'mp.id', '=', 'us_fc_inventories.marketplace_id')
@@ -100,7 +101,9 @@ class UsFcInventoryController extends Controller
                 'loc.label as fc_label'
             );
 
-        if ($reportDate !== '') {
+        if ($usePerMarketplaceLatestDate) {
+            $this->applyLatestPerMarketplaceDateFilter($query);
+        } elseif ($reportDate !== '') {
             $query->whereDate('us_fc_inventories.report_date', '=', $reportDate);
         }
 
@@ -210,7 +213,8 @@ class UsFcInventoryController extends Controller
             ->selectRaw('coalesce(loc.state, "Unknown") as state')
             ->selectRaw('sum(us_fc_inventories.quantity_available) as qty')
             ->selectRaw('max(us_fc_inventories.report_date) as data_date')
-            ->when($reportDate !== '', fn ($q) => $q->whereDate('us_fc_inventories.report_date', '=', $reportDate))
+            ->when($usePerMarketplaceLatestDate, fn ($q) => $this->applyLatestPerMarketplaceDateFilter($q))
+            ->when(!$usePerMarketplaceLatestDate && $reportDate !== '', fn ($q) => $q->whereDate('us_fc_inventories.report_date', '=', $reportDate))
             ->when(!empty($skuSelection), fn ($q) => $q->whereIn('us_fc_inventories.seller_sku', $skuSelection))
             ->when($asin !== '', fn ($q) => $q->where('us_fc_inventories.asin', 'like', '%' . $asin . '%'))
             ->when($regionFilter !== '', fn ($q) => $this->applyRegionFilter($q, $regionFilter))
@@ -231,7 +235,8 @@ class UsFcInventoryController extends Controller
             ->selectRaw('sum(us_fc_inventories.quantity_available) as qty')
             ->selectRaw('count(*) as row_count')
             ->selectRaw('max(us_fc_inventories.report_date) as data_date')
-            ->when($reportDate !== '', fn ($q) => $q->whereDate('us_fc_inventories.report_date', '=', $reportDate))
+            ->when($usePerMarketplaceLatestDate, fn ($q) => $this->applyLatestPerMarketplaceDateFilter($q))
+            ->when(!$usePerMarketplaceLatestDate && $reportDate !== '', fn ($q) => $q->whereDate('us_fc_inventories.report_date', '=', $reportDate))
             ->when(!empty($skuSelection), fn ($q) => $q->whereIn('us_fc_inventories.seller_sku', $skuSelection))
             ->when($asin !== '', fn ($q) => $q->where('us_fc_inventories.asin', 'like', '%' . $asin . '%'))
             ->when($regionFilter !== '', fn ($q) => $this->applyRegionFilter($q, $regionFilter))
@@ -266,7 +271,9 @@ class UsFcInventoryController extends Controller
             ->whereNotNull('us_fc_inventories.seller_sku')
             ->whereRaw('trim(us_fc_inventories.seller_sku) <> ""');
 
-        if ($reportDate !== '') {
+        if ($usePerMarketplaceLatestDate) {
+            $this->applyLatestPerMarketplaceDateFilter($skuOptionsQuery);
+        } elseif ($reportDate !== '') {
             $skuOptionsQuery->whereDate('us_fc_inventories.report_date', '=', $reportDate);
         }
         if ($asin !== '') {
@@ -376,6 +383,7 @@ class UsFcInventoryController extends Controller
             'perPageCap' => self::MAX_PER_PAGE_ALL,
             'reportDate' => $reportDate,
             'latestReportDate' => $latestReportDate,
+            'usesPerMarketplaceLatestDate' => $usePerMarketplaceLatestDate,
         ]);
     }
 
@@ -638,6 +646,17 @@ SQL;
                     });
             });
         }
+    }
+
+    private function applyLatestPerMarketplaceDateFilter(object $query): void
+    {
+        $query->whereRaw(
+            'us_fc_inventories.report_date = (
+                select max(i2.report_date)
+                from us_fc_inventories as i2
+                where i2.marketplace_id = us_fc_inventories.marketplace_id
+            )'
+        );
     }
 
     private function csvCoordinate(array $row, array $headerMap, array $keys, float $min, float $max): ?float
