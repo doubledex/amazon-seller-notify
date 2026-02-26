@@ -21,6 +21,10 @@ class UsFcInventoryController extends Controller
             (array) $request->query('sku', [])
         ), static fn ($v) => $v !== ''));
         $asin = strtoupper(trim((string) $request->query('asin', '')));
+        $regionFilter = strtoupper(trim((string) $request->query('region', '')));
+        if (!in_array($regionFilter, ['UK', 'EU', 'NA'], true)) {
+            $regionFilter = '';
+        }
         $stateFilter = strtoupper(trim((string) $request->query('state', '')));
         $perPageInput = strtolower(trim((string) $request->query('per_page', '100')));
         $latestReportDate = UsFcInventory::query()->max('report_date');
@@ -28,6 +32,7 @@ class UsFcInventoryController extends Controller
 
         $defaultReportDate = UsFcInventory::query()
             ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
+            ->leftJoin('marketplaces as mp', 'mp.id', '=', 'us_fc_inventories.marketplace_id')
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($w) use ($q) {
                     $w->where('us_fc_inventories.seller_sku', 'like', '%' . $q . '%')
@@ -41,6 +46,7 @@ class UsFcInventoryController extends Controller
             })
             ->when(!empty($skuSelection), fn ($query) => $query->whereIn('us_fc_inventories.seller_sku', $skuSelection))
             ->when($asin !== '', fn ($query) => $query->where('us_fc_inventories.asin', 'like', '%' . $asin . '%'))
+            ->when($regionFilter !== '', fn ($query) => $this->applyRegionFilter($query, $regionFilter))
             ->when($stateFilter !== '', fn ($query) => $query->whereRaw('upper(coalesce(loc.state, "")) = ?', [$stateFilter]))
             ->max('us_fc_inventories.report_date');
 
@@ -50,6 +56,7 @@ class UsFcInventoryController extends Controller
 
         $query = UsFcInventory::query()
             ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
+            ->leftJoin('marketplaces as mp', 'mp.id', '=', 'us_fc_inventories.marketplace_id')
             ->select(
                 'us_fc_inventories.id',
                 'us_fc_inventories.marketplace_id',
@@ -87,6 +94,9 @@ class UsFcInventoryController extends Controller
         }
         if ($asin !== '') {
             $query->where('us_fc_inventories.asin', 'like', '%' . $asin . '%');
+        }
+        if ($regionFilter !== '') {
+            $this->applyRegionFilter($query, $regionFilter);
         }
         if ($stateFilter !== '') {
             $query->whereRaw('upper(coalesce(loc.state, "")) = ?', [$stateFilter]);
@@ -169,6 +179,7 @@ class UsFcInventoryController extends Controller
 
         $summary = UsFcInventory::query()
             ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
+            ->leftJoin('marketplaces as mp', 'mp.id', '=', 'us_fc_inventories.marketplace_id')
             ->selectRaw('coalesce(loc.country_code, "Unknown") as country_code')
             ->selectRaw('coalesce(loc.state, "Unknown") as state')
             ->selectRaw('sum(us_fc_inventories.quantity_available) as qty')
@@ -176,6 +187,7 @@ class UsFcInventoryController extends Controller
             ->when($reportDate !== '', fn ($q) => $q->whereDate('us_fc_inventories.report_date', '=', $reportDate))
             ->when(!empty($skuSelection), fn ($q) => $q->whereIn('us_fc_inventories.seller_sku', $skuSelection))
             ->when($asin !== '', fn ($q) => $q->where('us_fc_inventories.asin', 'like', '%' . $asin . '%'))
+            ->when($regionFilter !== '', fn ($q) => $this->applyRegionFilter($q, $regionFilter))
             ->groupBy(DB::raw('coalesce(loc.country_code, "Unknown")'), DB::raw('coalesce(loc.state, "Unknown")'))
             ->orderBy('country_code')
             ->orderBy('state')
@@ -183,6 +195,7 @@ class UsFcInventoryController extends Controller
 
         $fcSummary = UsFcInventory::query()
             ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
+            ->leftJoin('marketplaces as mp', 'mp.id', '=', 'us_fc_inventories.marketplace_id')
             ->selectRaw('us_fc_inventories.fulfillment_center_id as fc')
             ->selectRaw('coalesce(loc.city, "Unknown") as city')
             ->selectRaw('coalesce(loc.state, "Unknown") as state')
@@ -195,6 +208,7 @@ class UsFcInventoryController extends Controller
             ->when($reportDate !== '', fn ($q) => $q->whereDate('us_fc_inventories.report_date', '=', $reportDate))
             ->when(!empty($skuSelection), fn ($q) => $q->whereIn('us_fc_inventories.seller_sku', $skuSelection))
             ->when($asin !== '', fn ($q) => $q->where('us_fc_inventories.asin', 'like', '%' . $asin . '%'))
+            ->when($regionFilter !== '', fn ($q) => $this->applyRegionFilter($q, $regionFilter))
             ->when($stateFilter !== '', fn ($q) => $q->whereRaw('upper(coalesce(loc.state, "")) = ?', [$stateFilter]))
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($w) use ($q) {
@@ -221,6 +235,7 @@ class UsFcInventoryController extends Controller
 
         $skuOptionsQuery = UsFcInventory::query()
             ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
+            ->leftJoin('marketplaces as mp', 'mp.id', '=', 'us_fc_inventories.marketplace_id')
             ->select('us_fc_inventories.seller_sku')
             ->whereNotNull('us_fc_inventories.seller_sku')
             ->whereRaw('trim(us_fc_inventories.seller_sku) <> ""');
@@ -230,6 +245,9 @@ class UsFcInventoryController extends Controller
         }
         if ($asin !== '') {
             $skuOptionsQuery->where('us_fc_inventories.asin', 'like', '%' . $asin . '%');
+        }
+        if ($regionFilter !== '') {
+            $this->applyRegionFilter($skuOptionsQuery, $regionFilter);
         }
         if ($stateFilter !== '') {
             $skuOptionsQuery->whereRaw('upper(coalesce(loc.state, "")) = ?', [$stateFilter]);
@@ -325,6 +343,7 @@ class UsFcInventoryController extends Controller
             'skuSelection' => $skuSelection,
             'skuOptions' => $skuOptions,
             'asin' => $asin,
+            'region' => $regionFilter,
             'state' => $stateFilter,
             'perPage' => $perPageInput === 'all' ? 'all' : (string) $perPage,
             'perPageCapped' => $perPageCapped,
@@ -514,6 +533,25 @@ class UsFcInventoryController extends Controller
         }
 
         return null;
+    }
+
+    private function applyRegionFilter(object $query, string $region): void
+    {
+        $countryColumn = DB::raw('upper(coalesce(mp.country_code, ""))');
+
+        if ($region === 'UK') {
+            $query->whereIn($countryColumn, ['GB', 'UK']);
+            return;
+        }
+
+        if ($region === 'EU') {
+            $query->whereIn($countryColumn, ['AT', 'BE', 'CH', 'CZ', 'DE', 'DK', 'ES', 'FI', 'FR', 'IE', 'IT', 'LU', 'NL', 'NO', 'PL', 'SE']);
+            return;
+        }
+
+        if ($region === 'NA') {
+            $query->whereIn($countryColumn, ['US', 'CA', 'MX', 'BR']);
+        }
     }
 
     private function csvCoordinate(array $row, array $headerMap, array $keys, float $min, float $max): ?float

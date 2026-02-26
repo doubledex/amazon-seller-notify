@@ -54,6 +54,15 @@
                         <input id="asin" name="asin" value="{{ $asin ?? '' }}" class="border rounded px-2 py-1" placeholder="B0...">
                     </div>
                     <div>
+                        <label for="region" class="block text-sm font-medium mb-1">Region</label>
+                        <select id="region" name="region" class="border rounded px-2 py-1">
+                            <option value="" {{ ($region ?? '') === '' ? 'selected' : '' }}>All</option>
+                            <option value="UK" {{ ($region ?? '') === 'UK' ? 'selected' : '' }}>UK</option>
+                            <option value="EU" {{ ($region ?? '') === 'EU' ? 'selected' : '' }}>EU</option>
+                            <option value="NA" {{ ($region ?? '') === 'NA' ? 'selected' : '' }}>NA</option>
+                        </select>
+                    </div>
+                    <div>
                         <label for="state" class="block text-sm font-medium mb-1">State / Region</label>
                         <input id="state" name="state" value="{{ $state }}" class="border rounded px-2 py-1" placeholder="TX">
                     </div>

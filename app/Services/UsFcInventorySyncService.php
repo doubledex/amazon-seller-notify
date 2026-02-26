@@ -342,10 +342,20 @@ class UsFcInventorySyncService
             'total_quantity',
             'available',
             'available_quantity',
+            'available quantity',
             'sellable-quantity',
             'sellable_quantity',
+            'sellable quantity',
+            'ending warehouse balance',
+            'ending_warehouse_balance',
+            'ending-warehouse-balance',
+            'warehouse balance',
+            'warehouse_balance',
         ]);
-        $qty = is_numeric($qtyRaw) ? (int) round((float) $qtyRaw) : 0;
+        $qty = $this->parseQuantity($qtyRaw);
+        if ($qty === 0) {
+            $qty = $this->inferQuantityFromFlat($flat);
+        }
 
         return [
             'fulfillment_center_id' => strtoupper(trim($fc)),
@@ -366,6 +376,65 @@ class UsFcInventorySyncService
         }
 
         return '';
+    }
+
+    private function parseQuantity(string $raw): int
+    {
+        $value = trim($raw);
+        if ($value === '') {
+            return 0;
+        }
+
+        $negative = false;
+        if (preg_match('/^\((.*)\)$/', $value, $matches)) {
+            $value = trim((string) ($matches[1] ?? ''));
+            $negative = true;
+        }
+
+        $normalized = preg_replace('/[^0-9.\-]/', '', str_replace([',', ' '], '', $value));
+        $normalized = is_string($normalized) ? $normalized : '';
+        if (!is_numeric($normalized)) {
+            return 0;
+        }
+
+        $number = (float) $normalized;
+        if ($negative) {
+            $number *= -1;
+        }
+
+        return (int) round($number);
+    }
+
+    private function inferQuantityFromFlat(array $flat): int
+    {
+        $priorityPatterns = [
+            'ending warehouse balance',
+            'warehouse balance',
+            'fulfillable',
+            'available',
+            'sellable',
+            'quantity',
+            'balance',
+        ];
+
+        foreach ($priorityPatterns as $pattern) {
+            foreach ($flat as $key => $value) {
+                $k = strtolower(trim((string) $key));
+                if ($k === '' || !str_contains($k, $pattern)) {
+                    continue;
+                }
+                if (str_contains($k, 'date') || str_contains($k, 'time') || str_contains($k, 'id')) {
+                    continue;
+                }
+
+                $qty = $this->parseQuantity((string) $value);
+                if ($qty !== 0) {
+                    return $qty;
+                }
+            }
+        }
+
+        return 0;
     }
 
     private function resolveReportTypes(string $reportType): array
