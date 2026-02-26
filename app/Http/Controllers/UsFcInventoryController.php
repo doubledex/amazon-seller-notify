@@ -70,7 +70,7 @@ class UsFcInventoryController extends Controller
                 'us_fc_inventories.updated_at',
                 'loc.city as fc_city',
                 'loc.state as fc_state',
-                'loc.country_code as fc_country_code',
+                DB::raw('coalesce(loc.country_code, upper(mp.country_code), "Unknown") as fc_country_code'),
                 'loc.label as fc_label'
             );
 
@@ -114,7 +114,7 @@ class UsFcInventoryController extends Controller
         }
 
         $rows = $query
-            ->orderByRaw('coalesce(loc.country_code, "ZZ") asc')
+            ->orderByRaw('coalesce(loc.country_code, upper(mp.country_code), "ZZ") asc')
             ->orderByRaw('coalesce(loc.state, "ZZ") asc')
             ->orderByRaw('coalesce(loc.city, "ZZZZZZ") asc')
             ->orderBy('us_fc_inventories.fulfillment_center_id')
@@ -180,7 +180,7 @@ class UsFcInventoryController extends Controller
         $summary = UsFcInventory::query()
             ->leftJoin('us_fc_locations as loc', 'loc.fulfillment_center_id', '=', 'us_fc_inventories.fulfillment_center_id')
             ->leftJoin('marketplaces as mp', 'mp.id', '=', 'us_fc_inventories.marketplace_id')
-            ->selectRaw('coalesce(loc.country_code, "Unknown") as country_code')
+            ->selectRaw('coalesce(loc.country_code, upper(mp.country_code), "Unknown") as country_code')
             ->selectRaw('coalesce(loc.state, "Unknown") as state')
             ->selectRaw('sum(us_fc_inventories.quantity_available) as qty')
             ->selectRaw('max(us_fc_inventories.report_date) as data_date')
@@ -188,7 +188,7 @@ class UsFcInventoryController extends Controller
             ->when(!empty($skuSelection), fn ($q) => $q->whereIn('us_fc_inventories.seller_sku', $skuSelection))
             ->when($asin !== '', fn ($q) => $q->where('us_fc_inventories.asin', 'like', '%' . $asin . '%'))
             ->when($regionFilter !== '', fn ($q) => $this->applyRegionFilter($q, $regionFilter))
-            ->groupBy(DB::raw('coalesce(loc.country_code, "Unknown")'), DB::raw('coalesce(loc.state, "Unknown")'))
+            ->groupBy(DB::raw('coalesce(loc.country_code, upper(mp.country_code), "Unknown")'), DB::raw('coalesce(loc.state, "Unknown")'))
             ->orderBy('country_code')
             ->orderBy('state')
             ->get();
@@ -199,7 +199,7 @@ class UsFcInventoryController extends Controller
             ->selectRaw('us_fc_inventories.fulfillment_center_id as fc')
             ->selectRaw('coalesce(loc.city, "Unknown") as city')
             ->selectRaw('coalesce(loc.state, "Unknown") as state')
-            ->selectRaw('coalesce(loc.country_code, "Unknown") as country_code')
+            ->selectRaw('coalesce(loc.country_code, upper(mp.country_code), "Unknown") as country_code')
             ->selectRaw('max(loc.lat) as lat')
             ->selectRaw('max(loc.lng) as lng')
             ->selectRaw('sum(us_fc_inventories.quantity_available) as qty')
@@ -225,9 +225,9 @@ class UsFcInventoryController extends Controller
                 'us_fc_inventories.fulfillment_center_id',
                 DB::raw('coalesce(loc.city, "Unknown")'),
                 DB::raw('coalesce(loc.state, "Unknown")'),
-                DB::raw('coalesce(loc.country_code, "Unknown")')
+                DB::raw('coalesce(loc.country_code, upper(mp.country_code), "Unknown")')
             )
-            ->orderByRaw('coalesce(loc.country_code, "ZZ") asc')
+            ->orderByRaw('coalesce(loc.country_code, upper(mp.country_code), "ZZ") asc')
             ->orderByRaw('coalesce(loc.state, "ZZ") asc')
             ->orderByRaw('coalesce(loc.city, "ZZZZZZ") asc')
             ->orderBy('us_fc_inventories.fulfillment_center_id')
@@ -538,19 +538,49 @@ class UsFcInventoryController extends Controller
     private function applyRegionFilter(object $query, string $region): void
     {
         $countryColumn = DB::raw('upper(coalesce(mp.country_code, ""))');
+        $marketplaceColumn = 'us_fc_inventories.marketplace_id';
+
+        $ukMarketplaceIds = [
+            'A1F83G8C2ARO7P', // UK
+        ];
+        $euMarketplaceIds = [
+            'A1PA6795UKMFR9', // DE
+            'A13V1IB3VIYZZH', // FR
+            'APJ6JRA9NG5V4',  // IT
+            'A1RKKUPIHCS9HS', // ES
+            'A1805IZSGTT6HS', // NL
+            'A2NODRKZP88ZB9', // SE
+            'A1C3SOZRARQ6R3', // PL
+            'AMEN7PMS3EDWL',  // BE
+        ];
+        $naMarketplaceIds = [
+            'ATVPDKIKX0DER',  // US
+            'A2EUQ1WTGCTBG2', // CA
+            'A1AM78C64UM0Y8', // MX
+            'A2Q3Y263D00KWC', // BR
+        ];
 
         if ($region === 'UK') {
-            $query->whereIn($countryColumn, ['GB', 'UK']);
+            $query->where(function ($w) use ($countryColumn, $marketplaceColumn, $ukMarketplaceIds) {
+                $w->whereIn($countryColumn, ['GB', 'UK'])
+                    ->orWhereIn($marketplaceColumn, $ukMarketplaceIds);
+            });
             return;
         }
 
         if ($region === 'EU') {
-            $query->whereIn($countryColumn, ['AT', 'BE', 'CH', 'CZ', 'DE', 'DK', 'ES', 'FI', 'FR', 'IE', 'IT', 'LU', 'NL', 'NO', 'PL', 'SE']);
+            $query->where(function ($w) use ($countryColumn, $marketplaceColumn, $euMarketplaceIds) {
+                $w->whereIn($countryColumn, ['AT', 'BE', 'CH', 'CZ', 'DE', 'DK', 'ES', 'FI', 'FR', 'IE', 'IT', 'LU', 'NL', 'NO', 'PL', 'SE'])
+                    ->orWhereIn($marketplaceColumn, $euMarketplaceIds);
+            });
             return;
         }
 
         if ($region === 'NA') {
-            $query->whereIn($countryColumn, ['US', 'CA', 'MX', 'BR']);
+            $query->where(function ($w) use ($countryColumn, $marketplaceColumn, $naMarketplaceIds) {
+                $w->whereIn($countryColumn, ['US', 'CA', 'MX', 'BR'])
+                    ->orWhereIn($marketplaceColumn, $naMarketplaceIds);
+            });
         }
     }
 

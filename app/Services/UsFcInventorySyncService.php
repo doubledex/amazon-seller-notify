@@ -233,7 +233,7 @@ class UsFcInventorySyncService
                     continue;
                 }
             }
-            $normalized = $this->normalizeRow($row);
+            $normalized = $this->normalizeRow($row, strtoupper(trim($reportType)) === 'GET_LEDGER_SUMMARY_VIEW_DATA');
             $fc = $normalized['fulfillment_center_id'];
             $sku = $normalized['seller_sku'];
             $fnsku = $normalized['fnsku'];
@@ -316,7 +316,7 @@ class UsFcInventorySyncService
         );
     }
 
-    private function normalizeRow(array $row): array
+    private function normalizeRow(array $row, bool $ledgerMode = false): array
     {
         $flat = [];
         foreach ($row as $key => $value) {
@@ -344,28 +344,37 @@ class UsFcInventorySyncService
         $asin = $this->pick($flat, ['asin']);
         $fnsku = $this->pick($flat, ['fnsku', 'fnsku']);
         $condition = $this->pick($flat, ['condition', 'item-condition', 'item_condition']);
-        $qtyRaw = $this->pick($flat, [
-            'quantity',
-            'afn-fulfillable-quantity',
-            'afn_fulfillable_quantity',
-            'fulfillable-quantity',
-            'fulfillable_quantity',
-            'total-quantity',
-            'total_quantity',
-            'available',
-            'available_quantity',
-            'available quantity',
-            'sellable-quantity',
-            'sellable_quantity',
-            'sellable quantity',
-            'ending warehouse balance',
-            'ending_warehouse_balance',
-            'ending-warehouse-balance',
-            'warehouse balance',
-            'warehouse_balance',
-        ]);
+        $qtyRaw = $this->pick($flat, $ledgerMode
+            ? [
+                'ending warehouse balance',
+                'ending_warehouse_balance',
+                'ending-warehouse-balance',
+                'ending balance',
+                'ending_balance',
+                'ending-balance',
+                'closing balance',
+                'closing_balance',
+                'closing-balance',
+                'warehouse balance',
+                'warehouse_balance',
+            ]
+            : [
+                'quantity',
+                'afn-fulfillable-quantity',
+                'afn_fulfillable_quantity',
+                'fulfillable-quantity',
+                'fulfillable_quantity',
+                'total-quantity',
+                'total_quantity',
+                'available',
+                'available_quantity',
+                'available quantity',
+                'sellable-quantity',
+                'sellable_quantity',
+                'sellable quantity',
+            ]);
         $qty = $this->parseQuantity($qtyRaw);
-        if ($qty === 0) {
+        if (!$ledgerMode && $qty === 0) {
             $qty = $this->inferQuantityFromFlat($flat);
         }
 

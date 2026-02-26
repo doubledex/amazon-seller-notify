@@ -163,29 +163,19 @@ class UsFcInventoryReportJobProcessor implements ReportJobProcessor
         $fnsku = $this->pick($flat, ['fnsku']);
         $condition = $this->pick($flat, ['condition', 'item-condition', 'item_condition', 'disposition']);
         $qtyRaw = $this->pick($flat, [
-            'quantity',
-            'afn-fulfillable-quantity',
-            'afn_fulfillable_quantity',
-            'fulfillable-quantity',
-            'fulfillable_quantity',
-            'total-quantity',
-            'total_quantity',
-            'available',
-            'available_quantity',
-            'available quantity',
-            'sellable-quantity',
-            'sellable_quantity',
-            'sellable quantity',
             'ending warehouse balance',
             'ending_warehouse_balance',
             'ending-warehouse-balance',
+            'ending balance',
+            'ending_balance',
+            'ending-balance',
+            'closing balance',
+            'closing_balance',
+            'closing-balance',
             'warehouse balance',
             'warehouse_balance',
         ]);
         $qty = $this->parseQuantity($qtyRaw);
-        if ($qty === 0) {
-            $qty = $this->inferQuantityFromFlat($flat);
-        }
 
         return [
             'fulfillment_center_id' => $fc,
@@ -276,35 +266,4 @@ class UsFcInventoryReportJobProcessor implements ReportJobProcessor
         return (int) round($number);
     }
 
-    private function inferQuantityFromFlat(array $flat): int
-    {
-        $priorityPatterns = [
-            'ending warehouse balance',
-            'warehouse balance',
-            'fulfillable',
-            'available',
-            'sellable',
-            'quantity',
-            'balance',
-        ];
-
-        foreach ($priorityPatterns as $pattern) {
-            foreach ($flat as $key => $value) {
-                $k = strtolower(trim((string) $key));
-                if ($k === '' || !str_contains($k, $pattern)) {
-                    continue;
-                }
-                if (str_contains($k, 'date') || str_contains($k, 'time') || str_contains($k, 'id')) {
-                    continue;
-                }
-
-                $qty = $this->parseQuantity((string) $value);
-                if ($qty !== 0) {
-                    return $qty;
-                }
-            }
-        }
-
-        return 0;
-    }
 }
