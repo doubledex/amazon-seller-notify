@@ -14,6 +14,8 @@ class BootstrapProductsFromOrders extends Command
 
     protected $description = 'Create products from unique ASINs, attach identifiers, and link order_items.product_id.';
 
+    private array $productPrimaryIdentifierCache = [];
+
     public function handle(): int
     {
         $limit = max(1, min((int) $this->option('limit'), 50000));
@@ -111,7 +113,8 @@ class BootstrapProductsFromOrders extends Command
                 $skuMap[$skuKey] = $productId;
             }
 
-            $this->upsertIdentifierSafely('asin', $asin, $marketplaceId !== '' ? $marketplaceId : null, $productId, true, [
+            $asinShouldBePrimary = !$this->productHasPrimaryIdentifier($productId);
+            $this->upsertIdentifierSafely('asin', $asin, $marketplaceId !== '' ? $marketplaceId : null, $productId, $asinShouldBePrimary, [
                 'order_item_id' => (int) $row->id,
             ]);
 
@@ -155,18 +158,20 @@ class BootstrapProductsFromOrders extends Command
 
     private function upsertIdentifierSafely(string $type, string $value, ?string $marketplaceId, int $productId, bool $isPrimary, array $context = []): void
     {
+        $normalizedMarketplaceId = $marketplaceId !== null && $marketplaceId !== '' ? $marketplaceId : null;
+
         $existing = ProductIdentifier::query()
             ->where('identifier_type', $type)
             ->where('identifier_value', $value)
-            ->when($marketplaceId === null || $marketplaceId === '', fn ($query) => $query->whereNull('marketplace_id'))
-            ->when($marketplaceId !== null && $marketplaceId !== '', fn ($query) => $query->where('marketplace_id', $marketplaceId))
+            ->when($normalizedMarketplaceId === null, fn ($query) => $query->whereNull('marketplace_id'))
+            ->when($normalizedMarketplaceId !== null, fn ($query) => $query->where('marketplace_id', $normalizedMarketplaceId))
             ->first();
 
         if ($existing !== null && (int) $existing->product_id !== $productId) {
             Log::warning('Identifier conflict detected while bootstrapping products from orders', array_merge($context, [
                 'identifier_type' => $type,
                 'identifier_value' => $value,
-                'marketplace_id' => $marketplaceId,
+                'marketplace_id' => $normalizedMarketplaceId,
                 'existing_product_id' => (int) $existing->product_id,
                 'candidate_product_id' => $productId,
                 'resolution' => 'kept_existing_identifier_mapping',
@@ -175,21 +180,53 @@ class BootstrapProductsFromOrders extends Command
             return;
         }
 
-        ProductIdentifier::query()->updateOrCreate(
-            [
-                'identifier_type' => $type,
-                'identifier_value' => $value,
-                'marketplace_id' => $marketplaceId,
-            ],
-            [
-                'product_id' => $productId,
-                'is_primary' => $isPrimary,
-            ]
-        );
+        if ($existing !== null) {
+            if ($isPrimary && !$existing->is_primary && !$this->productHasPrimaryIdentifier($productId)) {
+                $existing->update(['is_primary' => true]);
+                $this->setProductHasPrimaryIdentifier($productId, true);
+            }
+
+            return;
+        }
+
+        $resolvedPrimary = $isPrimary && !$this->productHasPrimaryIdentifier($productId);
+
+        ProductIdentifier::query()->create([
+            'identifier_type' => $type,
+            'identifier_value' => $value,
+            'marketplace_id' => $normalizedMarketplaceId,
+            'product_id' => $productId,
+            'is_primary' => $resolvedPrimary,
+        ]);
+
+        if ($resolvedPrimary) {
+            $this->setProductHasPrimaryIdentifier($productId, true);
+        }
     }
 
     private function identifierCacheKey(string $type, string $value, string $marketplaceId): string
     {
         return implode('|', [$type, $value, $marketplaceId !== '' ? $marketplaceId : '__NULL__']);
+    }
+
+    private function productHasPrimaryIdentifier(int $productId): bool
+    {
+        if (array_key_exists($productId, $this->productPrimaryIdentifierCache)) {
+            return $this->productPrimaryIdentifierCache[$productId];
+        }
+
+        $hasPrimary = ProductIdentifier::query()
+            ->where('product_id', $productId)
+            ->where('is_primary', true)
+            ->exists();
+
+        $this->productPrimaryIdentifierCache[$productId] = $hasPrimary;
+
+        return $hasPrimary;
+    }
+
+    private function setProductHasPrimaryIdentifier(int $productId, bool $hasPrimary): void
+    {
+        $this->productPrimaryIdentifierCache[$productId] = $hasPrimary;
     }
 }

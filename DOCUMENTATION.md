@@ -161,7 +161,7 @@ Check logs:
 
 ### Products (Source Of Truth)
 - `php artisan products:bootstrap-from-orders --limit=1000 [--reset=1]`
-  - Why: seed `products` from unique ASINs, attach identifiers, and link `order_items.product_id`. Use `--reset=1` to rebuild from scratch.
+  - Why: seed `products` from order ASIN discovery, set the first discovered ASIN as primary identifier, attach subsequent ASIN/SKU identifiers (with marketplace), and link `order_items.product_id`. Use `--reset=1` to rebuild from scratch.
 
 ### SQS / Notifications
 - `php artisan sqs:process [--detail]`

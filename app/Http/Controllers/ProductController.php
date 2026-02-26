@@ -16,12 +16,49 @@ class ProductController extends Controller
     {
         $q = trim((string) $request->query('q', ''));
         $selectedProductId = (int) $request->query('product_id', 0);
+        $status = strtolower(trim((string) $request->query('status', '')));
+        $primaryType = strtolower(trim((string) $request->query('primary_type', '')));
+        $marketplaceId = trim((string) $request->query('marketplace_id', ''));
+        $sortBy = strtolower(trim((string) $request->query('sort_by', 'updated_at')));
+        $sortDir = strtolower(trim((string) $request->query('sort_dir', 'desc')));
+        $perPage = (int) $request->query('per_page', 50);
+
+        $allowedStatuses = ['active', 'inactive', 'draft'];
+        if (!in_array($status, $allowedStatuses, true)) {
+            $status = '';
+        }
+
+        $allowedPrimaryTypes = ['asin', 'seller_sku', 'fnsku', 'upc', 'ean', 'other'];
+        if (!in_array($primaryType, $allowedPrimaryTypes, true)) {
+            $primaryType = '';
+        }
+
+        $sortMap = [
+            'id' => 'products.id',
+            'name' => 'products.name',
+            'primary_identifier' => 'pi.identifier_value',
+            'marketplace' => 'pm.name',
+            'status' => 'products.status',
+            'identifiers_count' => 'identifiers_count',
+            'cost_layers_count' => 'cost_layers_count',
+            'updated_at' => 'products.updated_at',
+        ];
+        if (!array_key_exists($sortBy, $sortMap)) {
+            $sortBy = 'updated_at';
+        }
+        if (!in_array($sortDir, ['asc', 'desc'], true)) {
+            $sortDir = 'desc';
+        }
+        if (!in_array($perPage, [25, 50, 100, 200], true)) {
+            $perPage = 50;
+        }
+
         $primaryIdentifierIds = ProductIdentifier::query()
             ->selectRaw('product_id, MIN(id) as primary_identifier_id')
             ->where('is_primary', true)
             ->groupBy('product_id');
 
-        $products = Product::query()
+        $productsQuery = Product::query()
             ->leftJoinSub($primaryIdentifierIds, 'pi_ids', function ($join) {
                 $join->on('pi_ids.product_id', '=', 'products.id');
             })
@@ -45,20 +82,41 @@ class ProductController extends Controller
                         });
                 });
             })
-            ->orderByRaw("CASE WHEN TRIM(COALESCE(pi.identifier_value, '')) = '' THEN 1 ELSE 0 END")
-            ->orderBy('pi.identifier_value')
+            ->when($status !== '', fn ($query) => $query->where('products.status', $status))
+            ->when($primaryType !== '', fn ($query) => $query->where('pi.identifier_type', $primaryType))
+            ->when($marketplaceId !== '', fn ($query) => $query->where('pi.marketplace_id', $marketplaceId));
+
+        if ($sortBy === 'primary_identifier') {
+            $productsQuery
+                ->orderByRaw("CASE WHEN TRIM(COALESCE(pi.identifier_value, '')) = '' THEN 1 ELSE 0 END")
+                ->orderBy('pi.identifier_value', $sortDir);
+        } else {
+            $productsQuery->orderBy($sortMap[$sortBy], $sortDir);
+        }
+
+        $products = $productsQuery
             ->orderBy('products.id')
-            ->paginate(50)
+            ->paginate($perPage)
             ->withQueryString();
 
         $productOptions = Product::query()
             ->orderBy('id')
             ->get(['id', 'name']);
+        $marketplaceOptions = Marketplace::query()
+            ->orderBy('name')
+            ->get(['id', 'name', 'country_code']);
 
         return view('products.index', [
             'products' => $products,
             'q' => $q,
+            'status' => $status,
+            'primaryType' => $primaryType,
+            'marketplaceId' => $marketplaceId,
+            'sortBy' => $sortBy,
+            'sortDir' => $sortDir,
+            'perPage' => $perPage,
             'productOptions' => $productOptions,
+            'marketplaceOptions' => $marketplaceOptions,
             'selectedProductId' => $selectedProductId,
         ]);
     }

@@ -102,6 +102,61 @@ test('bootstrap command uses asin precedence when asin and sku resolve to differ
     expect($item->fresh()->product_id)->toBe($asinProduct->id);
 });
 
+test('bootstrap command keeps first discovered asin as primary identifier', function () {
+    Order::query()->create([
+        'amazon_order_id' => 'ORDER-US-PRIMARY-1',
+        'marketplace_id' => 'ATVPDKIKX0DER',
+    ]);
+
+    Order::query()->create([
+        'amazon_order_id' => 'ORDER-US-PRIMARY-2',
+        'marketplace_id' => 'ATVPDKIKX0DER',
+    ]);
+
+    OrderItem::query()->create([
+        'amazon_order_id' => 'ORDER-US-PRIMARY-1',
+        'order_item_id' => 'US-PRIMARY-ITEM-1',
+        'asin' => 'B00PRIMARY01',
+        'seller_sku' => 'SKU-PRIMARY-1',
+        'title' => 'Primary Product',
+    ]);
+
+    OrderItem::query()->create([
+        'amazon_order_id' => 'ORDER-US-PRIMARY-2',
+        'order_item_id' => 'US-PRIMARY-ITEM-2',
+        'asin' => 'B00SECONDARY1',
+        'seller_sku' => 'SKU-PRIMARY-1',
+        'title' => 'Primary Product Renamed',
+    ]);
+
+    $this->artisan('products:bootstrap-from-orders', ['--limit' => 100])
+        ->assertSuccessful();
+
+    $primaryAsin = ProductIdentifier::query()
+        ->where('identifier_type', 'asin')
+        ->where('identifier_value', 'B00PRIMARY01')
+        ->where('marketplace_id', 'ATVPDKIKX0DER')
+        ->firstOrFail();
+
+    $secondaryAsin = ProductIdentifier::query()
+        ->where('identifier_type', 'asin')
+        ->where('identifier_value', 'B00SECONDARY1')
+        ->where('marketplace_id', 'ATVPDKIKX0DER')
+        ->firstOrFail();
+
+    $sku = ProductIdentifier::query()
+        ->where('identifier_type', 'seller_sku')
+        ->where('identifier_value', 'SKU-PRIMARY-1')
+        ->where('marketplace_id', 'ATVPDKIKX0DER')
+        ->firstOrFail();
+
+    expect($primaryAsin->product_id)->toBe($secondaryAsin->product_id);
+    expect($primaryAsin->product_id)->toBe($sku->product_id);
+    expect($primaryAsin->is_primary)->toBeTrue();
+    expect($secondaryAsin->is_primary)->toBeFalse();
+    expect($sku->is_primary)->toBeFalse();
+});
+
 test('orders link-products prioritizes marketplace specific identifiers before global fallback', function () {
     $globalProduct = Product::query()->create(['name' => 'Global Product', 'status' => 'active']);
     $usProduct = Product::query()->create(['name' => 'US Product', 'status' => 'active']);
