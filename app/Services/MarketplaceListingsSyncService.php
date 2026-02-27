@@ -16,6 +16,8 @@ class MarketplaceListingsSyncService
     public const DEFAULT_REPORT_TYPE = 'GET_MERCHANT_LISTINGS_ALL_DATA';
 
     private const EUROPEAN_COUNTRY_CODES = ['BE', 'DE', 'ES', 'FR', 'GB', 'IE', 'IT', 'NL', 'PL', 'SE'];
+    private const NORTH_AMERICA_COUNTRY_CODES = ['US', 'CA', 'MX', 'BR'];
+    private const FAR_EAST_COUNTRY_CODES = ['JP', 'SG', 'AU', 'IN', 'AE', 'SA', 'TR', 'EG'];
     private const MAX_BACKGROUND_RETRIES = 20;
     private const STUCK_REPORT_SECONDS = 3600;
 
@@ -76,7 +78,7 @@ class MarketplaceListingsSyncService
         ?string $region = null
     ): array
     {
-        $marketplaceIds = $this->resolveMarketplaceIds($marketplaceIds);
+        $marketplaceIds = $this->resolveMarketplaceIds($marketplaceIds, $region);
         if (empty($marketplaceIds)) {
             return ['created' => 0, 'existing' => 0, 'failed' => 0, 'outstanding' => 0, 'report_ids' => [], 'marketplaces' => []];
         }
@@ -276,14 +278,28 @@ class MarketplaceListingsSyncService
         ];
     }
 
-    private function resolveMarketplaceIds(?array $marketplaceIds = null): array
+    private function resolveMarketplaceIds(?array $marketplaceIds = null, ?string $region = null): array
     {
         if ($marketplaceIds !== null && !empty($marketplaceIds)) {
             return array_values(array_filter(array_map('strval', $marketplaceIds)));
         }
 
+        $regionService = new RegionConfigService();
+        $normalizedRegion = strtoupper(trim((string) ($region ?: $regionService->defaultSpApiRegion())));
+        $configuredMarketplaceIds = (array) ($regionService->spApiConfig($normalizedRegion)['marketplace_ids'] ?? []);
+        $configuredMarketplaceIds = array_values(array_filter(array_map('strval', $configuredMarketplaceIds)));
+        if (!empty($configuredMarketplaceIds)) {
+            return $configuredMarketplaceIds;
+        }
+
+        $countryCodes = match ($normalizedRegion) {
+            'NA' => self::NORTH_AMERICA_COUNTRY_CODES,
+            'FE' => self::FAR_EAST_COUNTRY_CODES,
+            default => self::EUROPEAN_COUNTRY_CODES,
+        };
+
         return Marketplace::query()
-            ->whereIn('country_code', self::EUROPEAN_COUNTRY_CODES)
+            ->whereIn('country_code', $countryCodes)
             ->pluck('id')
             ->values()
             ->all();
