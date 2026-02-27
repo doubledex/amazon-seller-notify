@@ -21,7 +21,10 @@ class MarketplaceListingsSyncService
     private const MAX_BACKGROUND_RETRIES = 20;
     private const STUCK_REPORT_SECONDS = 3600;
 
-    public function __construct(private readonly SpApiReportLifecycleService $reportLifecycle)
+    public function __construct(
+        private readonly SpApiReportLifecycleService $reportLifecycle,
+        private readonly ProductProjectionBootstrapService $projectionBootstrap
+    )
     {
     }
 
@@ -359,6 +362,19 @@ class MarketplaceListingsSyncService
                 ]
             );
 
+            if ($asin !== '') {
+                $this->projectionBootstrap->bootstrapFromAmazonListing([
+                    'marketplace' => $marketplaceId,
+                    'parent_asin' => $this->pick($row, ['parent-asin', 'parent_asin', 'parentasin']),
+                    'child_asin' => $asin,
+                    'seller_sku' => $sku,
+                    'fnsku' => $this->pick($row, ['fnsku', 'fulfillment-network-sku']),
+                    'fulfilment_type' => strtoupper($this->pick($row, ['fulfillment-channel', 'fulfilment_type'])) === 'AMAZON_NA' ? 'FBA' : 'MFN',
+                    'fulfilment_region' => $this->regionForMarketplace($marketplaceId),
+                    'name' => $itemName,
+                ]);
+            }
+
             $synced++;
         }
 
@@ -472,9 +488,32 @@ class MarketplaceListingsSyncService
                     'raw_listing' => ['source' => 'catalogItems.relationships', 'asin' => $parentAsin],
                 ]
             );
+
+            $this->projectionBootstrap->bootstrapFromAmazonListing([
+                'marketplace' => $marketplaceId,
+                'parent_asin' => $parentAsin,
+                'child_asin' => $parentAsin,
+                'seller_sku' => '__PARENT__' . $parentAsin,
+                'fulfilment_type' => 'MFN',
+                'fulfilment_region' => $this->regionForMarketplace($marketplaceId),
+                'name' => 'Parent ASIN ' . $parentAsin,
+            ]);
         }
 
         return $parentAsins->count();
+    }
+
+    private function regionForMarketplace(string $marketplaceId): string
+    {
+        $countryCode = strtoupper(trim((string) Marketplace::query()->where('id', $marketplaceId)->value('country_code')));
+        if (in_array($countryCode, ['US', 'CA', 'MX', 'BR'], true)) {
+            return 'NA';
+        }
+        if (in_array($countryCode, ['JP', 'AU', 'SG', 'IN'], true)) {
+            return 'FE';
+        }
+
+        return 'EU';
     }
 
     private function scheduleRetry(SpApiReportRequest $request, ?SaloonResponse $response, int $fallbackSeconds): void

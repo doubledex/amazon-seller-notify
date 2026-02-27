@@ -5,7 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Product;
 use App\Models\Marketplace;
 use App\Models\ProductIdentifier;
-use Illuminate\Support\Facades\DB;
+use App\Models\Mcu;
+use App\Services\MarginCalculator;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -15,109 +16,85 @@ class ProductController extends Controller
     public function index(Request $request): View
     {
         $q = trim((string) $request->query('q', ''));
-        $selectedProductId = (int) $request->query('product_id', 0);
-        $status = strtolower(trim((string) $request->query('status', '')));
-        $primaryType = strtolower(trim((string) $request->query('primary_type', '')));
-        $marketplaceId = trim((string) $request->query('marketplace_id', ''));
-        $sortBy = strtolower(trim((string) $request->query('sort_by', 'updated_at')));
-        $sortDir = strtolower(trim((string) $request->query('sort_dir', 'desc')));
+        $marketplace = trim((string) $request->query('marketplace', ''));
         $perPage = (int) $request->query('per_page', 50);
-
-        $allowedStatuses = ['active', 'inactive', 'draft'];
-        if (!in_array($status, $allowedStatuses, true)) {
-            $status = '';
-        }
-
-        $allowedPrimaryTypes = ['asin', 'seller_sku', 'fnsku', 'upc', 'ean', 'other'];
-        if (!in_array($primaryType, $allowedPrimaryTypes, true)) {
-            $primaryType = '';
-        }
-
-        $sortMap = [
-            'id' => 'products.id',
-            'name' => 'products.name',
-            'primary_identifier' => 'pi.identifier_value',
-            'marketplace' => 'pm.name',
-            'status' => 'products.status',
-            'identifiers_count' => 'identifiers_count',
-            'cost_layers_count' => 'cost_layers_count',
-            'updated_at' => 'products.updated_at',
-        ];
-        if (!array_key_exists($sortBy, $sortMap)) {
-            $sortBy = 'updated_at';
-        }
-        if (!in_array($sortDir, ['asc', 'desc'], true)) {
-            $sortDir = 'desc';
-        }
         if (!in_array($perPage, [25, 50, 100, 200], true)) {
             $perPage = 50;
         }
 
-        $primaryIdentifierIds = ProductIdentifier::query()
-            ->selectRaw('product_id, MIN(id) as primary_identifier_id')
-            ->where('is_primary', true)
-            ->groupBy('product_id');
-
-        $productsQuery = Product::query()
-            ->leftJoinSub($primaryIdentifierIds, 'pi_ids', function ($join) {
-                $join->on('pi_ids.product_id', '=', 'products.id');
-            })
-            ->leftJoin('product_identifiers as pi', 'pi.id', '=', 'pi_ids.primary_identifier_id')
-            ->leftJoin('marketplaces as pm', 'pm.id', '=', 'pi.marketplace_id')
-            ->select([
-                'products.*',
-                DB::raw('pi.identifier_type as primary_identifier_type'),
-                DB::raw('pi.identifier_value as primary_identifier_value'),
-                DB::raw('pi.marketplace_id as primary_marketplace_id'),
-                DB::raw('pm.name as primary_marketplace_name'),
-                DB::raw('pm.country_code as primary_marketplace_country_code'),
+        $mcus = Mcu::query()
+            ->with([
+                'family',
+                'sellableUnit.marketplaceProjections',
+                'costContexts' => fn ($q) => $q->orderByDesc('effective_from'),
+                'inventoryStates' => fn ($q) => $q->orderBy('location'),
             ])
-            ->withCount(['identifiers', 'costLayers'])
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($sub) use ($q) {
-                    $sub->where('products.name', 'like', '%' . $q . '%')
-                        ->orWhere('products.id', $q)
-                        ->orWhereHas('identifiers', function ($idq) use ($q) {
-                            $idq->where('identifier_value', 'like', '%' . $q . '%');
+                    $sub->where('name', 'like', '%' . $q . '%')
+                        ->orWhereHas('sellableUnit.marketplaceProjections', function ($projectionQuery) use ($q) {
+                            $projectionQuery->where('child_asin', 'like', '%' . strtoupper($q) . '%')
+                                ->orWhere('seller_sku', 'like', '%' . $q . '%')
+                                ->orWhere('parent_asin', 'like', '%' . strtoupper($q) . '%');
                         });
                 });
             })
-            ->when($status !== '', fn ($query) => $query->where('products.status', $status))
-            ->when($primaryType !== '', fn ($query) => $query->where('pi.identifier_type', $primaryType))
-            ->when($marketplaceId !== '', fn ($query) => $query->where('pi.marketplace_id', $marketplaceId));
-
-        if ($sortBy === 'primary_identifier') {
-            $productsQuery
-                ->orderByRaw("CASE WHEN TRIM(COALESCE(pi.identifier_value, '')) = '' THEN 1 ELSE 0 END")
-                ->orderBy('pi.identifier_value', $sortDir);
-        } else {
-            $productsQuery->orderBy($sortMap[$sortBy], $sortDir);
-        }
-
-        $products = $productsQuery
-            ->orderBy('products.id')
+            ->when($marketplace !== '', function ($query) use ($marketplace) {
+                $query->whereHas('sellableUnit.marketplaceProjections', function ($projectionQuery) use ($marketplace) {
+                    $projectionQuery->where('marketplace', $marketplace);
+                });
+            })
+            ->orderByDesc('updated_at')
             ->paginate($perPage)
             ->withQueryString();
 
-        $productOptions = Product::query()
-            ->orderBy('id')
-            ->get(['id', 'name']);
+        $marginCalculator = app(MarginCalculator::class);
+
+        $rows = $mcus->getCollection()->map(function (Mcu $mcu) use ($marginCalculator) {
+            $projection = $mcu->sellableUnit?->marketplaceProjections->first();
+            $costByRegion = $mcu->costContexts
+                ->groupBy('region')
+                ->map(fn ($items) => $items->sortByDesc('effective_from')->first());
+
+            $inventory = $mcu->inventoryStates->map(function ($state) {
+                return [
+                    'location' => $state->location,
+                    'on_hand' => (int) $state->on_hand,
+                    'reserved' => (int) $state->reserved,
+                    'safety_buffer' => (int) $state->safety_buffer,
+                    'available' => (int) $state->available,
+                ];
+            })->values();
+
+            $marginSnapshot = null;
+            if ($projection) {
+                $marginSnapshot = $marginCalculator->calculate($projection, 0.0, [
+                    'referral_fee' => 0.0,
+                    'fulfilment_fee' => 0.0,
+                ], now()->toDateString());
+            }
+
+            return [
+                'mcu' => $mcu,
+                'projection' => $projection,
+                'cost_by_region' => $costByRegion,
+                'inventory' => $inventory,
+                'margin_snapshot' => $marginSnapshot,
+            ];
+        });
+
+        $mcus->setCollection($rows);
+
         $marketplaceOptions = Marketplace::query()
             ->orderBy('name')
             ->get(['id', 'name', 'country_code']);
 
         return view('products.index', [
-            'products' => $products,
+            'mcus' => $mcus,
             'q' => $q,
-            'status' => $status,
-            'primaryType' => $primaryType,
-            'marketplaceId' => $marketplaceId,
-            'sortBy' => $sortBy,
-            'sortDir' => $sortDir,
+            'marketplace' => $marketplace,
             'perPage' => $perPage,
-            'productOptions' => $productOptions,
             'marketplaceOptions' => $marketplaceOptions,
-            'selectedProductId' => $selectedProductId,
         ]);
     }
 
