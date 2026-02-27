@@ -1,7 +1,7 @@
 <x-app-layout>
 <x-slot name="header">
     <h2 class="font-semibold text-xl text-gray-800 dark:text-gray-200 leading-tight">
-        {{ __('ASINs by European Marketplace') }}
+        {{ __('ASINs by EU + NA Marketplace') }}
     </h2>
 </x-slot>
 
@@ -35,7 +35,7 @@
 
     <div class="bg-gray-50 dark:bg-gray-900 p-4 mb-4 rounded">
         <p class="text-sm text-gray-700 dark:text-gray-300">
-            Marketplaces included: {{ implode(', ', $europeanCountryCodes) }}
+            Marketplaces included: {{ implode(', ', $includedCountryCodes) }}
         </p>
         <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">
             Listing source: SP-API report <code>GET_MERCHANT_LISTINGS_ALL_DATA</code> (run <code>php artisan listings:sync-europe</code> to refresh).

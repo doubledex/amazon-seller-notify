@@ -22,6 +22,12 @@ class AsinController extends Controller
         'PL',
         'SE',
     ];
+    private const NORTH_AMERICA_COUNTRY_CODES = [
+        'US',
+        'CA',
+        'MX',
+        'BR',
+    ];
 
     public function index(Request $request): View|StreamedResponse
     {
@@ -32,7 +38,7 @@ class AsinController extends Controller
         $search = trim((string) $request->query('q', ''));
 
         $marketplaces = Marketplace::query()
-            ->whereIn('country_code', self::EUROPEAN_COUNTRY_CODES)
+            ->whereIn('country_code', $this->includedCountryCodes())
             ->orderBy('country_code')
             ->orderBy('name')
             ->get();
@@ -122,7 +128,7 @@ class AsinController extends Controller
 
         return view('asins.index', [
             'marketplaceAsins' => $marketplaceAsins,
-            'europeanCountryCodes' => self::EUROPEAN_COUNTRY_CODES,
+            'includedCountryCodes' => $this->includedCountryCodes(),
             'statusFilter' => $statusFilter,
             'search' => $search,
         ]);
@@ -167,7 +173,7 @@ class AsinController extends Controller
 
     private function exportCsv($marketplaceAsins): StreamedResponse
     {
-        $fileName = 'europe-asins-' . now()->format('Ymd-His') . '.csv';
+        $fileName = 'europe-na-asins-' . now()->format('Ymd-His') . '.csv';
 
         return response()->streamDownload(function () use ($marketplaceAsins) {
             $out = fopen('php://output', 'w');
@@ -207,5 +213,13 @@ class AsinController extends Controller
         }, $fileName, [
             'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
+    }
+
+    private function includedCountryCodes(): array
+    {
+        return array_values(array_unique(array_merge(
+            self::EUROPEAN_COUNTRY_CODES,
+            self::NORTH_AMERICA_COUNTRY_CODES
+        )));
     }
 }
