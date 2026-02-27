@@ -27,7 +27,7 @@ class InventoryStateService
 
     public function computeMfnQuantityForProjection(MarketplaceProjection $projection): int
     {
-        $mcu = $projection->sellableUnit?->mcu;
+        $mcu = $projection->mcu ?: $projection->sellableUnit?->mcu;
         if (!$mcu) {
             return 0;
         }

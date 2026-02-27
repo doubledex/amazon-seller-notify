@@ -17,22 +17,19 @@ class ProductController extends Controller
     {
         $q = trim((string) $request->query('q', ''));
         $marketplace = trim((string) $request->query('marketplace', ''));
-        $perPage = (int) $request->query('per_page', 50);
-        if (!in_array($perPage, [25, 50, 100, 200], true)) {
-            $perPage = 50;
-        }
 
         $mcus = Mcu::query()
             ->with([
                 'family',
-                'sellableUnit.marketplaceProjections',
-                'costContexts' => fn ($q) => $q->orderByDesc('effective_from'),
-                'inventoryStates' => fn ($q) => $q->orderBy('location'),
+                'sellableUnits' => fn ($query) => $query->orderBy('id'),
+                'marketplaceProjections' => fn ($query) => $query->orderBy('marketplace')->orderBy('seller_sku'),
+                'costContexts' => fn ($query) => $query->orderBy('region')->orderByDesc('effective_from'),
+                'inventoryStates' => fn ($query) => $query->orderBy('location'),
             ])
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($sub) use ($q) {
                     $sub->where('name', 'like', '%' . $q . '%')
-                        ->orWhereHas('sellableUnit.marketplaceProjections', function ($projectionQuery) use ($q) {
+                        ->orWhereHas('marketplaceProjections', function ($projectionQuery) use ($q) {
                             $projectionQuery->where('child_asin', 'like', '%' . strtoupper($q) . '%')
                                 ->orWhere('seller_sku', 'like', '%' . $q . '%')
                                 ->orWhere('parent_asin', 'like', '%' . strtoupper($q) . '%');
@@ -40,60 +37,55 @@ class ProductController extends Controller
                 });
             })
             ->when($marketplace !== '', function ($query) use ($marketplace) {
-                $query->whereHas('sellableUnit.marketplaceProjections', function ($projectionQuery) use ($marketplace) {
+                $query->whereHas('marketplaceProjections', function ($projectionQuery) use ($marketplace) {
                     $projectionQuery->where('marketplace', $marketplace);
                 });
             })
-            ->orderByDesc('updated_at')
-            ->paginate($perPage)
-            ->withQueryString();
+            ->orderBy('family_id')
+            ->orderBy('id')
+            ->get();
 
         $marginCalculator = app(MarginCalculator::class);
 
-        $rows = $mcus->getCollection()->map(function (Mcu $mcu) use ($marginCalculator) {
-            $projection = $mcu->sellableUnit?->marketplaceProjections->first();
-            $costByRegion = $mcu->costContexts
-                ->groupBy('region')
-                ->map(fn ($items) => $items->sortByDesc('effective_from')->first());
+        $families = $mcus
+            ->groupBy(fn (Mcu $mcu) => $mcu->family_id ?: 0)
+            ->map(function ($groupedMcus) use ($marginCalculator) {
+                $family = $groupedMcus->first()?->family;
 
-            $inventory = $mcu->inventoryStates->map(function ($state) {
+                $mcuRows = $groupedMcus->map(function (Mcu $mcu) use ($marginCalculator) {
+                    $latestMargins = collect($mcu->marketplaceProjections)
+                        ->map(function ($projection) use ($marginCalculator) {
+                            return $marginCalculator->calculate($projection, 0.0, [
+                                'referral_fee' => 0.0,
+                                'fulfilment_fee' => 0.0,
+                            ], now()->toDateString());
+                        });
+
+                    return [
+                        'mcu' => $mcu,
+                        'sellable_units' => $mcu->sellableUnits,
+                        'marketplace_projections' => $mcu->marketplaceProjections,
+                        'cost_contexts' => $mcu->costContexts,
+                        'inventory_states' => $mcu->inventoryStates,
+                        'margin_snapshots' => $latestMargins,
+                    ];
+                })->values();
+
                 return [
-                    'location' => $state->location,
-                    'on_hand' => (int) $state->on_hand,
-                    'reserved' => (int) $state->reserved,
-                    'safety_buffer' => (int) $state->safety_buffer,
-                    'available' => (int) $state->available,
+                    'family' => $family,
+                    'mcus' => $mcuRows,
                 ];
-            })->values();
-
-            $marginSnapshot = null;
-            if ($projection) {
-                $marginSnapshot = $marginCalculator->calculate($projection, 0.0, [
-                    'referral_fee' => 0.0,
-                    'fulfilment_fee' => 0.0,
-                ], now()->toDateString());
-            }
-
-            return [
-                'mcu' => $mcu,
-                'projection' => $projection,
-                'cost_by_region' => $costByRegion,
-                'inventory' => $inventory,
-                'margin_snapshot' => $marginSnapshot,
-            ];
-        });
-
-        $mcus->setCollection($rows);
+            })
+            ->values();
 
         $marketplaceOptions = Marketplace::query()
             ->orderBy('name')
             ->get(['id', 'name', 'country_code']);
 
         return view('products.index', [
-            'mcus' => $mcus,
+            'families' => $families,
             'q' => $q,
             'marketplace' => $marketplace,
-            'perPage' => $perPage,
             'marketplaceOptions' => $marketplaceOptions,
         ]);
     }

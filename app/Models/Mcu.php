@@ -28,9 +28,14 @@ class Mcu extends Model
         return $this->belongsTo(Family::class);
     }
 
-    public function sellableUnit()
+    public function sellableUnits()
     {
-        return $this->hasOne(SellableUnit::class);
+        return $this->hasMany(SellableUnit::class);
+    }
+
+    public function marketplaceProjections()
+    {
+        return $this->hasMany(MarketplaceProjection::class);
     }
 
     public function costContexts()

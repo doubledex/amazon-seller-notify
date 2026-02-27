@@ -14,7 +14,7 @@ class MarginCalculator
             ? $saleDate->toDateString()
             : (string) $saleDate;
 
-        $mcu = $projection->sellableUnit?->mcu;
+        $mcu = $projection->mcu ?: $projection->sellableUnit?->mcu;
         $region = strtoupper(trim((string) $projection->fulfilment_region));
 
         $context = null;

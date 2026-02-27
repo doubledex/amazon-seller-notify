@@ -8,6 +8,7 @@ class MarketplaceProjection extends Model
 {
     protected $fillable = [
         'sellable_unit_id',
+        'mcu_id',
         'marketplace',
         'parent_asin',
         'child_asin',
@@ -25,5 +26,10 @@ class MarketplaceProjection extends Model
     public function sellableUnit()
     {
         return $this->belongsTo(SellableUnit::class);
+    }
+
+    public function mcu()
+    {
+        return $this->belongsTo(Mcu::class);
     }
 }

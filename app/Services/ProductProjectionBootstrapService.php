@@ -51,8 +51,7 @@ class ProductProjectionBootstrapService
                 ->first();
 
             if ($projection) {
-                $sellableUnit = $projection->sellableUnit()->first();
-                $mcu = $sellableUnit?->mcu;
+                $mcu = $projection->mcu()->first();
             } else {
                 $mcu = $this->resolveMcuForChildAsin($marketplace, $childAsin);
             }
@@ -73,6 +72,7 @@ class ProductProjectionBootstrapService
 
             $sellableUnit = SellableUnit::query()->firstOrCreate([
                 'mcu_id' => $mcu->id,
+                'barcode' => $sellerSku !== '' ? $sellerSku : null,
             ]);
 
             return MarketplaceProjection::query()->updateOrCreate(
@@ -83,6 +83,7 @@ class ProductProjectionBootstrapService
                 ],
                 [
                     'sellable_unit_id' => $sellableUnit->id,
+                    'mcu_id' => $mcu->id,
                     'parent_asin' => $parentAsin !== '' ? $parentAsin : null,
                     'fnsku' => $fnsku !== '' ? $fnsku : null,
                     'fulfilment_type' => $fulfilmentType,
@@ -127,6 +128,10 @@ class ProductProjectionBootstrapService
 
         if (!$existingProjection) {
             return null;
+        }
+
+        if (!empty($existingProjection->mcu_id)) {
+            return Mcu::query()->find($existingProjection->mcu_id);
         }
 
         $sellableUnit = SellableUnit::query()->find($existingProjection->sellable_unit_id);

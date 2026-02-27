@@ -27,8 +27,4 @@ class SellableUnit extends Model
         return $this->belongsTo(Mcu::class);
     }
 
-    public function marketplaceProjections()
-    {
-        return $this->hasMany(MarketplaceProjection::class);
-    }
 }
