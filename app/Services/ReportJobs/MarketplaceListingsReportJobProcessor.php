@@ -4,9 +4,14 @@ namespace App\Services\ReportJobs;
 
 use App\Models\MarketplaceListing;
 use App\Models\ReportJob;
+use App\Services\ProductProjectionBootstrapService;
 
 class MarketplaceListingsReportJobProcessor implements ReportJobProcessor
 {
+    public function __construct(private readonly ProductProjectionBootstrapService $projectionBootstrap)
+    {
+    }
+
     public function process(ReportJob $job, array $rows): array
     {
         $synced = 0;
@@ -47,6 +52,19 @@ class MarketplaceListingsReportJobProcessor implements ReportJobProcessor
                     'raw_listing' => $row,
                 ]
             );
+
+            if ($asin !== '') {
+                $this->projectionBootstrap->bootstrapFromAmazonListing([
+                    'marketplace' => (string) $job->marketplace_id,
+                    'parent_asin' => $this->pick($row, ['parent-asin', 'parent_asin', 'parentasin']),
+                    'child_asin' => $asin,
+                    'seller_sku' => $sku,
+                    'fnsku' => $this->pick($row, ['fnsku', 'fulfillment-network-sku']),
+                    'fulfilment_type' => strtoupper($this->pick($row, ['fulfillment-channel', 'fulfilment_type'])) === 'AMAZON_NA' ? 'FBA' : 'MFN',
+                    'fulfilment_region' => 'EU',
+                    'name' => $itemName,
+                ]);
+            }
 
             $synced++;
         }
