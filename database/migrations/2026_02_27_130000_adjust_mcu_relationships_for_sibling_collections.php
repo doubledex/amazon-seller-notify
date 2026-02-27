@@ -11,8 +11,9 @@ return new class extends Migration
     {
         if (Schema::hasColumn('sellable_units', 'mcu_id')) {
             Schema::table('sellable_units', function (Blueprint $table) {
-                $table->dropUnique('sellable_units_mcu_id_unique');
+                // MySQL requires an index on FK columns; add a replacement index before dropping unique.
                 $table->index('mcu_id');
+                $table->dropUnique('sellable_units_mcu_id_unique');
             });
         }
 
@@ -42,8 +43,8 @@ return new class extends Migration
 
         if (Schema::hasColumn('sellable_units', 'mcu_id')) {
             Schema::table('sellable_units', function (Blueprint $table) {
-                $table->dropIndex(['mcu_id']);
                 $table->unique('mcu_id');
+                $table->dropIndex(['mcu_id']);
             });
         }
     }
