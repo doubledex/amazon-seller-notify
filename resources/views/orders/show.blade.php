@@ -244,10 +244,7 @@
                 @else
                     <div class="text-sm text-gray-600">No estimated fee lines for this order.</div>
                 @endif
-            </div>
-
-            <div class="p-4 rounded-lg border border-gray-200 bg-white shadow-sm mb-6">
-                <details>
+                <details class="mt-3">
                     <summary class="cursor-pointer text-sm font-semibold">Raw Estimated Fee Payloads (Debug)</summary>
                     @php
                         $estimatedRawPayloads = collect($estimatedFeeLines ?? [])
