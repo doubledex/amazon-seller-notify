@@ -217,61 +217,81 @@
                         <tr>
                             <th class="text-left border">Channel</th>
                             <th class="text-left border">Marketplace</th>
+                            <th class="text-left border">Parent ASIN</th>
                             <th class="text-left border">ASIN</th>
                             <th class="text-left border">Seller SKU</th>
+                            <th class="text-left border">External ID</th>
+                            <th class="text-left border">FNSKU</th>
+                            <th class="text-left border">Fulfilment</th>
+                            <th class="text-left border">Region</th>
+                            <th class="text-left border">Active</th>
                             <th class="text-left border">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         @forelse($mcu->marketplaceProjections as $projection)
+                            @php
+                                $updateFormId = 'projection-update-' . $projection->id;
+                            @endphp
                             <tr>
-                                <td class="border">{{ $projection->channel ?? 'amazon' }}</td>
-                                <td class="border">{{ $projection->marketplace }}</td>
-                                <td class="border">{{ $projection->child_asin }}</td>
-                                <td class="border">{{ $projection->seller_sku }}</td>
                                 <td class="border">
-                                    <form method="POST" action="{{ route('mcus.projections.update', [$mcu, $projection]) }}" class="space-y-2 mb-2">
-                                        @csrf
-                                        @method('PATCH')
-                                        <select name="channel" class="w-full border rounded px-2 py-1 text-xs">
-                                            @foreach(['amazon', 'woocommerce', 'other'] as $channel)
-                                                <option value="{{ $channel }}" {{ ($projection->channel ?? 'amazon') === $channel ? 'selected' : '' }}>{{ $channel }}</option>
-                                            @endforeach
-                                        </select>
-                                        <input type="text" name="marketplace" value="{{ $projection->marketplace }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="marketplace">
-                                        <input type="text" name="parent_asin" value="{{ $projection->parent_asin }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="parent ASIN">
-                                        <input type="text" name="child_asin" value="{{ $projection->child_asin }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="child ASIN">
-                                        <input type="text" name="seller_sku" value="{{ $projection->seller_sku }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="seller SKU">
-                                        <input type="text" name="external_product_id" value="{{ $projection->external_product_id }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="external product id">
-                                        <input type="text" name="fnsku" value="{{ $projection->fnsku }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="FNSKU">
-                                        <div class="grid grid-cols-2 gap-2">
-                                            <select name="fulfilment_type" class="border rounded px-2 py-1 text-xs">
-                                                @foreach(['FBA', 'MFN'] as $type)
-                                                    <option value="{{ $type }}" {{ strtoupper((string) $projection->fulfilment_type) === $type ? 'selected' : '' }}>{{ $type }}</option>
-                                                @endforeach
-                                            </select>
-                                            <select name="fulfilment_region" class="border rounded px-2 py-1 text-xs">
-                                                @foreach(['EU', 'NA', 'FE'] as $region)
-                                                    <option value="{{ $region }}" {{ strtoupper((string) $projection->fulfilment_region) === $region ? 'selected' : '' }}>{{ $region }}</option>
-                                                @endforeach
-                                            </select>
-                                        </div>
-                                        <label class="text-xs">
-                                            <input type="checkbox" name="active" value="1" {{ $projection->active ? 'checked' : '' }}>
-                                            active
-                                        </label>
-                                        <button type="submit" class="px-2 py-1 rounded border border-gray-300 bg-white text-xs">Save</button>
-                                    </form>
-                                    <form method="POST" action="{{ route('mcus.projections.destroy', [$mcu, $projection]) }}" onsubmit="return confirm('Delete this identifier row?');">
+                                    <select name="channel" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
+                                        @foreach(['amazon', 'woocommerce', 'other'] as $channel)
+                                            <option value="{{ $channel }}" {{ ($projection->channel ?? 'amazon') === $channel ? 'selected' : '' }}>{{ $channel }}</option>
+                                        @endforeach
+                                    </select>
+                                </td>
+                                <td class="border">
+                                    <input type="text" name="marketplace" value="{{ $projection->marketplace }}" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="marketplace">
+                                </td>
+                                <td class="border">
+                                    <input type="text" name="parent_asin" value="{{ $projection->parent_asin }}" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="parent ASIN">
+                                </td>
+                                <td class="border">
+                                    <input type="text" name="child_asin" value="{{ $projection->child_asin }}" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="ASIN">
+                                </td>
+                                <td class="border">
+                                    <input type="text" name="seller_sku" value="{{ $projection->seller_sku }}" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="seller SKU">
+                                </td>
+                                <td class="border">
+                                    <input type="text" name="external_product_id" value="{{ $projection->external_product_id }}" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="external product id">
+                                </td>
+                                <td class="border">
+                                    <input type="text" name="fnsku" value="{{ $projection->fnsku }}" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="FNSKU">
+                                </td>
+                                <td class="border">
+                                    <select name="fulfilment_type" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
+                                        @foreach(['FBA', 'MFN'] as $type)
+                                            <option value="{{ $type }}" {{ strtoupper((string) $projection->fulfilment_type) === $type ? 'selected' : '' }}>{{ $type }}</option>
+                                        @endforeach
+                                    </select>
+                                </td>
+                                <td class="border">
+                                    <select name="fulfilment_region" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
+                                        @foreach(['EU', 'NA', 'FE'] as $region)
+                                            <option value="{{ $region }}" {{ strtoupper((string) $projection->fulfilment_region) === $region ? 'selected' : '' }}>{{ $region }}</option>
+                                        @endforeach
+                                    </select>
+                                </td>
+                                <td class="border text-center">
+                                    <input type="checkbox" name="active" value="1" form="{{ $updateFormId }}" {{ $projection->active ? 'checked' : '' }}>
+                                </td>
+                                <td class="border">
+                                    <button type="submit" form="{{ $updateFormId }}" class="px-2 py-1 rounded border border-gray-300 bg-white text-xs mb-1">Save</button>
+                                    <form method="POST" action="{{ route('mcus.projections.destroy', [$mcu, $projection]) }}" onsubmit="return confirm('Delete this projection row?');">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="px-2 py-1 rounded border border-gray-300 bg-white text-xs">Delete</button>
+                                    </form>
+                                    <form id="{{ $updateFormId }}" method="POST" action="{{ route('mcus.projections.update', [$mcu, $projection]) }}" class="hidden">
+                                        @csrf
+                                        @method('PATCH')
                                     </form>
                                 </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="5" class="border text-gray-500">No marketplace identifier rows yet.</td>
+                                <td colspan="11" class="border text-gray-500">No marketplace identifier rows yet.</td>
                             </tr>
                         @endforelse
                     </tbody>
