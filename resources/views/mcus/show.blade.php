@@ -229,6 +229,56 @@
                         </tr>
                     </thead>
                     <tbody>
+                        <tr class="bg-gray-50">
+                            <td class="border">
+                                <select name="channel" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs">
+                                    @foreach(['amazon', 'woocommerce', 'other'] as $channel)
+                                        <option value="{{ $channel }}">{{ $channel }}</option>
+                                    @endforeach
+                                </select>
+                            </td>
+                            <td class="border">
+                                <input name="marketplace" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs" required>
+                            </td>
+                            <td class="border">
+                                <input name="parent_asin" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs">
+                            </td>
+                            <td class="border">
+                                <input name="child_asin" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs">
+                            </td>
+                            <td class="border">
+                                <input name="seller_sku" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs" required>
+                            </td>
+                            <td class="border">
+                                <input name="external_product_id" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs">
+                            </td>
+                            <td class="border">
+                                <input name="fnsku" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs">
+                            </td>
+                            <td class="border">
+                                <select name="fulfilment_type" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs">
+                                    @foreach(['MFN', 'FBA'] as $type)
+                                        <option value="{{ $type }}">{{ $type }}</option>
+                                    @endforeach
+                                </select>
+                            </td>
+                            <td class="border">
+                                <select name="fulfilment_region" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs">
+                                    @foreach(['EU', 'NA', 'FE'] as $region)
+                                        <option value="{{ $region }}">{{ $region }}</option>
+                                    @endforeach
+                                </select>
+                            </td>
+                            <td class="border text-center">
+                                <input type="checkbox" name="active" value="1" form="projection-create-form" checked>
+                            </td>
+                            <td class="border">
+                                <button type="submit" form="projection-create-form" class="px-2 py-1 rounded border border-gray-300 bg-white text-xs">Add</button>
+                                <form id="projection-create-form" method="POST" action="{{ route('mcus.projections.store', $mcu) }}" class="hidden">
+                                    @csrf
+                                </form>
+                            </td>
+                        </tr>
                         @forelse($mcu->marketplaceProjections as $projection)
                             @php
                                 $updateFormId = 'projection-update-' . $projection->id;
@@ -297,63 +347,6 @@
                     </tbody>
                 </table>
             </div>
-
-            <h4 class="text-xs font-semibold mb-2">Add Projection</h4>
-            <form method="POST" action="{{ route('mcus.projections.store', $mcu) }}" class="grid grid-cols-1 md:grid-cols-4 gap-3">
-                @csrf
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Channel</label>
-                    <select name="channel" class="w-full border rounded px-2 py-1">
-                        @foreach(['amazon', 'woocommerce', 'other'] as $channel)
-                            <option value="{{ $channel }}">{{ $channel }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Marketplace</label>
-                    <input name="marketplace" class="w-full border rounded px-2 py-1" required>
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Parent ASIN</label>
-                    <input name="parent_asin" class="w-full border rounded px-2 py-1">
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Child ASIN</label>
-                    <input name="child_asin" class="w-full border rounded px-2 py-1">
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Seller SKU</label>
-                    <input name="seller_sku" class="w-full border rounded px-2 py-1" required>
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">External Product ID</label>
-                    <input name="external_product_id" class="w-full border rounded px-2 py-1">
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">FNSKU</label>
-                    <input name="fnsku" class="w-full border rounded px-2 py-1">
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Fulfilment Type</label>
-                    <select name="fulfilment_type" class="w-full border rounded px-2 py-1">
-                        @foreach(['MFN', 'FBA'] as $type)
-                            <option value="{{ $type }}">{{ $type }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Fulfilment Region</label>
-                    <select name="fulfilment_region" class="w-full border rounded px-2 py-1">
-                        @foreach(['EU', 'NA', 'FE'] as $region)
-                            <option value="{{ $region }}">{{ $region }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div class="flex items-end gap-2">
-                    <label class="text-xs"><input type="checkbox" name="active" value="1" checked> active</label>
-                    <button type="submit" class="px-3 py-2 rounded border border-gray-300 bg-white text-sm">Add</button>
-                </div>
-            </form>
         </div>
     </div>
 </x-app-layout>
