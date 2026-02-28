@@ -62,11 +62,10 @@ class ProductProjectionBootstrapService
                     'name' => $name !== '' ? $name : ('MCU ' . $childAsin),
                     'base_uom' => 'unit',
                 ]);
-            } elseif ((int) $mcu->family_id !== (int) $family->id) {
-                $mcu->family_id = $family->id;
-                if ($name !== '' && trim((string) $mcu->name) === '') {
-                    $mcu->name = $name;
-                }
+            } elseif ($name !== '' && trim((string) $mcu->name) === '') {
+                // Keep user-managed family assignment intact; enrich name only when blank.
+                // Family reassignment should only happen through an explicit reconciliation flow.
+                $mcu->name = $name;
                 $mcu->save();
             }
 

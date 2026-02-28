@@ -1,15 +1,27 @@
 <x-app-layout>
     <x-slot name="header">
         <h2 class="font-semibold text-xl text-gray-800 dark:text-gray-200 leading-tight">
-            Products (Grouped by Family → MCU)
+            Families and MCUs
         </h2>
     </x-slot>
 
     <div class="py-6 max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-4">
+        @if(session('status'))
+            <div class="bg-green-50 border border-green-200 text-green-800 text-sm px-3 py-2 rounded">
+                {{ session('status') }}
+            </div>
+        @endif
+
+        @if($errors->any())
+            <div class="bg-red-50 border border-red-200 text-red-800 text-sm px-3 py-2 rounded">
+                {{ $errors->first() }}
+            </div>
+        @endif
+
         <div class="bg-white dark:bg-gray-800 p-4 rounded shadow-sm">
             <form method="GET" class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                    <label class="block text-sm mb-1">Search (MCU / ASIN / SKU)</label>
+                    <label class="block text-sm mb-1">Search (Family / MCU / ASIN / SKU)</label>
                     <input type="text" name="q" value="{{ $q }}" class="w-full border rounded px-2 py-1" />
                 </div>
                 <div>
@@ -29,97 +41,150 @@
             </form>
         </div>
 
-        @forelse($families as $familyRow)
-            @php
-                $family = $familyRow['family'];
-                $familyMcus = $familyRow['mcus'];
-            @endphp
-            <div class="bg-white dark:bg-gray-800 p-4 rounded shadow-sm">
-                <div class="mb-3">
-                    <h3 class="text-sm font-semibold">
-                        Family ID: {{ $family?->id ?? 'Unassigned' }}
-                    </h3>
-                    <div class="text-xs text-gray-500">
-                        {{ $family?->name ?? 'No family name' }}
-                        @if($family?->marketplace)
-                            · {{ $family->marketplace }}
-                        @endif
-                        @if($family?->parent_asin)
-                            · Parent ASIN: {{ $family->parent_asin }}
-                        @endif
-                    </div>
-                </div>
-
-                @foreach($familyMcus as $mcuRow)
-                    @php
-                        $mcu = $mcuRow['mcu'];
-                    @endphp
-                    <div class="border rounded mb-4 p-3">
-                        <div class="font-semibold mb-2">MCU #{{ $mcu->id }} — {{ $mcu->name ?: 'Unnamed MCU' }}</div>
-
-                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 text-xs">
-                            <div>
-                                <div class="font-semibold mb-1">Sellable Units</div>
-                                @forelse($mcuRow['sellable_units'] as $unit)
-                                    <div>SU #{{ $unit->id }} · barcode: {{ $unit->barcode ?? '-' }} · pkg_wt: {{ $unit->packaged_weight ?? '-' }}</div>
-                                @empty
-                                    <div>-</div>
-                                @endforelse
-                            </div>
-
-                            <div>
-                                <div class="font-semibold mb-1">Marketplace Projections</div>
-                                @forelse($mcuRow['marketplace_projections'] as $projection)
-                                    <div>
-                                        MP #{{ $projection->id }} · {{ $projection->marketplace }} ·
-                                        P: {{ $projection->parent_asin ?? '-' }} ·
-                                        C: {{ $projection->child_asin }} ·
-                                        SKU: {{ $projection->seller_sku }} ·
-                                        {{ $projection->fulfilment_type }}/{{ $projection->fulfilment_region }}
-                                    </div>
-                                @empty
-                                    <div>-</div>
-                                @endforelse
-                            </div>
-
-                            <div>
-                                <div class="font-semibold mb-1">Cost Contexts</div>
-                                @forelse($mcuRow['cost_contexts'] as $cost)
-                                    <div>
-                                        CC #{{ $cost->id }} · {{ $cost->region }} · {{ $cost->currency }} {{ number_format((float) $cost->landed_cost_per_unit, 4) }} · {{ optional($cost->effective_from)->format('Y-m-d') }}
-                                    </div>
-                                @empty
-                                    <div>-</div>
-                                @endforelse
-                            </div>
-
-                            <div>
-                                <div class="font-semibold mb-1">Inventory States</div>
-                                @forelse($mcuRow['inventory_states'] as $state)
-                                    <div>
-                                        IS #{{ $state->id }} · {{ $state->location }} · on_hand {{ $state->on_hand }} · reserved {{ $state->reserved }} · safety {{ $state->safety_buffer }} · available {{ $state->available }}
-                                    </div>
-                                @empty
-                                    <div>-</div>
-                                @endforelse
-                            </div>
-                        </div>
-
-                        <div class="mt-3 text-xs">
-                            <div class="font-semibold mb-1">Margin Snapshots (derived)</div>
-                            @forelse($mcuRow['margin_snapshots'] as $snapshot)
-                                <div>
-                                    Projection {{ $snapshot['projection_id'] }} · region {{ $snapshot['region'] }} · margin {{ number_format((float) $snapshot['margin_amount'], 4) }} · margin % {{ $snapshot['margin_percent'] ?? '-' }}
-                                </div>
-                            @empty
-                                <div>-</div>
-                            @endforelse
-                        </div>
-                    </div>
-                @endforeach
+        <div class="bg-white dark:bg-gray-800 p-4 rounded shadow-sm space-y-3">
+            <div class="flex items-center justify-between">
+                <h3 class="text-sm font-semibold">Family Groups</h3>
+                <span class="text-xs text-gray-500">Paginated</span>
             </div>
-        @empty
-            <div class="bg-white dark:bg-gray-800 p-4 rounded shadow-sm">No MCU families found.</div>
-        @endforelse
+
+            @forelse($families as $family)
+                <details class="border rounded p-3">
+                    <summary class="cursor-pointer">
+                        <div class="inline-flex flex-wrap items-center gap-2 text-sm">
+                            <span class="font-semibold">Family #{{ $family->id }}</span>
+                            <span>{{ $family->name ?: 'Unnamed family' }}</span>
+                            <span class="text-gray-500">({{ $family->mcus_count }} MCUs)</span>
+                            @if($family->marketplace)
+                                <span class="text-gray-500">· {{ $family->marketplace }}</span>
+                            @endif
+                            @if($family->parent_asin)
+                                <span class="text-gray-500">· Parent ASIN: {{ $family->parent_asin }}</span>
+                            @endif
+                        </div>
+                    </summary>
+
+                    <div class="mt-3 space-y-3">
+                        <form method="POST" action="{{ route('families.update', $family) }}" class="grid grid-cols-1 md:grid-cols-5 gap-2">
+                            @csrf
+                            @method('PATCH')
+                            <div class="md:col-span-3">
+                                <label class="block text-xs text-gray-600 mb-1">Family name</label>
+                                <input
+                                    name="name"
+                                    value="{{ old('name', $family->name) }}"
+                                    class="w-full border rounded px-2 py-1 text-sm"
+                                    maxlength="255"
+                                    required
+                                />
+                            </div>
+                            <div class="md:col-span-2 flex items-end">
+                                <button type="submit" class="px-3 py-2 rounded border border-gray-300 bg-white text-sm">
+                                    Save family name
+                                </button>
+                            </div>
+                        </form>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm border" cellspacing="0" cellpadding="6">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="text-left border">MCU</th>
+                                        <th class="text-left border">Name</th>
+                                        <th class="text-left border">Identifiers</th>
+                                        <th class="text-left border">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @forelse($family->mcus as $mcu)
+                                        <tr>
+                                            <td class="border">#{{ $mcu->id }}</td>
+                                            <td class="border">{{ $mcu->name ?: 'Unnamed MCU' }}</td>
+                                            <td class="border">
+                                                @php
+                                                    $projection = $mcu->marketplaceProjections->first();
+                                                    $sellableUnit = $mcu->sellableUnits->first();
+                                                @endphp
+                                                <div class="text-xs">
+                                                    @if($projection)
+                                                        <div>ASIN: {{ $projection->child_asin }}</div>
+                                                        <div>SKU: {{ $projection->seller_sku }}</div>
+                                                        @if($projection->fnsku)
+                                                            <div>FNSKU: {{ $projection->fnsku }}</div>
+                                                        @endif
+                                                    @else
+                                                        <div>-</div>
+                                                    @endif
+                                                    @if($sellableUnit?->barcode)
+                                                        <div>Barcode: {{ $sellableUnit->barcode }}</div>
+                                                    @endif
+                                                </div>
+                                            </td>
+                                            <td class="border">
+                                                <a href="{{ route('mcus.show', $mcu) }}" class="text-sm underline">Open</a>
+                                            </td>
+                                        </tr>
+                                    @empty
+                                        <tr>
+                                            <td colspan="4" class="border text-gray-500">No MCUs in this family.</td>
+                                        </tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </details>
+            @empty
+                <div class="text-sm text-gray-500">No families found.</div>
+            @endforelse
+
+            <div>
+                {{ $families->links() }}
+            </div>
+        </div>
+
+        <div class="bg-white dark:bg-gray-800 p-4 rounded shadow-sm space-y-3">
+            <h3 class="text-sm font-semibold">Unassigned MCUs</h3>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm border" cellspacing="0" cellpadding="6">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="text-left border">MCU</th>
+                            <th class="text-left border">Name</th>
+                            <th class="text-left border">Identifiers</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse($unassignedMcus as $mcu)
+                            @php
+                                $projection = $mcu->marketplaceProjections->first();
+                                $sellableUnit = $mcu->sellableUnits->first();
+                            @endphp
+                            <tr>
+                                <td class="border">#{{ $mcu->id }}</td>
+                                <td class="border">{{ $mcu->name ?: 'Unnamed MCU' }}</td>
+                                <td class="border text-xs">
+                                    @if($projection)
+                                        <div>ASIN: {{ $projection->child_asin }}</div>
+                                        <div>SKU: {{ $projection->seller_sku }}</div>
+                                    @else
+                                        <div>-</div>
+                                    @endif
+                                    @if($sellableUnit?->barcode)
+                                        <div>Barcode: {{ $sellableUnit->barcode }}</div>
+                                    @endif
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="3" class="border text-gray-500">No unassigned MCUs.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+            <div>
+                {{ $unassignedMcus->links() }}
+            </div>
+        </div>
     </div>
 </x-app-layout>

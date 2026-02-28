@@ -5,8 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Product;
 use App\Models\Marketplace;
 use App\Models\ProductIdentifier;
+use App\Models\Family;
 use App\Models\Mcu;
-use App\Services\MarginCalculator;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -17,14 +17,50 @@ class ProductController extends Controller
     {
         $q = trim((string) $request->query('q', ''));
         $marketplace = trim((string) $request->query('marketplace', ''));
+        $perPage = 15;
 
-        $mcus = Mcu::query()
+        $families = Family::query()
+            ->withCount('mcus')
             ->with([
-                'family',
+                'mcus' => function ($query) {
+                    $query->with([
+                        'sellableUnits' => fn ($sellableUnitQuery) => $sellableUnitQuery->orderBy('id'),
+                        'marketplaceProjections' => fn ($projectionQuery) => $projectionQuery->orderBy('marketplace')->orderBy('seller_sku'),
+                    ])->orderBy('id');
+                },
+            ])
+            ->when($q !== '', function ($query) use ($q) {
+                $query->where(function ($sub) use ($q) {
+                    $sub->where('name', 'like', '%' . $q . '%')
+                        ->orWhere('parent_asin', 'like', '%' . strtoupper($q) . '%')
+                        ->orWhereHas('mcus', function ($mcuQuery) use ($q) {
+                            $mcuQuery->where('name', 'like', '%' . $q . '%')
+                                ->orWhereHas('marketplaceProjections', function ($projectionQuery) use ($q) {
+                                    $projectionQuery->where('child_asin', 'like', '%' . strtoupper($q) . '%')
+                                        ->orWhere('seller_sku', 'like', '%' . $q . '%')
+                                        ->orWhere('parent_asin', 'like', '%' . strtoupper($q) . '%')
+                                        ->orWhere('fnsku', 'like', '%' . strtoupper($q) . '%');
+                                });
+                        });
+                });
+            })
+            ->when($marketplace !== '', function ($query) use ($marketplace) {
+                $query->where(function ($familyQuery) use ($marketplace) {
+                    $familyQuery->where('marketplace', $marketplace)
+                        ->orWhereHas('mcus.marketplaceProjections', function ($projectionQuery) use ($marketplace) {
+                            $projectionQuery->where('marketplace', $marketplace);
+                        });
+                });
+            })
+            ->orderBy('id')
+            ->paginate($perPage)
+            ->withQueryString();
+
+        $unassignedMcus = Mcu::query()
+            ->whereNull('family_id')
+            ->with([
                 'sellableUnits' => fn ($query) => $query->orderBy('id'),
                 'marketplaceProjections' => fn ($query) => $query->orderBy('marketplace')->orderBy('seller_sku'),
-                'costContexts' => fn ($query) => $query->orderBy('region')->orderByDesc('effective_from'),
-                'inventoryStates' => fn ($query) => $query->orderBy('location'),
             ])
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($sub) use ($q) {
@@ -32,7 +68,8 @@ class ProductController extends Controller
                         ->orWhereHas('marketplaceProjections', function ($projectionQuery) use ($q) {
                             $projectionQuery->where('child_asin', 'like', '%' . strtoupper($q) . '%')
                                 ->orWhere('seller_sku', 'like', '%' . $q . '%')
-                                ->orWhere('parent_asin', 'like', '%' . strtoupper($q) . '%');
+                                ->orWhere('parent_asin', 'like', '%' . strtoupper($q) . '%')
+                                ->orWhere('fnsku', 'like', '%' . strtoupper($q) . '%');
                         });
                 });
             })
@@ -41,42 +78,9 @@ class ProductController extends Controller
                     $projectionQuery->where('marketplace', $marketplace);
                 });
             })
-            ->orderBy('family_id')
             ->orderBy('id')
-            ->get();
-
-        $marginCalculator = app(MarginCalculator::class);
-
-        $families = $mcus
-            ->groupBy(fn (Mcu $mcu) => $mcu->family_id ?: 0)
-            ->map(function ($groupedMcus) use ($marginCalculator) {
-                $family = $groupedMcus->first()?->family;
-
-                $mcuRows = $groupedMcus->map(function (Mcu $mcu) use ($marginCalculator) {
-                    $latestMargins = collect($mcu->marketplaceProjections)
-                        ->map(function ($projection) use ($marginCalculator) {
-                            return $marginCalculator->calculate($projection, 0.0, [
-                                'referral_fee' => 0.0,
-                                'fulfilment_fee' => 0.0,
-                            ], now()->toDateString());
-                        });
-
-                    return [
-                        'mcu' => $mcu,
-                        'sellable_units' => $mcu->sellableUnits,
-                        'marketplace_projections' => $mcu->marketplaceProjections,
-                        'cost_contexts' => $mcu->costContexts,
-                        'inventory_states' => $mcu->inventoryStates,
-                        'margin_snapshots' => $latestMargins,
-                    ];
-                })->values();
-
-                return [
-                    'family' => $family,
-                    'mcus' => $mcuRows,
-                ];
-            })
-            ->values();
+            ->simplePaginate(10, ['*'], 'unassigned_page')
+            ->withQueryString();
 
         $marketplaceOptions = Marketplace::query()
             ->orderBy('name')
@@ -84,10 +88,24 @@ class ProductController extends Controller
 
         return view('products.index', [
             'families' => $families,
+            'unassignedMcus' => $unassignedMcus,
             'q' => $q,
             'marketplace' => $marketplace,
             'marketplaceOptions' => $marketplaceOptions,
         ]);
+    }
+
+    public function updateFamily(Request $request, Family $family): RedirectResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+        ]);
+
+        $family->update([
+            'name' => trim((string) $validated['name']),
+        ]);
+
+        return back()->with('status', 'Family name updated.');
     }
 
     public function store(Request $request): RedirectResponse

@@ -10,6 +10,7 @@ use App\Http\Controllers\AdsReportController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\UsFcInventoryController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\McuController;
 use App\Http\Controllers\ReportJobsController;
 use App\Http\Controllers\ProductPricingController;
 
@@ -61,6 +62,13 @@ Route::middleware('auth')->group(function () {
     Route::post('/inventory/fc/locations.csv', [UsFcInventoryController::class, 'uploadLocationsCsv'])->name('inventory.fc.locations.upload');
     Route::get('/inventory/us-fc', [UsFcInventoryController::class, 'index'])->name('inventory.us_fc');
     Route::get('/products', [ProductController::class, 'index'])->name('products.index');
+    Route::patch('/families/{family}', [ProductController::class, 'updateFamily'])->name('families.update');
+    Route::get('/mcus/{mcu}', [McuController::class, 'show'])->name('mcus.show');
+    Route::patch('/mcus/{mcu}', [McuController::class, 'update'])->name('mcus.update');
+    Route::post('/mcus/{mcu}/marketplace-projections', [McuController::class, 'storeProjection'])->name('mcus.projections.store');
+    Route::patch('/mcus/{mcu}/marketplace-projections/{projection}', [McuController::class, 'updateProjection'])->name('mcus.projections.update');
+    Route::delete('/mcus/{mcu}/marketplace-projections/{projection}', [McuController::class, 'destroyProjection'])->name('mcus.projections.destroy');
+    Route::patch('/mcus/{mcu}/sellable-unit', [McuController::class, 'upsertSellableUnit'])->name('mcus.sellable_unit.update');
     Route::post('/products', [ProductController::class, 'store'])->name('products.store');
     Route::get('/products/{product}', [ProductController::class, 'show'])->name('products.show');
     Route::patch('/products/{product}', [ProductController::class, 'update'])->name('products.update');
