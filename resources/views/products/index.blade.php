@@ -115,8 +115,12 @@
                                 <tbody>
                                     @forelse($family->mcus as $mcu)
                                         <tr>
-                                            <td class="border">#{{ $mcu->id }}</td>
-                                            <td class="border">{{ $mcu->name ?: 'Unnamed MCU' }}</td>
+                                            <td class="border">
+                                                <a href="{{ route('mcus.show', $mcu) }}" class="underline">#{{ $mcu->id }}</a>
+                                            </td>
+                                            <td class="border">
+                                                <a href="{{ route('mcus.show', $mcu) }}" class="underline">{{ $mcu->name ?: 'Unnamed MCU' }}</a>
+                                            </td>
                                             <td class="border">
                                                 @php
                                                     $projection = $mcu->marketplaceProjections->first();
@@ -194,8 +198,12 @@
                                 $sellableUnit = $mcu->sellableUnits->first();
                             @endphp
                             <tr>
-                                <td class="border">#{{ $mcu->id }}</td>
-                                <td class="border">{{ $mcu->name ?: 'Unnamed MCU' }}</td>
+                                <td class="border">
+                                    <a href="{{ route('mcus.show', $mcu) }}" class="underline">#{{ $mcu->id }}</a>
+                                </td>
+                                <td class="border">
+                                    <a href="{{ route('mcus.show', $mcu) }}" class="underline">{{ $mcu->name ?: 'Unnamed MCU' }}</a>
+                                </td>
                                 <td class="border text-xs">
                                     @if($projection)
                                         <div>ASIN: {{ $projection->child_asin }}</div>
