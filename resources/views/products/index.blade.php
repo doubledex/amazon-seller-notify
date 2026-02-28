@@ -124,15 +124,17 @@
                                             <td class="border">
                                                 @php
                                                     $projection = $mcu->marketplaceProjections->first();
+                                                    $identifierRows = $mcu->identifiers->take(3);
                                                     $sellableUnit = $mcu->sellableUnits->first();
                                                 @endphp
                                                 <div class="text-xs">
-                                                    @if($projection)
-                                                        <div>ASIN: {{ $projection->child_asin }}</div>
+                                                    @if($identifierRows->isNotEmpty())
+                                                        @foreach($identifierRows as $identifier)
+                                                            <div>{{ $identifier->identifier_type }}: {{ $identifier->identifier_value }}</div>
+                                                        @endforeach
+                                                    @elseif($projection)
+                                                        <div>ASIN: {{ $projection->child_asin ?: '-' }}</div>
                                                         <div>SKU: {{ $projection->seller_sku }}</div>
-                                                        @if($projection->fnsku)
-                                                            <div>FNSKU: {{ $projection->fnsku }}</div>
-                                                        @endif
                                                     @else
                                                         <div>-</div>
                                                     @endif
@@ -195,6 +197,7 @@
                         @forelse($unassignedMcus as $mcu)
                             @php
                                 $projection = $mcu->marketplaceProjections->first();
+                                $identifierRows = $mcu->identifiers->take(3);
                                 $sellableUnit = $mcu->sellableUnits->first();
                             @endphp
                             <tr>
@@ -205,8 +208,12 @@
                                     <a href="{{ route('mcus.show', $mcu) }}" class="underline">{{ $mcu->name ?: 'Unnamed MCU' }}</a>
                                 </td>
                                 <td class="border text-xs">
-                                    @if($projection)
-                                        <div>ASIN: {{ $projection->child_asin }}</div>
+                                    @if($identifierRows->isNotEmpty())
+                                        @foreach($identifierRows as $identifier)
+                                            <div>{{ $identifier->identifier_type }}: {{ $identifier->identifier_value }}</div>
+                                        @endforeach
+                                    @elseif($projection)
+                                        <div>ASIN: {{ $projection->child_asin ?: '-' }}</div>
                                         <div>SKU: {{ $projection->seller_sku }}</div>
                                     @else
                                         <div>-</div>

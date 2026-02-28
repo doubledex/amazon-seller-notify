@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Family;
 use App\Models\MarketplaceProjection;
 use App\Models\Mcu;
+use App\Models\McuIdentifier;
 use App\Models\SellableUnit;
 use Illuminate\Support\Facades\DB;
 
@@ -45,6 +46,7 @@ class ProductProjectionBootstrapService
             $family = $this->resolveFamily($marketplace, $parentAsin, $childAsin, $name);
 
             $projection = MarketplaceProjection::query()
+                ->where('channel', 'amazon')
                 ->where('marketplace', $marketplace)
                 ->where('child_asin', $childAsin)
                 ->where('seller_sku', $sellerSku)
@@ -74,8 +76,9 @@ class ProductProjectionBootstrapService
                 'barcode' => $sellerSku !== '' ? $sellerSku : null,
             ]);
 
-            return MarketplaceProjection::query()->updateOrCreate(
+            $savedProjection = MarketplaceProjection::query()->updateOrCreate(
                 [
+                    'channel' => 'amazon',
                     'marketplace' => $marketplace,
                     'child_asin' => $childAsin,
                     'seller_sku' => $sellerSku,
@@ -90,6 +93,14 @@ class ProductProjectionBootstrapService
                     'active' => true,
                 ]
             );
+
+            $this->upsertIdentifier($mcu, 'asin', $childAsin, 'amazon', $marketplace, '', true);
+            $this->upsertIdentifier($mcu, 'seller_sku', $sellerSku, 'amazon', $marketplace, '', true);
+            if ($fnsku !== '') {
+                $this->upsertIdentifier($mcu, 'fnsku', strtoupper($fnsku), 'amazon', $marketplace, '', true);
+            }
+
+            return $savedProjection;
         });
     }
 
@@ -120,7 +131,17 @@ class ProductProjectionBootstrapService
 
     private function resolveMcuForChildAsin(string $marketplace, string $childAsin): ?Mcu
     {
+        $ownedAsin = McuIdentifier::query()
+            ->where('identifier_type', 'asin')
+            ->where('asin_unique', $childAsin)
+            ->first();
+
+        if ($ownedAsin) {
+            return Mcu::query()->find($ownedAsin->mcu_id);
+        }
+
         $existingProjection = MarketplaceProjection::query()
+            ->where('channel', 'amazon')
             ->where('marketplace', $marketplace)
             ->where('child_asin', $childAsin)
             ->first();
@@ -136,5 +157,52 @@ class ProductProjectionBootstrapService
         $sellableUnit = SellableUnit::query()->find($existingProjection->sellable_unit_id);
 
         return $sellableUnit?->mcu;
+    }
+
+    private function upsertIdentifier(
+        Mcu $mcu,
+        string $type,
+        string $value,
+        string $channel,
+        string $marketplace,
+        string $region,
+        bool $isProjectionIdentifier
+    ): void {
+        if ($value === '') {
+            return;
+        }
+
+        $payload = [
+            'mcu_id' => $mcu->id,
+            'identifier_type' => $type,
+            'identifier_value' => $value,
+            'channel' => $channel,
+            'marketplace' => $marketplace,
+            'region' => $region,
+            'is_projection_identifier' => $isProjectionIdentifier,
+            'asin_unique' => $type === 'asin' ? $value : null,
+        ];
+
+        if ($type === 'asin') {
+            McuIdentifier::query()->updateOrCreate(
+                ['identifier_type' => 'asin', 'asin_unique' => $value],
+                $payload
+            );
+            return;
+        }
+
+        McuIdentifier::query()->firstOrCreate(
+            [
+                'mcu_id' => $mcu->id,
+                'identifier_type' => $type,
+                'identifier_value' => $value,
+                'channel' => $channel,
+                'marketplace' => $marketplace,
+                'region' => $region,
+            ],
+            [
+                'is_projection_identifier' => $isProjectionIdentifier,
+            ]
+        );
     }
 }

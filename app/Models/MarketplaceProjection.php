@@ -9,10 +9,12 @@ class MarketplaceProjection extends Model
     protected $fillable = [
         'sellable_unit_id',
         'mcu_id',
+        'channel',
         'marketplace',
         'parent_asin',
         'child_asin',
         'seller_sku',
+        'external_product_id',
         'fnsku',
         'fulfilment_type',
         'fulfilment_region',

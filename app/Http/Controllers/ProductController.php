@@ -34,6 +34,7 @@ class ProductController extends Controller
             ->with([
                 'mcus' => function ($query) {
                     $query->with([
+                        'identifiers' => fn ($identifierQuery) => $identifierQuery->orderBy('identifier_type')->orderBy('identifier_value'),
                         'sellableUnits' => fn ($sellableUnitQuery) => $sellableUnitQuery->orderBy('id'),
                         'marketplaceProjections' => fn ($projectionQuery) => $projectionQuery->orderBy('marketplace')->orderBy('seller_sku'),
                     ])->orderBy('id');
@@ -45,6 +46,9 @@ class ProductController extends Controller
                         ->orWhere('parent_asin', 'like', '%' . strtoupper($q) . '%')
                         ->orWhereHas('mcus', function ($mcuQuery) use ($q) {
                             $mcuQuery->where('name', 'like', '%' . $q . '%')
+                                ->orWhereHas('identifiers', function ($identifierQuery) use ($q) {
+                                    $identifierQuery->where('identifier_value', 'like', '%' . strtoupper($q) . '%');
+                                })
                                 ->orWhereHas('marketplaceProjections', function ($projectionQuery) use ($q) {
                                     $projectionQuery->where('child_asin', 'like', '%' . strtoupper($q) . '%')
                                         ->orWhere('seller_sku', 'like', '%' . $q . '%')
@@ -75,12 +79,16 @@ class ProductController extends Controller
         $unassignedMcus = Mcu::query()
             ->whereNull('family_id')
             ->with([
+                'identifiers' => fn ($query) => $query->orderBy('identifier_type')->orderBy('identifier_value'),
                 'sellableUnits' => fn ($query) => $query->orderBy('id'),
                 'marketplaceProjections' => fn ($query) => $query->orderBy('marketplace')->orderBy('seller_sku'),
             ])
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($sub) use ($q) {
                     $sub->where('name', 'like', '%' . $q . '%')
+                        ->orWhereHas('identifiers', function ($identifierQuery) use ($q) {
+                            $identifierQuery->where('identifier_value', 'like', '%' . strtoupper($q) . '%');
+                        })
                         ->orWhereHas('marketplaceProjections', function ($projectionQuery) use ($q) {
                             $projectionQuery->where('child_asin', 'like', '%' . strtoupper($q) . '%')
                                 ->orWhere('seller_sku', 'like', '%' . $q . '%')
@@ -130,15 +138,16 @@ class ProductController extends Controller
 
     private function mcuSortValue(Mcu $mcu, string $sort): string
     {
+        $identifier = $mcu->identifiers->first();
         $projection = $mcu->marketplaceProjections->first();
         $sellableUnit = $mcu->sellableUnits->first();
 
         return match ($sort) {
-            'asin' => (string) ($projection->child_asin ?? ''),
-            'seller_sku' => (string) ($projection->seller_sku ?? ''),
-            'fnsku' => (string) ($projection->fnsku ?? ''),
+            'asin' => (string) ($mcu->identifiers->firstWhere('identifier_type', 'asin')?->identifier_value ?? $projection->child_asin ?? ''),
+            'seller_sku' => (string) ($mcu->identifiers->firstWhere('identifier_type', 'seller_sku')?->identifier_value ?? $projection->seller_sku ?? ''),
+            'fnsku' => (string) ($mcu->identifiers->firstWhere('identifier_type', 'fnsku')?->identifier_value ?? $projection->fnsku ?? ''),
             'barcode' => (string) ($sellableUnit->barcode ?? ''),
-            'identifier' => (string) ($projection->child_asin ?? $projection->seller_sku ?? $projection->fnsku ?? $sellableUnit->barcode ?? ''),
+            'identifier' => (string) ($identifier->identifier_value ?? $projection->child_asin ?? $projection->seller_sku ?? $projection->fnsku ?? $sellableUnit->barcode ?? ''),
             default => (string) ($mcu->name ?? ''),
         };
     }

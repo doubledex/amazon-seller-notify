@@ -122,7 +122,7 @@
         </div>
 
         <div class="bg-white dark:bg-gray-800 p-4 rounded shadow-sm">
-            <h3 class="text-sm font-semibold mb-3">Identifiers (Grouped by Type)</h3>
+            <h3 class="text-sm font-semibold mb-3">MCU Identifiers</h3>
 
             <div class="overflow-x-auto mb-4">
                 <table class="w-full text-sm border" cellspacing="0" cellpadding="6">
@@ -130,24 +130,119 @@
                         <tr>
                             <th class="text-left border">Type</th>
                             <th class="text-left border">Value</th>
+                            <th class="text-left border">Channel</th>
                             <th class="text-left border">Marketplace</th>
+                            <th class="text-left border">Region</th>
+                            <th class="text-left border">Projection?</th>
+                            <th class="text-left border">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse($mcu->identifiers as $identifier)
+                            <tr>
+                                <td class="border">
+                                    <form method="POST" action="{{ route('mcus.identifiers.update', [$mcu, $identifier]) }}" class="grid grid-cols-1 md:grid-cols-7 gap-2">
+                                        @csrf
+                                        @method('PATCH')
+                                        <select name="identifier_type" class="border rounded px-2 py-1 text-xs">
+                                            @foreach(['asin', 'seller_sku', 'fnsku', 'barcode', 'cost_identifier', 'other'] as $type)
+                                                <option value="{{ $type }}" {{ $identifier->identifier_type === $type ? 'selected' : '' }}>{{ $type }}</option>
+                                            @endforeach
+                                        </select>
+                                </td>
+                                <td class="border"><input name="identifier_value" value="{{ $identifier->identifier_value }}" class="w-full border rounded px-2 py-1 text-xs"></td>
+                                <td class="border"><input name="channel" value="{{ $identifier->channel }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="amazon"></td>
+                                <td class="border"><input name="marketplace" value="{{ $identifier->marketplace }}" class="w-full border rounded px-2 py-1 text-xs"></td>
+                                <td class="border"><input name="region" value="{{ $identifier->region }}" class="w-full border rounded px-2 py-1 text-xs"></td>
+                                <td class="border text-center"><input type="checkbox" name="is_projection_identifier" value="1" {{ $identifier->is_projection_identifier ? 'checked' : '' }}></td>
+                                <td class="border whitespace-nowrap">
+                                        <button type="submit" class="px-2 py-1 rounded border border-gray-300 bg-white text-xs">Save</button>
+                                    </form>
+                                    <form method="POST" action="{{ route('mcus.identifiers.destroy', [$mcu, $identifier]) }}" class="inline" onsubmit="return confirm('Delete this identifier?');">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit" class="px-2 py-1 rounded border border-gray-300 bg-white text-xs">Delete</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="7" class="border text-gray-500">No MCU identifiers yet.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+
+            <h4 class="text-xs font-semibold mb-2">Add MCU Identifier</h4>
+            <form method="POST" action="{{ route('mcus.identifiers.store', $mcu) }}" class="grid grid-cols-1 md:grid-cols-7 gap-3 mb-4">
+                @csrf
+                <div>
+                    <label class="block text-xs text-gray-600 mb-1">Type</label>
+                    <select name="identifier_type" class="w-full border rounded px-2 py-1">
+                        @foreach(['asin', 'seller_sku', 'fnsku', 'barcode', 'cost_identifier', 'other'] as $type)
+                            <option value="{{ $type }}">{{ $type }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-600 mb-1">Value</label>
+                    <input name="identifier_value" class="w-full border rounded px-2 py-1" required>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-600 mb-1">Channel</label>
+                    <input name="channel" class="w-full border rounded px-2 py-1" placeholder="amazon">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-600 mb-1">Marketplace</label>
+                    <input name="marketplace" class="w-full border rounded px-2 py-1">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-600 mb-1">Region</label>
+                    <input name="region" class="w-full border rounded px-2 py-1" placeholder="EU">
+                </div>
+                <div class="flex items-end">
+                    <label class="text-xs"><input type="checkbox" name="is_projection_identifier" value="1"> projection identifier</label>
+                </div>
+                <div class="flex items-end">
+                    <button type="submit" class="px-3 py-2 rounded border border-gray-300 bg-white text-sm">Add</button>
+                </div>
+            </form>
+
+            <h3 class="text-sm font-semibold mb-3">Marketplace Projections</h3>
+
+            <div class="overflow-x-auto mb-4">
+                <table class="w-full text-sm border" cellspacing="0" cellpadding="6">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="text-left border">Channel</th>
+                            <th class="text-left border">Marketplace</th>
+                            <th class="text-left border">ASIN</th>
+                            <th class="text-left border">Seller SKU</th>
                             <th class="text-left border">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         @forelse($mcu->marketplaceProjections as $projection)
                             <tr>
-                                <td class="border">asin</td>
-                                <td class="border">{{ $projection->child_asin }}</td>
+                                <td class="border">{{ $projection->channel ?? 'amazon' }}</td>
                                 <td class="border">{{ $projection->marketplace }}</td>
-                                <td class="border" rowspan="4">
+                                <td class="border">{{ $projection->child_asin }}</td>
+                                <td class="border">{{ $projection->seller_sku }}</td>
+                                <td class="border">
                                     <form method="POST" action="{{ route('mcus.projections.update', [$mcu, $projection]) }}" class="space-y-2 mb-2">
                                         @csrf
                                         @method('PATCH')
+                                        <select name="channel" class="w-full border rounded px-2 py-1 text-xs">
+                                            @foreach(['amazon', 'woocommerce', 'other'] as $channel)
+                                                <option value="{{ $channel }}" {{ ($projection->channel ?? 'amazon') === $channel ? 'selected' : '' }}>{{ $channel }}</option>
+                                            @endforeach
+                                        </select>
                                         <input type="text" name="marketplace" value="{{ $projection->marketplace }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="marketplace">
                                         <input type="text" name="parent_asin" value="{{ $projection->parent_asin }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="parent ASIN">
                                         <input type="text" name="child_asin" value="{{ $projection->child_asin }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="child ASIN">
                                         <input type="text" name="seller_sku" value="{{ $projection->seller_sku }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="seller SKU">
+                                        <input type="text" name="external_product_id" value="{{ $projection->external_product_id }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="external product id">
                                         <input type="text" name="fnsku" value="{{ $projection->fnsku }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="FNSKU">
                                         <div class="grid grid-cols-2 gap-2">
                                             <select name="fulfilment_type" class="border rounded px-2 py-1 text-xs">
@@ -174,33 +269,26 @@
                                     </form>
                                 </td>
                             </tr>
-                            <tr>
-                                <td class="border">seller_sku</td>
-                                <td class="border">{{ $projection->seller_sku }}</td>
-                                <td class="border">{{ $projection->marketplace }}</td>
-                            </tr>
-                            <tr>
-                                <td class="border">fnsku</td>
-                                <td class="border">{{ $projection->fnsku ?: '-' }}</td>
-                                <td class="border">{{ $projection->marketplace }}</td>
-                            </tr>
-                            <tr>
-                                <td class="border">parent_asin</td>
-                                <td class="border">{{ $projection->parent_asin ?: '-' }}</td>
-                                <td class="border">{{ $projection->marketplace }}</td>
-                            </tr>
                         @empty
                             <tr>
-                                <td colspan="4" class="border text-gray-500">No marketplace identifier rows yet.</td>
+                                <td colspan="5" class="border text-gray-500">No marketplace identifier rows yet.</td>
                             </tr>
                         @endforelse
                     </tbody>
                 </table>
             </div>
 
-            <h4 class="text-xs font-semibold mb-2">Add Identifier Row</h4>
+            <h4 class="text-xs font-semibold mb-2">Add Projection</h4>
             <form method="POST" action="{{ route('mcus.projections.store', $mcu) }}" class="grid grid-cols-1 md:grid-cols-4 gap-3">
                 @csrf
+                <div>
+                    <label class="block text-xs text-gray-600 mb-1">Channel</label>
+                    <select name="channel" class="w-full border rounded px-2 py-1">
+                        @foreach(['amazon', 'woocommerce', 'other'] as $channel)
+                            <option value="{{ $channel }}">{{ $channel }}</option>
+                        @endforeach
+                    </select>
+                </div>
                 <div>
                     <label class="block text-xs text-gray-600 mb-1">Marketplace</label>
                     <input name="marketplace" class="w-full border rounded px-2 py-1" required>
@@ -211,11 +299,15 @@
                 </div>
                 <div>
                     <label class="block text-xs text-gray-600 mb-1">Child ASIN</label>
-                    <input name="child_asin" class="w-full border rounded px-2 py-1" required>
+                    <input name="child_asin" class="w-full border rounded px-2 py-1">
                 </div>
                 <div>
                     <label class="block text-xs text-gray-600 mb-1">Seller SKU</label>
                     <input name="seller_sku" class="w-full border rounded px-2 py-1" required>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-600 mb-1">External Product ID</label>
+                    <input name="external_product_id" class="w-full border rounded px-2 py-1">
                 </div>
                 <div>
                     <label class="block text-xs text-gray-600 mb-1">FNSKU</label>

@@ -38,6 +38,11 @@ class Mcu extends Model
         return $this->hasMany(MarketplaceProjection::class);
     }
 
+    public function identifiers()
+    {
+        return $this->hasMany(McuIdentifier::class);
+    }
+
     public function costContexts()
     {
         return $this->hasMany(CostContext::class);
