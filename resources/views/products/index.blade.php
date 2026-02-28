@@ -121,6 +121,21 @@
                                             </td>
                                             <td class="border">
                                                 <a href="{{ route('mcus.show', $mcu) }}" class="text-sm underline">Open</a>
+                                                <form method="POST" action="{{ route('mcus.family.update', $mcu) }}" class="mt-2">
+                                                    @csrf
+                                                    @method('PATCH')
+                                                    <div class="flex gap-2">
+                                                        <select name="family_id" class="border rounded px-2 py-1 text-xs">
+                                                            <option value="">Unassigned</option>
+                                                            @foreach($familyOptions as $option)
+                                                                <option value="{{ $option->id }}" {{ (int) $mcu->family_id === (int) $option->id ? 'selected' : '' }}>
+                                                                    #{{ $option->id }} {{ $option->name ?: 'Unnamed family' }}
+                                                                </option>
+                                                            @endforeach
+                                                        </select>
+                                                        <button type="submit" class="px-2 py-1 rounded border border-gray-300 bg-white text-xs">Move</button>
+                                                    </div>
+                                                </form>
                                             </td>
                                         </tr>
                                     @empty
@@ -151,6 +166,7 @@
                             <th class="text-left border">MCU</th>
                             <th class="text-left border">Name</th>
                             <th class="text-left border">Identifiers</th>
+                            <th class="text-left border">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -173,10 +189,28 @@
                                         <div>Barcode: {{ $sellableUnit->barcode }}</div>
                                     @endif
                                 </td>
+                                <td class="border">
+                                    <a href="{{ route('mcus.show', $mcu) }}" class="text-sm underline">Open</a>
+                                    <form method="POST" action="{{ route('mcus.family.update', $mcu) }}" class="mt-2">
+                                        @csrf
+                                        @method('PATCH')
+                                        <div class="flex gap-2">
+                                            <select name="family_id" class="border rounded px-2 py-1 text-xs">
+                                                <option value="">Unassigned</option>
+                                                @foreach($familyOptions as $option)
+                                                    <option value="{{ $option->id }}">
+                                                        #{{ $option->id }} {{ $option->name ?: 'Unnamed family' }}
+                                                    </option>
+                                                @endforeach
+                                            </select>
+                                            <button type="submit" class="px-2 py-1 rounded border border-gray-300 bg-white text-xs">Assign</button>
+                                        </div>
+                                    </form>
+                                </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="3" class="border text-gray-500">No unassigned MCUs.</td>
+                                <td colspan="4" class="border text-gray-500">No unassigned MCUs.</td>
                             </tr>
                         @endforelse
                     </tbody>

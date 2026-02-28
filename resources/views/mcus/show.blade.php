@@ -62,6 +62,25 @@
                     <button type="submit" class="px-3 py-2 rounded border border-gray-300 bg-white text-sm">Save MCU</button>
                 </div>
             </form>
+
+            <form method="POST" action="{{ route('mcus.family.update', $mcu) }}" class="mt-4 grid grid-cols-1 md:grid-cols-5 gap-3">
+                @csrf
+                @method('PATCH')
+                <div class="md:col-span-3">
+                    <label class="block text-xs text-gray-600 mb-1">Move To Family</label>
+                    <select name="family_id" class="w-full border rounded px-2 py-1">
+                        <option value="">Unassigned</option>
+                        @foreach($familyOptions as $option)
+                            <option value="{{ $option->id }}" {{ (int) $mcu->family_id === (int) $option->id ? 'selected' : '' }}>
+                                #{{ $option->id }} {{ $option->name ?: 'Unnamed family' }}
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="md:col-span-2 flex items-end">
+                    <button type="submit" class="px-3 py-2 rounded border border-gray-300 bg-white text-sm">Update Family</button>
+                </div>
+            </form>
         </div>
 
         <div class="bg-white dark:bg-gray-800 p-4 rounded shadow-sm">

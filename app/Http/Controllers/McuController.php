@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Family;
 use App\Models\MarketplaceProjection;
 use App\Models\Mcu;
 use App\Models\SellableUnit;
@@ -23,6 +24,7 @@ class McuController extends Controller
 
         return view('mcus.show', [
             'mcu' => $mcu,
+            'familyOptions' => Family::query()->orderBy('name')->orderBy('id')->get(['id', 'name']),
         ]);
     }
 
@@ -118,6 +120,19 @@ class McuController extends Controller
         ]);
 
         return back()->with('status', 'Sellable unit updated.');
+    }
+
+    public function updateFamily(Request $request, Mcu $mcu): RedirectResponse
+    {
+        $validated = $request->validate([
+            'family_id' => ['nullable', 'integer', 'exists:families,id'],
+        ]);
+
+        $mcu->update([
+            'family_id' => $validated['family_id'] ?? null,
+        ]);
+
+        return back()->with('status', 'MCU family updated.');
     }
 
     private function validateProjection(Request $request): array

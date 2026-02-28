@@ -85,6 +85,10 @@ class ProductController extends Controller
         $marketplaceOptions = Marketplace::query()
             ->orderBy('name')
             ->get(['id', 'name', 'country_code']);
+        $familyOptions = Family::query()
+            ->orderBy('name')
+            ->orderBy('id')
+            ->get(['id', 'name']);
 
         return view('products.index', [
             'families' => $families,
@@ -92,6 +96,7 @@ class ProductController extends Controller
             'q' => $q,
             'marketplace' => $marketplace,
             'marketplaceOptions' => $marketplaceOptions,
+            'familyOptions' => $familyOptions,
         ]);
     }
 
