@@ -205,6 +205,11 @@
             </div>
 
             <h3 class="text-sm font-semibold mb-3">Marketplace Projections</h3>
+            @php
+                $asinOptions = $mcu->identifiers->where('identifier_type', 'asin')->pluck('identifier_value')->unique()->values();
+                $sellerSkuOptions = $mcu->identifiers->where('identifier_type', 'seller_sku')->pluck('identifier_value')->unique()->values();
+                $fnskuOptions = $mcu->identifiers->where('identifier_type', 'fnsku')->pluck('identifier_value')->unique()->values();
+            @endphp
 
             <div class="overflow-x-auto mb-4">
                 <table class="w-full text-sm border" cellspacing="0" cellpadding="6">
@@ -212,11 +217,9 @@
                         <tr>
                             <th class="text-left border">Channel</th>
                             <th class="text-left border">Marketplace</th>
-                            <th class="text-left border">Parent ASIN</th>
                             <th class="text-left border">ASIN</th>
-                            <th class="text-left border">Seller SKU</th>
-                            <th class="text-left border">External ID</th>
                             <th class="text-left border">FNSKU</th>
+                            <th class="text-left border">Seller SKU</th>
                             <th class="text-left border">Fulfilment</th>
                             <th class="text-left border">Region</th>
                             <th class="text-left border">Active</th>
@@ -237,22 +240,46 @@
                                     </select>
                                 </td>
                                 <td class="border">
-                                    <input type="text" name="marketplace" value="{{ $projection->marketplace }}" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="marketplace">
+                                    <select name="marketplace" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
+                                        @foreach($marketplaceOptions as $option)
+                                            <option value="{{ $option['id'] }}" {{ $projection->marketplace === $option['id'] ? 'selected' : '' }}>{{ $option['label'] }}</option>
+                                        @endforeach
+                                        @if(!collect($marketplaceOptions)->pluck('id')->contains($projection->marketplace))
+                                            <option value="{{ $projection->marketplace }}" selected>{{ $projection->marketplace }}</option>
+                                        @endif
+                                    </select>
                                 </td>
                                 <td class="border">
-                                    <input type="text" name="parent_asin" value="{{ $projection->parent_asin }}" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="parent ASIN">
+                                    <select name="child_asin" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
+                                        <option value="">-</option>
+                                        @foreach($asinOptions as $asin)
+                                            <option value="{{ $asin }}" {{ $projection->child_asin === $asin ? 'selected' : '' }}>{{ $asin }}</option>
+                                        @endforeach
+                                        @if(!empty($projection->child_asin) && !$asinOptions->contains($projection->child_asin))
+                                            <option value="{{ $projection->child_asin }}" selected>{{ $projection->child_asin }}</option>
+                                        @endif
+                                    </select>
                                 </td>
                                 <td class="border">
-                                    <input type="text" name="child_asin" value="{{ $projection->child_asin }}" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="ASIN">
+                                    <select name="fnsku" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
+                                        <option value="">-</option>
+                                        @foreach($fnskuOptions as $fnsku)
+                                            <option value="{{ $fnsku }}" {{ $projection->fnsku === $fnsku ? 'selected' : '' }}>{{ $fnsku }}</option>
+                                        @endforeach
+                                        @if(!empty($projection->fnsku) && !$fnskuOptions->contains($projection->fnsku))
+                                            <option value="{{ $projection->fnsku }}" selected>{{ $projection->fnsku }}</option>
+                                        @endif
+                                    </select>
                                 </td>
                                 <td class="border">
-                                    <input type="text" name="seller_sku" value="{{ $projection->seller_sku }}" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="seller SKU">
-                                </td>
-                                <td class="border">
-                                    <input type="text" name="external_product_id" value="{{ $projection->external_product_id }}" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="external product id">
-                                </td>
-                                <td class="border">
-                                    <input type="text" name="fnsku" value="{{ $projection->fnsku }}" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="FNSKU">
+                                    <select name="seller_sku" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
+                                        @foreach($sellerSkuOptions as $sellerSku)
+                                            <option value="{{ $sellerSku }}" {{ $projection->seller_sku === $sellerSku ? 'selected' : '' }}>{{ $sellerSku }}</option>
+                                        @endforeach
+                                        @if(!$sellerSkuOptions->contains($projection->seller_sku))
+                                            <option value="{{ $projection->seller_sku }}" selected>{{ $projection->seller_sku }}</option>
+                                        @endif
+                                    </select>
                                 </td>
                                 <td class="border">
                                     <select name="fulfilment_type" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
@@ -286,7 +313,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="11" class="border text-gray-500">No marketplace identifier rows yet.</td>
+                                <td colspan="9" class="border text-gray-500">No marketplace identifier rows yet.</td>
                             </tr>
                         @endforelse
                         <tr class="bg-gray-50">
@@ -298,22 +325,34 @@
                                 </select>
                             </td>
                             <td class="border">
-                                <input name="marketplace" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs" required>
+                                <select name="marketplace" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs" required>
+                                    @foreach($marketplaceOptions as $option)
+                                        <option value="{{ $option['id'] }}">{{ $option['label'] }}</option>
+                                    @endforeach
+                                </select>
                             </td>
                             <td class="border">
-                                <input name="parent_asin" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs">
+                                <select name="child_asin" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs">
+                                    <option value="">-</option>
+                                    @foreach($asinOptions as $asin)
+                                        <option value="{{ $asin }}">{{ $asin }}</option>
+                                    @endforeach
+                                </select>
                             </td>
                             <td class="border">
-                                <input name="child_asin" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs">
+                                <select name="fnsku" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs">
+                                    <option value="">-</option>
+                                    @foreach($fnskuOptions as $fnsku)
+                                        <option value="{{ $fnsku }}">{{ $fnsku }}</option>
+                                    @endforeach
+                                </select>
                             </td>
                             <td class="border">
-                                <input name="seller_sku" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs" required>
-                            </td>
-                            <td class="border">
-                                <input name="external_product_id" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs">
-                            </td>
-                            <td class="border">
-                                <input name="fnsku" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs">
+                                <select name="seller_sku" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs" required>
+                                    @foreach($sellerSkuOptions as $sellerSku)
+                                        <option value="{{ $sellerSku }}">{{ $sellerSku }}</option>
+                                    @endforeach
+                                </select>
                             </td>
                             <td class="border">
                                 <select name="fulfilment_type" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs">

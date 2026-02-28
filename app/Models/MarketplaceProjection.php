@@ -14,7 +14,6 @@ class MarketplaceProjection extends Model
         'parent_asin',
         'child_asin',
         'seller_sku',
-        'external_product_id',
         'fnsku',
         'fulfilment_type',
         'fulfilment_region',

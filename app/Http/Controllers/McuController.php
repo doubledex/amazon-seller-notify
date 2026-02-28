@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Family;
+use App\Models\Marketplace;
 use App\Models\McuIdentifier;
 use App\Models\MarketplaceProjection;
 use App\Models\Mcu;
@@ -28,6 +29,16 @@ class McuController extends Controller
         return view('mcus.show', [
             'mcu' => $mcu,
             'familyOptions' => Family::query()->orderBy('name')->orderBy('id')->get(['id', 'name']),
+            'marketplaceOptions' => Marketplace::query()
+                ->orderBy('name')
+                ->get(['id', 'name', 'country_code'])
+                ->map(function (Marketplace $marketplace) {
+                    $country = strtoupper(trim((string) ($marketplace->country_code ?? '')));
+                    return [
+                        'id' => $marketplace->id,
+                        'label' => trim($this->countryFlag($country) . ' ' . (($marketplace->name ?: $marketplace->id) . ' (' . $marketplace->id . ')')),
+                    ];
+                }),
         ]);
     }
 
@@ -65,6 +76,11 @@ class McuController extends Controller
         if ($channel === 'amazon' && $childAsin === '') {
             return back()->withErrors(['child_asin' => 'ASIN is required for amazon channel.'])->withInput();
         }
+        $this->assertProjectionIdentifiersBelongToMcu($mcu, [
+            'child_asin' => $childAsin,
+            'seller_sku' => trim((string) $validated['seller_sku']),
+            'fnsku' => $this->uppercaseOrNull($validated['fnsku'] ?? null) ?? '',
+        ]);
         if ($childAsin !== '') {
             $this->assertAsinAvailable($mcu, $childAsin);
         }
@@ -74,10 +90,9 @@ class McuController extends Controller
             'mcu_id' => $mcu->id,
             'channel' => $channel,
             'marketplace' => trim((string) $validated['marketplace']),
-            'parent_asin' => $this->uppercaseOrNull($validated['parent_asin'] ?? null),
+            'parent_asin' => null,
             'child_asin' => $childAsin !== '' ? $childAsin : null,
             'seller_sku' => trim((string) $validated['seller_sku']),
-            'external_product_id' => $this->nullableTrimmed($validated['external_product_id'] ?? null),
             'fnsku' => $this->uppercaseOrNull($validated['fnsku'] ?? null),
             'fulfilment_type' => strtoupper(trim((string) ($validated['fulfilment_type'] ?? 'MFN'))),
             'fulfilment_region' => strtoupper(trim((string) ($validated['fulfilment_region'] ?? 'EU'))),
@@ -105,6 +120,11 @@ class McuController extends Controller
         if ($channel === 'amazon' && $childAsin === '') {
             return back()->withErrors(['child_asin' => 'ASIN is required for amazon channel.'])->withInput();
         }
+        $this->assertProjectionIdentifiersBelongToMcu($mcu, [
+            'child_asin' => $childAsin,
+            'seller_sku' => trim((string) $validated['seller_sku']),
+            'fnsku' => $this->uppercaseOrNull($validated['fnsku'] ?? null) ?? '',
+        ]);
         if ($childAsin !== '') {
             $this->assertAsinAvailable($mcu, $childAsin);
         }
@@ -112,10 +132,8 @@ class McuController extends Controller
         $projection->update([
             'channel' => $channel,
             'marketplace' => trim((string) $validated['marketplace']),
-            'parent_asin' => $this->uppercaseOrNull($validated['parent_asin'] ?? null),
             'child_asin' => $childAsin !== '' ? $childAsin : null,
             'seller_sku' => trim((string) $validated['seller_sku']),
-            'external_product_id' => $this->nullableTrimmed($validated['external_product_id'] ?? null),
             'fnsku' => $this->uppercaseOrNull($validated['fnsku'] ?? null),
             'fulfilment_type' => strtoupper(trim((string) ($validated['fulfilment_type'] ?? 'MFN'))),
             'fulfilment_region' => strtoupper(trim((string) ($validated['fulfilment_region'] ?? 'EU'))),
@@ -242,11 +260,9 @@ class McuController extends Controller
     {
         return $request->validate([
             'channel' => ['required', 'in:amazon,woocommerce,other'],
-            'marketplace' => ['required', 'string', 'max:32'],
-            'parent_asin' => ['nullable', 'string', 'max:32'],
+            'marketplace' => ['required', 'string', 'exists:marketplaces,id'],
             'child_asin' => ['nullable', 'string', 'max:32'],
             'seller_sku' => ['required', 'string', 'max:128'],
-            'external_product_id' => ['nullable', 'string', 'max:191'],
             'fnsku' => ['nullable', 'string', 'max:64'],
             'fulfilment_type' => ['nullable', 'in:FBA,MFN'],
             'fulfilment_region' => ['nullable', 'in:EU,NA,FE'],
@@ -322,6 +338,41 @@ class McuController extends Controller
         }
     }
 
+    private function assertProjectionIdentifiersBelongToMcu(Mcu $mcu, array $identifierValues): void
+    {
+        $asin = trim((string) ($identifierValues['child_asin'] ?? ''));
+        $sellerSku = trim((string) ($identifierValues['seller_sku'] ?? ''));
+        $fnsku = trim((string) ($identifierValues['fnsku'] ?? ''));
+
+        if ($asin !== '' && !$this->identifierExists($mcu, 'asin', $asin)) {
+            throw ValidationException::withMessages([
+                'child_asin' => 'ASIN must be selected from existing MCU identifiers.',
+            ]);
+        }
+
+        if ($sellerSku === '' || !$this->identifierExists($mcu, 'seller_sku', $sellerSku)) {
+            throw ValidationException::withMessages([
+                'seller_sku' => 'Seller SKU must be selected from existing MCU identifiers.',
+            ]);
+        }
+
+        if ($fnsku !== '' && !$this->identifierExists($mcu, 'fnsku', $fnsku)) {
+            throw ValidationException::withMessages([
+                'fnsku' => 'FNSKU must be selected from existing MCU identifiers.',
+            ]);
+        }
+    }
+
+    private function identifierExists(Mcu $mcu, string $type, string $value): bool
+    {
+        $queryValue = in_array($type, ['asin', 'fnsku'], true) ? strtoupper($value) : $value;
+        return McuIdentifier::query()
+            ->where('mcu_id', $mcu->id)
+            ->where('identifier_type', $type)
+            ->where('identifier_value', $queryValue)
+            ->exists();
+    }
+
     private function syncProjectionIdentifiers(
         Mcu $mcu,
         string $channel,
@@ -378,5 +429,19 @@ class McuController extends Controller
                 ]
             );
         }
+    }
+
+    private function countryFlag(string $countryCode): string
+    {
+        if ($countryCode === '' || strlen($countryCode) !== 2) {
+            return '';
+        }
+
+        $codepoints = array_map(
+            fn (string $letter) => 127397 + ord($letter),
+            str_split($countryCode)
+        );
+
+        return mb_chr($codepoints[0]) . mb_chr($codepoints[1]);
     }
 }
