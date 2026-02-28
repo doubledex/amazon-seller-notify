@@ -9,6 +9,7 @@ use App\Models\Family;
 use App\Models\Mcu;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\View\View;
 
 class ProductController extends Controller
@@ -17,6 +18,15 @@ class ProductController extends Controller
     {
         $q = trim((string) $request->query('q', ''));
         $marketplace = trim((string) $request->query('marketplace', ''));
+        $mcuSort = strtolower(trim((string) $request->query('mcu_sort', 'name')));
+        $mcuDir = strtolower(trim((string) $request->query('mcu_dir', 'asc')));
+        $allowedSorts = ['name', 'identifier', 'asin', 'seller_sku', 'fnsku', 'barcode'];
+        if (!in_array($mcuSort, $allowedSorts, true)) {
+            $mcuSort = 'name';
+        }
+        if (!in_array($mcuDir, ['asc', 'desc'], true)) {
+            $mcuDir = 'asc';
+        }
         $perPage = 15;
 
         $families = Family::query()
@@ -55,6 +65,12 @@ class ProductController extends Controller
             ->orderBy('id')
             ->paginate($perPage)
             ->withQueryString();
+        $families->setCollection(
+            $families->getCollection()->map(function (Family $family) use ($mcuSort, $mcuDir) {
+                $family->setRelation('mcus', $this->sortMcuCollection($family->mcus, $mcuSort, $mcuDir));
+                return $family;
+            })
+        );
 
         $unassignedMcus = Mcu::query()
             ->whereNull('family_id')
@@ -81,6 +97,7 @@ class ProductController extends Controller
             ->orderBy('id')
             ->simplePaginate(10, ['*'], 'unassigned_page')
             ->withQueryString();
+        $unassignedMcus->setCollection($this->sortMcuCollection($unassignedMcus->getCollection(), $mcuSort, $mcuDir));
 
         $marketplaceOptions = Marketplace::query()
             ->orderBy('name')
@@ -95,9 +112,35 @@ class ProductController extends Controller
             'unassignedMcus' => $unassignedMcus,
             'q' => $q,
             'marketplace' => $marketplace,
+            'mcuSort' => $mcuSort,
+            'mcuDir' => $mcuDir,
             'marketplaceOptions' => $marketplaceOptions,
             'familyOptions' => $familyOptions,
         ]);
+    }
+
+    private function sortMcuCollection(Collection $mcus, string $sort, string $dir): Collection
+    {
+        $sorted = $mcus->sortBy(function (Mcu $mcu) use ($sort) {
+            return strtolower($this->mcuSortValue($mcu, $sort));
+        });
+
+        return $dir === 'desc' ? $sorted->reverse()->values() : $sorted->values();
+    }
+
+    private function mcuSortValue(Mcu $mcu, string $sort): string
+    {
+        $projection = $mcu->marketplaceProjections->first();
+        $sellableUnit = $mcu->sellableUnits->first();
+
+        return match ($sort) {
+            'asin' => (string) ($projection->child_asin ?? ''),
+            'seller_sku' => (string) ($projection->seller_sku ?? ''),
+            'fnsku' => (string) ($projection->fnsku ?? ''),
+            'barcode' => (string) ($sellableUnit->barcode ?? ''),
+            'identifier' => (string) ($projection->child_asin ?? $projection->seller_sku ?? $projection->fnsku ?? $sellableUnit->barcode ?? ''),
+            default => (string) ($mcu->name ?? ''),
+        };
     }
 
     public function updateFamily(Request $request, Family $family): RedirectResponse

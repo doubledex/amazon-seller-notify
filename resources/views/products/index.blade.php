@@ -19,7 +19,7 @@
         @endif
 
         <div class="bg-white dark:bg-gray-800 p-4 rounded shadow-sm">
-            <form method="GET" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <form method="GET" class="grid grid-cols-1 md:grid-cols-5 gap-3">
                 <div>
                     <label class="block text-sm mb-1">Search (Family / MCU / ASIN / SKU)</label>
                     <input type="text" name="q" value="{{ $q }}" class="w-full border rounded px-2 py-1" />
@@ -33,6 +33,24 @@
                                 {{ $option->name ?: $option->id }}
                             </option>
                         @endforeach
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm mb-1">MCU Sort</label>
+                    <select name="mcu_sort" class="w-full border rounded px-2 py-1">
+                        <option value="name" {{ $mcuSort === 'name' ? 'selected' : '' }}>Name</option>
+                        <option value="identifier" {{ $mcuSort === 'identifier' ? 'selected' : '' }}>Identifier</option>
+                        <option value="asin" {{ $mcuSort === 'asin' ? 'selected' : '' }}>ASIN</option>
+                        <option value="seller_sku" {{ $mcuSort === 'seller_sku' ? 'selected' : '' }}>Seller SKU</option>
+                        <option value="fnsku" {{ $mcuSort === 'fnsku' ? 'selected' : '' }}>FNSKU</option>
+                        <option value="barcode" {{ $mcuSort === 'barcode' ? 'selected' : '' }}>Barcode</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm mb-1">Direction</label>
+                    <select name="mcu_dir" class="w-full border rounded px-2 py-1">
+                        <option value="asc" {{ $mcuDir === 'asc' ? 'selected' : '' }}>Ascending</option>
+                        <option value="desc" {{ $mcuDir === 'desc' ? 'selected' : '' }}>Descending</option>
                     </select>
                 </div>
                 <div class="flex items-end">
