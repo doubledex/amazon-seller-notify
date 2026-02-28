@@ -170,44 +170,39 @@
                                 <td colspan="7" class="border text-gray-500">No MCU identifiers yet.</td>
                             </tr>
                         @endforelse
+                        <tr class="bg-gray-50">
+                            <td class="border">
+                                <select name="identifier_type" form="identifier-create-form" class="w-full border rounded px-2 py-1 text-xs">
+                                    @foreach(['asin', 'seller_sku', 'fnsku', 'barcode', 'cost_identifier', 'other'] as $type)
+                                        <option value="{{ $type }}">{{ $type }}</option>
+                                    @endforeach
+                                </select>
+                            </td>
+                            <td class="border">
+                                <input name="identifier_value" form="identifier-create-form" class="w-full border rounded px-2 py-1 text-xs" required>
+                            </td>
+                            <td class="border">
+                                <input name="channel" form="identifier-create-form" class="w-full border rounded px-2 py-1 text-xs" placeholder="amazon">
+                            </td>
+                            <td class="border">
+                                <input name="marketplace" form="identifier-create-form" class="w-full border rounded px-2 py-1 text-xs">
+                            </td>
+                            <td class="border">
+                                <input name="region" form="identifier-create-form" class="w-full border rounded px-2 py-1 text-xs" placeholder="EU">
+                            </td>
+                            <td class="border text-center">
+                                <input type="checkbox" name="is_projection_identifier" value="1" form="identifier-create-form">
+                            </td>
+                            <td class="border">
+                                <button type="submit" form="identifier-create-form" class="px-2 py-1 rounded border border-gray-300 bg-white text-xs">Add</button>
+                                <form id="identifier-create-form" method="POST" action="{{ route('mcus.identifiers.store', $mcu) }}" class="hidden">
+                                    @csrf
+                                </form>
+                            </td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
-
-            <h4 class="text-xs font-semibold mb-2">Add MCU Identifier</h4>
-            <form method="POST" action="{{ route('mcus.identifiers.store', $mcu) }}" class="grid grid-cols-1 md:grid-cols-7 gap-3 mb-4">
-                @csrf
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Type</label>
-                    <select name="identifier_type" class="w-full border rounded px-2 py-1">
-                        @foreach(['asin', 'seller_sku', 'fnsku', 'barcode', 'cost_identifier', 'other'] as $type)
-                            <option value="{{ $type }}">{{ $type }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Value</label>
-                    <input name="identifier_value" class="w-full border rounded px-2 py-1" required>
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Channel</label>
-                    <input name="channel" class="w-full border rounded px-2 py-1" placeholder="amazon">
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Marketplace</label>
-                    <input name="marketplace" class="w-full border rounded px-2 py-1">
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Region</label>
-                    <input name="region" class="w-full border rounded px-2 py-1" placeholder="EU">
-                </div>
-                <div class="flex items-end">
-                    <label class="text-xs"><input type="checkbox" name="is_projection_identifier" value="1"> projection identifier</label>
-                </div>
-                <div class="flex items-end">
-                    <button type="submit" class="px-3 py-2 rounded border border-gray-300 bg-white text-sm">Add</button>
-                </div>
-            </form>
 
             <h3 class="text-sm font-semibold mb-3">Marketplace Projections</h3>
 
