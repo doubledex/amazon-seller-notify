@@ -20,6 +20,8 @@ class ReportJobOrchestrator
 
     private const DEFAULT_POLL_DELAY_SECONDS = 30;
     private const EU_COUNTRY_CODES = ['BE', 'DE', 'ES', 'FR', 'GB', 'IE', 'IT', 'NL', 'PL', 'SE'];
+    private const NA_COUNTRY_CODES = ['US', 'CA', 'MX', 'BR'];
+    private const FE_COUNTRY_CODES = ['JP', 'SG', 'AU', 'IN', 'AE', 'SA', 'TR', 'EG'];
 
     public function __construct(
         private readonly SpApiReportLifecycleService $lifecycle,
@@ -44,7 +46,7 @@ class ReportJobOrchestrator
         $reportType = strtoupper(trim($reportType));
         $reportOptions = $this->normalizeReportOptions($reportType, $reportOptions);
         [$dataStartTime, $dataEndTime] = $this->normalizeDateRange($reportType, $dataStartTime, $dataEndTime);
-        $marketplaceIds = $this->resolveMarketplaceIds($marketplaceIds, $processor);
+        $marketplaceIds = $this->resolveMarketplaceIds($marketplaceIds, $processor, $region);
         if (empty($marketplaceIds)) {
             return ['created' => 0, 'jobs' => []];
         }
@@ -268,7 +270,7 @@ class ReportJobOrchestrator
         };
     }
 
-    private function resolveMarketplaceIds(?array $marketplaceIds, ?string $processor): array
+    private function resolveMarketplaceIds(?array $marketplaceIds, ?string $processor, ?string $region): array
     {
         $ids = array_values(array_filter(array_map('strval', $marketplaceIds ?? [])));
         if (!empty($ids)) {
@@ -276,8 +278,14 @@ class ReportJobOrchestrator
         }
 
         if (trim((string) $processor) === 'marketplace_listings') {
+            $countryCodes = match (strtoupper(trim((string) $region))) {
+                'NA' => self::NA_COUNTRY_CODES,
+                'FE' => self::FE_COUNTRY_CODES,
+                default => self::EU_COUNTRY_CODES,
+            };
+
             return Marketplace::query()
-                ->whereIn('country_code', self::EU_COUNTRY_CODES)
+                ->whereIn('country_code', $countryCodes)
                 ->pluck('id')
                 ->values()
                 ->all();
