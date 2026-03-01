@@ -6,6 +6,10 @@ use Illuminate\Support\Facades\DB;
 
 class LandedCostResolver
 {
+    private const UK_COUNTRY_CODES = ['GB', 'UK'];
+    private const EU_COUNTRY_CODES = ['AT', 'BE', 'DE', 'DK', 'ES', 'FI', 'FR', 'IE', 'IT', 'LU', 'NL', 'NO', 'PL', 'SE', 'CH', 'TR'];
+    private const NA_COUNTRY_CODES = ['US', 'CA', 'MX', 'BR'];
+
     /**
      * @param array<int,string> $orderIds
      * @return array<string,array<string,mixed>>
@@ -45,7 +49,8 @@ class LandedCostResolver
             ];
         }
 
-        $resolved = $this->resolveItemContexts($contexts);
+        $resolvedMcu = $this->resolveMcuItemContexts($contexts);
+        $resolvedFallback = $this->resolveItemContexts($contexts);
 
         $totals = [];
         foreach ($contexts as $context) {
@@ -65,7 +70,8 @@ class LandedCostResolver
 
             $totals[$orderId]['total_items']++;
 
-            $resolvedItem = $resolved[(string) ($context['context_key'] ?? '')] ?? null;
+            $contextKey = (string) ($context['context_key'] ?? '');
+            $resolvedItem = $resolvedMcu[$contextKey] ?? $resolvedFallback[$contextKey] ?? null;
             if (!is_array($resolvedItem) || !isset($resolvedItem['unit_landed_cost'])) {
                 continue;
             }
@@ -256,6 +262,299 @@ class LandedCostResolver
         return $resolved;
     }
 
+    /**
+     * Resolve item contexts to MCU cost rows and return summed unit cost when a clean match exists.
+     *
+     * @param array<int,array<string,mixed>> $contexts
+     * @return array<string,array<string,mixed>> keyed by context_key
+     */
+    private function resolveMcuItemContexts(array $contexts): array
+    {
+        $normalized = [];
+        $asins = [];
+        $skus = [];
+        $marketplaceIds = [];
+        $dates = [];
+
+        foreach ($contexts as $context) {
+            $key = trim((string) ($context['context_key'] ?? ''));
+            if ($key === '') {
+                continue;
+            }
+
+            $asin = strtoupper(trim((string) ($context['asin'] ?? '')));
+            $sellerSku = trim((string) ($context['seller_sku'] ?? ''));
+            $marketplaceId = trim((string) ($context['marketplace_id'] ?? ''));
+            $effectiveDate = trim((string) ($context['effective_date'] ?? ''));
+            if ($effectiveDate === '') {
+                $effectiveDate = now()->toDateString();
+            }
+
+            if ($asin === '' && $sellerSku === '') {
+                continue;
+            }
+
+            $normalized[$key] = [
+                'asin' => $asin,
+                'seller_sku' => $sellerSku,
+                'marketplace_id' => $marketplaceId,
+                'effective_date' => $effectiveDate,
+            ];
+
+            if ($asin !== '') {
+                $asins[] = $asin;
+            }
+            if ($sellerSku !== '') {
+                $skus[] = $sellerSku;
+            }
+            if ($marketplaceId !== '') {
+                $marketplaceIds[] = $marketplaceId;
+            }
+            $dates[] = $effectiveDate;
+        }
+
+        if (empty($normalized)) {
+            return [];
+        }
+
+        $asins = array_values(array_unique($asins));
+        $skus = array_values(array_unique($skus));
+        $marketplaceIds = array_values(array_unique($marketplaceIds));
+
+        $projectionRows = DB::table('marketplace_projections')
+            ->select(['id', 'mcu_id', 'marketplace', 'child_asin', 'seller_sku'])
+            ->where('channel', 'amazon')
+            ->where(function ($query) use ($asins, $skus) {
+                if (!empty($asins)) {
+                    $query->orWhereIn('child_asin', $asins);
+                }
+                if (!empty($skus)) {
+                    $query->orWhereIn('seller_sku', $skus);
+                }
+            })
+            ->when(!empty($marketplaceIds), fn ($query) => $query->whereIn('marketplace', $marketplaceIds))
+            ->get();
+
+        $projectionByMarketplaceSku = [];
+        $projectionByMarketplaceAsin = [];
+        foreach ($projectionRows as $projection) {
+            $projectionMarketplace = trim((string) ($projection->marketplace ?? ''));
+            $projectionMcuId = (int) ($projection->mcu_id ?? 0);
+            if ($projectionMarketplace === '' || $projectionMcuId <= 0) {
+                continue;
+            }
+
+            $projectionSku = trim((string) ($projection->seller_sku ?? ''));
+            if ($projectionSku !== '') {
+                $projectionByMarketplaceSku[$projectionMarketplace . '|' . $projectionSku][] = $projection;
+            }
+
+            $projectionAsin = strtoupper(trim((string) ($projection->child_asin ?? '')));
+            if ($projectionAsin !== '') {
+                $projectionByMarketplaceAsin[$projectionMarketplace . '|' . $projectionAsin][] = $projection;
+            }
+        }
+
+        $identifierRows = DB::table('mcu_identifiers')
+            ->select(['id', 'mcu_id', 'identifier_type', 'identifier_value', 'channel', 'marketplace'])
+            ->whereIn('identifier_type', ['asin', 'seller_sku'])
+            ->where(function ($query) use ($asins, $skus) {
+                if (!empty($asins)) {
+                    $query->orWhere(function ($sub) use ($asins) {
+                        $sub->where('identifier_type', 'asin')->whereIn('identifier_value', $asins);
+                    });
+                }
+                if (!empty($skus)) {
+                    $query->orWhere(function ($sub) use ($skus) {
+                        $sub->where('identifier_type', 'seller_sku')->whereIn('identifier_value', $skus);
+                    });
+                }
+            })
+            ->whereIn('channel', ['amazon', ''])
+            ->where(function ($query) use ($marketplaceIds) {
+                $query->where('marketplace', '');
+                if (!empty($marketplaceIds)) {
+                    $query->orWhereIn('marketplace', $marketplaceIds);
+                }
+            })
+            ->get();
+
+        $identifierByTypeValue = [];
+        foreach ($identifierRows as $identifier) {
+            $type = trim((string) ($identifier->identifier_type ?? ''));
+            $value = trim((string) ($identifier->identifier_value ?? ''));
+            $mcuId = (int) ($identifier->mcu_id ?? 0);
+            if ($type === '' || $value === '' || $mcuId <= 0) {
+                continue;
+            }
+            $identifierByTypeValue[$type . '|' . $value][] = $identifier;
+        }
+
+        $mcuByContext = [];
+        $mcuIds = [];
+        foreach ($normalized as $contextKey => $context) {
+            $marketplaceId = $context['marketplace_id'];
+            $asin = $context['asin'];
+            $sellerSku = $context['seller_sku'];
+
+            $bestMcuId = null;
+            $bestRank = null;
+
+            $projectionCandidates = [];
+            if ($sellerSku !== '' && $marketplaceId !== '') {
+                $projectionCandidates = array_merge($projectionCandidates, $projectionByMarketplaceSku[$marketplaceId . '|' . $sellerSku] ?? []);
+            }
+            if ($asin !== '' && $marketplaceId !== '') {
+                $projectionCandidates = array_merge($projectionCandidates, $projectionByMarketplaceAsin[$marketplaceId . '|' . $asin] ?? []);
+            }
+
+            foreach ($projectionCandidates as $projection) {
+                $rank = 1000;
+                if ($sellerSku !== '' && trim((string) ($projection->seller_sku ?? '')) === $sellerSku) {
+                    $rank += 200;
+                }
+                if ($asin !== '' && strtoupper(trim((string) ($projection->child_asin ?? ''))) === $asin) {
+                    $rank += 100;
+                }
+                $rank += (int) ($projection->id ?? 0);
+
+                if ($bestRank === null || $rank > $bestRank) {
+                    $bestRank = $rank;
+                    $bestMcuId = (int) ($projection->mcu_id ?? 0);
+                }
+            }
+
+            if ($bestMcuId === null) {
+                $identifierCandidates = [];
+                if ($sellerSku !== '') {
+                    $identifierCandidates = array_merge($identifierCandidates, $identifierByTypeValue['seller_sku|' . $sellerSku] ?? []);
+                }
+                if ($asin !== '') {
+                    $identifierCandidates = array_merge($identifierCandidates, $identifierByTypeValue['asin|' . $asin] ?? []);
+                }
+
+                foreach ($identifierCandidates as $identifier) {
+                    $identifierMarketplace = trim((string) ($identifier->marketplace ?? ''));
+                    if ($identifierMarketplace !== '' && $identifierMarketplace !== $marketplaceId) {
+                        continue;
+                    }
+
+                    $rank = 500;
+                    $rank += $identifierMarketplace === $marketplaceId && $marketplaceId !== '' ? 100 : 50;
+                    $rank += (string) ($identifier->identifier_type ?? '') === 'seller_sku' ? 30 : 20;
+                    $rank += (int) ($identifier->id ?? 0);
+
+                    if ($bestRank === null || $rank > $bestRank) {
+                        $bestRank = $rank;
+                        $bestMcuId = (int) ($identifier->mcu_id ?? 0);
+                    }
+                }
+            }
+
+            if ($bestMcuId !== null && $bestMcuId > 0) {
+                $mcuByContext[$contextKey] = $bestMcuId;
+                $mcuIds[] = $bestMcuId;
+            }
+        }
+
+        if (empty($mcuByContext)) {
+            return [];
+        }
+
+        $mcuIds = array_values(array_unique($mcuIds));
+        $maxDate = !empty($dates) ? max($dates) : now()->toDateString();
+        $minDate = !empty($dates) ? min($dates) : now()->toDateString();
+
+        $mcuCostRows = DB::table('mcu_cost_values')
+            ->select(['id', 'mcu_id', 'amount', 'currency', 'effective_from', 'effective_to', 'marketplace', 'region'])
+            ->whereIn('mcu_id', $mcuIds)
+            ->where('effective_from', '<=', $maxDate)
+            ->where(function ($query) use ($minDate) {
+                $query->whereNull('effective_to')->orWhere('effective_to', '>=', $minDate);
+            })
+            ->orderBy('effective_from')
+            ->orderBy('id')
+            ->get();
+
+        if ($mcuCostRows->isEmpty()) {
+            return [];
+        }
+
+        $costRowsByMcu = [];
+        foreach ($mcuCostRows as $row) {
+            $costRowsByMcu[(int) ($row->mcu_id ?? 0)][] = $row;
+        }
+
+        $marketplaceCountries = DB::table('marketplaces')
+            ->whereIn('id', $marketplaceIds)
+            ->pluck('country_code', 'id')
+            ->map(fn ($country) => strtoupper(trim((string) $country)))
+            ->all();
+
+        $resolved = [];
+        foreach ($normalized as $contextKey => $context) {
+            $mcuId = $mcuByContext[$contextKey] ?? null;
+            if ($mcuId === null) {
+                continue;
+            }
+
+            $contextMarketplace = $context['marketplace_id'];
+            $contextDate = $context['effective_date'];
+            $contextRegion = $this->regionForCountryCode($marketplaceCountries[$contextMarketplace] ?? '');
+
+            $activeRows = [];
+            foreach ($costRowsByMcu[$mcuId] ?? [] as $row) {
+                $effectiveFrom = trim((string) ($row->effective_from ?? ''));
+                $effectiveTo = trim((string) ($row->effective_to ?? ''));
+                if ($effectiveFrom === '' || $effectiveFrom > $contextDate) {
+                    continue;
+                }
+                if ($effectiveTo !== '' && $effectiveTo < $contextDate) {
+                    continue;
+                }
+
+                $rowMarketplace = trim((string) ($row->marketplace ?? ''));
+                $rowRegion = strtoupper(trim((string) ($row->region ?? '')));
+                if ($rowMarketplace !== '' && $rowMarketplace !== $contextMarketplace) {
+                    continue;
+                }
+                if ($rowRegion !== '' && $rowRegion !== $contextRegion) {
+                    continue;
+                }
+
+                $activeRows[] = $row;
+            }
+
+            if (empty($activeRows)) {
+                continue;
+            }
+
+            $currencyCodes = [];
+            $unitLandedCost = 0.0;
+            foreach ($activeRows as $row) {
+                $currency = strtoupper(trim((string) ($row->currency ?? '')));
+                if ($currency === '') {
+                    continue;
+                }
+                $currencyCodes[$currency] = true;
+                $unitLandedCost += (float) ($row->amount ?? 0.0);
+            }
+
+            if (count($currencyCodes) !== 1) {
+                // Keep resolver deterministic; mixed-currency MCU rows need explicit FX handling.
+                continue;
+            }
+
+            $resolved[$contextKey] = [
+                'mcu_id' => $mcuId,
+                'unit_landed_cost' => round($unitLandedCost, 4),
+                'currency' => array_key_first($currencyCodes),
+            ];
+        }
+
+        return $resolved;
+    }
+
     private function chooseLayer(array $layers, string $effectiveDate): array
     {
         $active = [];
@@ -349,5 +648,24 @@ class LandedCostResolver
         }
 
         return max(0, $quantityOrdered);
+    }
+
+    private function regionForCountryCode(string $countryCode): string
+    {
+        $countryCode = strtoupper(trim($countryCode));
+        if ($countryCode === '') {
+            return '';
+        }
+        if (in_array($countryCode, self::UK_COUNTRY_CODES, true)) {
+            return 'UK';
+        }
+        if (in_array($countryCode, self::EU_COUNTRY_CODES, true)) {
+            return 'EU';
+        }
+        if (in_array($countryCode, self::NA_COUNTRY_CODES, true)) {
+            return 'NA';
+        }
+
+        return '';
     }
 }
