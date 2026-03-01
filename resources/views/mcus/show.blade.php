@@ -210,6 +210,7 @@
                 $sellerSkuOptions = $mcu->identifiers->where('identifier_type', 'seller_sku')->pluck('identifier_value')->unique()->values();
                 $fnskuOptions = $mcu->identifiers->where('identifier_type', 'fnsku')->pluck('identifier_value')->unique()->values();
             @endphp
+            <p class="text-xs text-gray-500 mb-2">Amazon projections are read-only and synced from Amazon.</p>
 
             <div class="overflow-x-auto mb-4">
                 <table class="w-full text-sm border" cellspacing="0" cellpadding="6">
@@ -230,85 +231,103 @@
                         @forelse($mcu->marketplaceProjections as $projection)
                             @php
                                 $updateFormId = 'projection-update-' . $projection->id;
+                                $isAmazonProjection = ($projection->channel ?? 'amazon') === 'amazon';
                             @endphp
                             <tr>
+                                @if($isAmazonProjection)
+                                    <td class="border">{{ $projection->channel ?? 'amazon' }}</td>
+                                    <td class="border">
+                                        {{ collect($marketplaceOptions)->firstWhere('id', $projection->marketplace)['label'] ?? $projection->marketplace }}
+                                    </td>
+                                    <td class="border">{{ $projection->child_asin ?: '-' }}</td>
+                                    <td class="border">{{ $projection->fnsku ?: '-' }}</td>
+                                    <td class="border">{{ $projection->seller_sku }}</td>
+                                    <td class="border">{{ strtoupper((string) $projection->fulfilment_type) ?: '-' }}</td>
+                                    <td class="border">{{ strtoupper((string) $projection->fulfilment_region) ?: '-' }}</td>
+                                    <td class="border text-center">{{ $projection->active ? 'yes' : 'no' }}</td>
+                                @else
+                                    <td class="border">
+                                        <select name="channel" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
+                                            @foreach(['woocommerce', 'other'] as $channel)
+                                                <option value="{{ $channel }}" {{ ($projection->channel ?? 'other') === $channel ? 'selected' : '' }}>{{ $channel }}</option>
+                                            @endforeach
+                                        </select>
+                                    </td>
+                                    <td class="border">
+                                        <select name="marketplace" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
+                                            @foreach($marketplaceOptions as $option)
+                                                <option value="{{ $option['id'] }}" {{ $projection->marketplace === $option['id'] ? 'selected' : '' }}>{{ $option['label'] }}</option>
+                                            @endforeach
+                                            @if(!collect($marketplaceOptions)->pluck('id')->contains($projection->marketplace))
+                                                <option value="{{ $projection->marketplace }}" selected>{{ $projection->marketplace }}</option>
+                                            @endif
+                                        </select>
+                                    </td>
+                                    <td class="border">
+                                        <select name="child_asin" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
+                                            <option value="">-</option>
+                                            @foreach($asinOptions as $asin)
+                                                <option value="{{ $asin }}" {{ $projection->child_asin === $asin ? 'selected' : '' }}>{{ $asin }}</option>
+                                            @endforeach
+                                            @if(!empty($projection->child_asin) && !$asinOptions->contains($projection->child_asin))
+                                                <option value="{{ $projection->child_asin }}" selected>{{ $projection->child_asin }}</option>
+                                            @endif
+                                        </select>
+                                    </td>
+                                    <td class="border">
+                                        <select name="fnsku" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
+                                            <option value="">-</option>
+                                            @foreach($fnskuOptions as $fnsku)
+                                                <option value="{{ $fnsku }}" {{ $projection->fnsku === $fnsku ? 'selected' : '' }}>{{ $fnsku }}</option>
+                                            @endforeach
+                                            @if(!empty($projection->fnsku) && !$fnskuOptions->contains($projection->fnsku))
+                                                <option value="{{ $projection->fnsku }}" selected>{{ $projection->fnsku }}</option>
+                                            @endif
+                                        </select>
+                                    </td>
+                                    <td class="border">
+                                        <select name="seller_sku" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
+                                            @foreach($sellerSkuOptions as $sellerSku)
+                                                <option value="{{ $sellerSku }}" {{ $projection->seller_sku === $sellerSku ? 'selected' : '' }}>{{ $sellerSku }}</option>
+                                            @endforeach
+                                            @if(!$sellerSkuOptions->contains($projection->seller_sku))
+                                                <option value="{{ $projection->seller_sku }}" selected>{{ $projection->seller_sku }}</option>
+                                            @endif
+                                        </select>
+                                    </td>
+                                    <td class="border">
+                                        <select name="fulfilment_type" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
+                                            @foreach(['FBA', 'MFN'] as $type)
+                                                <option value="{{ $type }}" {{ strtoupper((string) $projection->fulfilment_type) === $type ? 'selected' : '' }}>{{ $type }}</option>
+                                            @endforeach
+                                        </select>
+                                    </td>
+                                    <td class="border">
+                                        <select name="fulfilment_region" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
+                                            @foreach(['EU', 'NA', 'FE'] as $region)
+                                                <option value="{{ $region }}" {{ strtoupper((string) $projection->fulfilment_region) === $region ? 'selected' : '' }}>{{ $region }}</option>
+                                            @endforeach
+                                        </select>
+                                    </td>
+                                    <td class="border text-center">
+                                        <input type="checkbox" name="active" value="1" form="{{ $updateFormId }}" {{ $projection->active ? 'checked' : '' }}>
+                                    </td>
+                                @endif
                                 <td class="border">
-                                    <select name="channel" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
-                                        @foreach(['amazon', 'woocommerce', 'other'] as $channel)
-                                            <option value="{{ $channel }}" {{ ($projection->channel ?? 'amazon') === $channel ? 'selected' : '' }}>{{ $channel }}</option>
-                                        @endforeach
-                                    </select>
-                                </td>
-                                <td class="border">
-                                    <select name="marketplace" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
-                                        @foreach($marketplaceOptions as $option)
-                                            <option value="{{ $option['id'] }}" {{ $projection->marketplace === $option['id'] ? 'selected' : '' }}>{{ $option['label'] }}</option>
-                                        @endforeach
-                                        @if(!collect($marketplaceOptions)->pluck('id')->contains($projection->marketplace))
-                                            <option value="{{ $projection->marketplace }}" selected>{{ $projection->marketplace }}</option>
-                                        @endif
-                                    </select>
-                                </td>
-                                <td class="border">
-                                    <select name="child_asin" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
-                                        <option value="">-</option>
-                                        @foreach($asinOptions as $asin)
-                                            <option value="{{ $asin }}" {{ $projection->child_asin === $asin ? 'selected' : '' }}>{{ $asin }}</option>
-                                        @endforeach
-                                        @if(!empty($projection->child_asin) && !$asinOptions->contains($projection->child_asin))
-                                            <option value="{{ $projection->child_asin }}" selected>{{ $projection->child_asin }}</option>
-                                        @endif
-                                    </select>
-                                </td>
-                                <td class="border">
-                                    <select name="fnsku" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
-                                        <option value="">-</option>
-                                        @foreach($fnskuOptions as $fnsku)
-                                            <option value="{{ $fnsku }}" {{ $projection->fnsku === $fnsku ? 'selected' : '' }}>{{ $fnsku }}</option>
-                                        @endforeach
-                                        @if(!empty($projection->fnsku) && !$fnskuOptions->contains($projection->fnsku))
-                                            <option value="{{ $projection->fnsku }}" selected>{{ $projection->fnsku }}</option>
-                                        @endif
-                                    </select>
-                                </td>
-                                <td class="border">
-                                    <select name="seller_sku" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
-                                        @foreach($sellerSkuOptions as $sellerSku)
-                                            <option value="{{ $sellerSku }}" {{ $projection->seller_sku === $sellerSku ? 'selected' : '' }}>{{ $sellerSku }}</option>
-                                        @endforeach
-                                        @if(!$sellerSkuOptions->contains($projection->seller_sku))
-                                            <option value="{{ $projection->seller_sku }}" selected>{{ $projection->seller_sku }}</option>
-                                        @endif
-                                    </select>
-                                </td>
-                                <td class="border">
-                                    <select name="fulfilment_type" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
-                                        @foreach(['FBA', 'MFN'] as $type)
-                                            <option value="{{ $type }}" {{ strtoupper((string) $projection->fulfilment_type) === $type ? 'selected' : '' }}>{{ $type }}</option>
-                                        @endforeach
-                                    </select>
-                                </td>
-                                <td class="border">
-                                    <select name="fulfilment_region" form="{{ $updateFormId }}" class="w-full border rounded px-2 py-1 text-xs">
-                                        @foreach(['EU', 'NA', 'FE'] as $region)
-                                            <option value="{{ $region }}" {{ strtoupper((string) $projection->fulfilment_region) === $region ? 'selected' : '' }}>{{ $region }}</option>
-                                        @endforeach
-                                    </select>
-                                </td>
-                                <td class="border text-center">
-                                    <input type="checkbox" name="active" value="1" form="{{ $updateFormId }}" {{ $projection->active ? 'checked' : '' }}>
-                                </td>
-                                <td class="border">
-                                    <button type="submit" form="{{ $updateFormId }}" class="px-2 py-1 rounded border border-gray-300 bg-white text-xs mb-1">Save</button>
-                                    <form method="POST" action="{{ route('mcus.projections.destroy', [$mcu, $projection]) }}" onsubmit="return confirm('Delete this projection row?');">
-                                        @csrf
-                                        @method('DELETE')
-                                        <button type="submit" class="px-2 py-1 rounded border border-gray-300 bg-white text-xs">Delete</button>
-                                    </form>
-                                    <form id="{{ $updateFormId }}" method="POST" action="{{ route('mcus.projections.update', [$mcu, $projection]) }}" class="hidden">
-                                        @csrf
-                                        @method('PATCH')
-                                    </form>
+                                    @if($isAmazonProjection)
+                                        <span class="text-xs text-gray-500">Synced from Amazon</span>
+                                    @else
+                                        <button type="submit" form="{{ $updateFormId }}" class="px-2 py-1 rounded border border-gray-300 bg-white text-xs mb-1">Save</button>
+                                        <form method="POST" action="{{ route('mcus.projections.destroy', [$mcu, $projection]) }}" onsubmit="return confirm('Delete this projection row?');">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" class="px-2 py-1 rounded border border-gray-300 bg-white text-xs">Delete</button>
+                                        </form>
+                                        <form id="{{ $updateFormId }}" method="POST" action="{{ route('mcus.projections.update', [$mcu, $projection]) }}" class="hidden">
+                                            @csrf
+                                            @method('PATCH')
+                                        </form>
+                                    @endif
                                 </td>
                             </tr>
                         @empty
@@ -319,7 +338,7 @@
                         <tr class="bg-gray-50">
                             <td class="border">
                                 <select name="channel" form="projection-create-form" class="w-full border rounded px-2 py-1 text-xs">
-                                    @foreach(['amazon', 'woocommerce', 'other'] as $channel)
+                                    @foreach(['woocommerce', 'other'] as $channel)
                                         <option value="{{ $channel }}">{{ $channel }}</option>
                                     @endforeach
                                 </select>

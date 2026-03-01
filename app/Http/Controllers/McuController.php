@@ -71,6 +71,12 @@ class McuController extends Controller
 
         $sellableUnit = SellableUnit::query()->firstOrCreate(['mcu_id' => $mcu->id], []);
         $channel = trim((string) ($validated['channel'] ?? 'amazon'));
+        if ($channel === 'amazon') {
+            throw ValidationException::withMessages([
+                'channel' => 'Amazon projections are synced from Amazon and cannot be manually created.',
+            ]);
+        }
+
         $childAsin = strtoupper(trim((string) ($validated['child_asin'] ?? '')));
 
         if ($channel === 'amazon' && $childAsin === '') {
@@ -113,8 +119,20 @@ class McuController extends Controller
     public function updateProjection(Request $request, Mcu $mcu, MarketplaceProjection $projection): RedirectResponse
     {
         $this->assertProjectionBelongsToMcu($mcu, $projection);
+        if (($projection->channel ?? 'amazon') === 'amazon') {
+            throw ValidationException::withMessages([
+                'channel' => 'Amazon projections are synced from Amazon and cannot be manually edited.',
+            ]);
+        }
+
         $validated = $this->validateProjection($request);
         $channel = trim((string) ($validated['channel'] ?? 'amazon'));
+        if ($channel === 'amazon') {
+            throw ValidationException::withMessages([
+                'channel' => 'Amazon projections are synced from Amazon and cannot be manually edited.',
+            ]);
+        }
+
         $childAsin = strtoupper(trim((string) ($validated['child_asin'] ?? '')));
 
         if ($channel === 'amazon' && $childAsin === '') {
@@ -154,6 +172,12 @@ class McuController extends Controller
     public function destroyProjection(Mcu $mcu, MarketplaceProjection $projection): RedirectResponse
     {
         $this->assertProjectionBelongsToMcu($mcu, $projection);
+        if (($projection->channel ?? 'amazon') === 'amazon') {
+            throw ValidationException::withMessages([
+                'channel' => 'Amazon projections are synced from Amazon and cannot be manually deleted.',
+            ]);
+        }
+
         $projection->delete();
 
         return back()->with('status', 'Identifier row removed.');
