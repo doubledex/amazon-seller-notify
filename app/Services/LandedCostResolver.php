@@ -101,6 +101,105 @@ class LandedCostResolver
     }
 
     /**
+     * Resolve landed costs in each order's local/net currency.
+     * FX conversion uses cost-line effective_from date.
+     *
+     * @param array<int,string> $orderIds
+     * @return array<string,array<string,mixed>>
+     */
+    public function resolveOrderLandedCostsForOrderCurrency(array $orderIds): array
+    {
+        $orderIds = array_values(array_filter(array_map(static fn ($v) => trim((string) $v), $orderIds)));
+        if (empty($orderIds)) {
+            return [];
+        }
+
+        $rows = DB::table('order_items')
+            ->join('orders', 'orders.amazon_order_id', '=', 'order_items.amazon_order_id')
+            ->leftJoin('marketplaces', 'marketplaces.id', '=', 'orders.marketplace_id')
+            ->select([
+                'order_items.id as item_id',
+                'order_items.amazon_order_id',
+                'order_items.asin',
+                'order_items.seller_sku',
+                'order_items.quantity_ordered',
+                'order_items.quantity_shipped',
+                'orders.marketplace_id',
+            ])
+            ->selectRaw("COALESCE(orders.purchase_date_local_date, DATE(orders.purchase_date)) as item_date")
+            ->selectRaw("COALESCE(NULLIF(orders.order_net_ex_tax_currency, ''), NULLIF(orders.order_total_currency, ''), NULLIF(marketplaces.default_currency, '')) as target_currency")
+            ->whereIn('order_items.amazon_order_id', $orderIds)
+            ->get();
+
+        $contexts = [];
+        foreach ($rows as $row) {
+            $contexts[] = [
+                'context_key' => 'item:' . (string) $row->item_id,
+                'amazon_order_id' => (string) ($row->amazon_order_id ?? ''),
+                'asin' => (string) ($row->asin ?? ''),
+                'seller_sku' => (string) ($row->seller_sku ?? ''),
+                'marketplace_id' => $row->marketplace_id,
+                'effective_date' => (string) ($row->item_date ?? ''),
+                'target_currency' => strtoupper(trim((string) ($row->target_currency ?? ''))),
+                'quantity' => $this->extractQuantity((int) ($row->quantity_ordered ?? 0), (int) ($row->quantity_shipped ?? 0)),
+            ];
+        }
+
+        $resolvedMcu = $this->resolveMcuItemContexts($contexts, true);
+        $resolvedFallback = $this->resolveItemContexts($contexts);
+        $fxService = new FxRateService();
+
+        $totals = [];
+        foreach ($contexts as $context) {
+            $orderId = (string) ($context['amazon_order_id'] ?? '');
+            if ($orderId === '') {
+                continue;
+            }
+            if (!isset($totals[$orderId])) {
+                $totals[$orderId] = [
+                    'landed_cost_total' => 0.0,
+                    'currency' => null,
+                    'mixed_currency' => false,
+                    'resolved_items' => 0,
+                    'total_items' => 0,
+                ];
+            }
+
+            $totals[$orderId]['total_items']++;
+            $targetCurrency = strtoupper(trim((string) ($context['target_currency'] ?? '')));
+            $contextKey = (string) ($context['context_key'] ?? '');
+            $resolvedItem = $resolvedMcu[$contextKey] ?? $resolvedFallback[$contextKey] ?? null;
+            if (!is_array($resolvedItem)) {
+                continue;
+            }
+
+            $lineCost = $this->resolveLineCostInTargetCurrency($resolvedItem, $context, $targetCurrency, $fxService);
+            if ($lineCost === null) {
+                continue;
+            }
+
+            $totals[$orderId]['landed_cost_total'] += $lineCost;
+            $totals[$orderId]['resolved_items']++;
+            if ($targetCurrency !== '') {
+                if ($totals[$orderId]['currency'] === null) {
+                    $totals[$orderId]['currency'] = $targetCurrency;
+                } elseif ($totals[$orderId]['currency'] !== $targetCurrency) {
+                    $totals[$orderId]['mixed_currency'] = true;
+                }
+            }
+        }
+
+        foreach ($totals as $orderId => $row) {
+            $totals[$orderId]['landed_cost_total'] = round((float) $row['landed_cost_total'], 2);
+            if ($totals[$orderId]['mixed_currency']) {
+                $totals[$orderId]['currency'] = 'MIXED';
+            }
+        }
+
+        return $totals;
+    }
+
+    /**
      * @param array<int,array<string,mixed>> $contexts
      * @return array<string,array<string,mixed>> keyed by context_key
      */
@@ -268,7 +367,7 @@ class LandedCostResolver
      * @param array<int,array<string,mixed>> $contexts
      * @return array<string,array<string,mixed>> keyed by context_key
      */
-    private function resolveMcuItemContexts(array $contexts): array
+    private function resolveMcuItemContexts(array $contexts, bool $allowMixedCurrencies = false): array
     {
         $normalized = [];
         $asins = [];
@@ -531,24 +630,33 @@ class LandedCostResolver
 
             $currencyCodes = [];
             $unitLandedCost = 0.0;
+            $costComponents = [];
             foreach ($activeRows as $row) {
                 $currency = strtoupper(trim((string) ($row->currency ?? '')));
                 if ($currency === '') {
                     continue;
                 }
                 $currencyCodes[$currency] = true;
-                $unitLandedCost += (float) ($row->amount ?? 0.0);
+                $componentAmount = (float) ($row->amount ?? 0.0);
+                $unitLandedCost += $componentAmount;
+                $costComponents[] = [
+                    'amount' => $componentAmount,
+                    'currency' => $currency,
+                    'effective_from' => (string) ($row->effective_from ?? ''),
+                ];
             }
 
-            if (count($currencyCodes) !== 1) {
-                // Keep resolver deterministic; mixed-currency MCU rows need explicit FX handling.
+            if (count($currencyCodes) !== 1 && !$allowMixedCurrencies) {
+                // Default resolver path stays deterministic for legacy consumers.
                 continue;
             }
 
             $resolved[$contextKey] = [
                 'mcu_id' => $mcuId,
                 'unit_landed_cost' => round($unitLandedCost, 4),
-                'currency' => array_key_first($currencyCodes),
+                'currency' => count($currencyCodes) === 1 ? array_key_first($currencyCodes) : 'MIXED',
+                'effective_from' => !empty($costComponents) ? (string) ($costComponents[0]['effective_from'] ?? '') : '',
+                'cost_components' => $costComponents,
             ];
         }
 
@@ -667,5 +775,64 @@ class LandedCostResolver
         }
 
         return '';
+    }
+
+    private function resolveLineCostInTargetCurrency(
+        array $resolvedItem,
+        array $context,
+        string $targetCurrency,
+        FxRateService $fxService
+    ): ?float {
+        $quantity = max(0, (int) ($context['quantity'] ?? 0));
+        if ($quantity <= 0) {
+            return 0.0;
+        }
+
+        $components = $resolvedItem['cost_components'] ?? null;
+        if (is_array($components) && !empty($components) && $targetCurrency !== '') {
+            $lineTotal = 0.0;
+            foreach ($components as $component) {
+                $amount = (float) ($component['amount'] ?? 0.0);
+                $currency = strtoupper(trim((string) ($component['currency'] ?? '')));
+                if ($currency === '') {
+                    continue;
+                }
+                $fxDate = trim((string) ($component['effective_from'] ?? ''));
+                if ($fxDate === '') {
+                    $fxDate = trim((string) ($context['effective_date'] ?? now()->toDateString()));
+                }
+                $lineAmount = $amount * $quantity;
+                if ($currency !== $targetCurrency) {
+                    $converted = $fxService->convert($lineAmount, $currency, $targetCurrency, $fxDate);
+                    if ($converted === null) {
+                        return null;
+                    }
+                    $lineAmount = $converted;
+                }
+                $lineTotal += $lineAmount;
+            }
+
+            return $lineTotal;
+        }
+
+        if (!isset($resolvedItem['unit_landed_cost'])) {
+            return null;
+        }
+        $lineCost = (float) ($resolvedItem['unit_landed_cost'] ?? 0.0) * $quantity;
+        $currency = strtoupper(trim((string) ($resolvedItem['currency'] ?? '')));
+        if ($targetCurrency === '' || $currency === '' || $currency === $targetCurrency) {
+            return $lineCost;
+        }
+
+        $fxDate = trim((string) ($resolvedItem['effective_from'] ?? ''));
+        if ($fxDate === '') {
+            $fxDate = trim((string) ($context['effective_date'] ?? now()->toDateString()));
+        }
+        $converted = $fxService->convert($lineCost, $currency, $targetCurrency, $fxDate);
+        if ($converted === null) {
+            return null;
+        }
+
+        return $converted;
     }
 }

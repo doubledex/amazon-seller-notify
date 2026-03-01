@@ -165,7 +165,7 @@ class OrderController extends Controller
                     ->get();
             }
 
-            $landedCostMap = $this->landedCostResolver->resolveOrderLandedCosts($orderIdsOnPage);
+            $landedCostMap = $this->landedCostResolver->resolveOrderLandedCostsForOrderCurrency($orderIdsOnPage);
             if (!empty($orderIdsOnPage) && Schema::hasTable('amazon_order_fee_lines_v2')) {
                 $feeFallbackRowsV2 = DB::table('amazon_order_fee_lines_v2')
                     ->selectRaw("
@@ -709,7 +709,7 @@ class OrderController extends Controller
                 ->values();
         }
 
-        $landedCostMap = $this->landedCostResolver->resolveOrderLandedCosts([$order_id]);
+        $landedCostMap = $this->landedCostResolver->resolveOrderLandedCostsForOrderCurrency([$order_id]);
         $landed = $landedCostMap[$order_id] ?? null;
         $landedAmount = is_array($landed) ? (float) ($landed['landed_cost_total'] ?? 0.0) : null;
         $landedCurrency = is_array($landed) ? strtoupper(trim((string) ($landed['currency'] ?? ''))) : null;
