@@ -120,13 +120,32 @@ class OrderController extends Controller
                 ->values()
                 ->all();
 
+            $hasEstimatedLineNet = Schema::hasColumn('order_items', 'estimated_line_net_ex_tax');
+            $hasEstimatedLineCurrency = Schema::hasColumn('order_items', 'estimated_line_currency');
             $itemNetFallbackRows = [];
             if (!empty($orderIdsOnPage)) {
+                $itemNetTotalExpr = $hasEstimatedLineNet
+                    ? 'SUM(COALESCE(line_net_ex_tax, estimated_line_net_ex_tax, 0)) as item_net_total'
+                    : 'SUM(COALESCE(line_net_ex_tax, 0)) as item_net_total';
+                $itemNetCurrencyExpr = $hasEstimatedLineCurrency
+                    ? "MAX(COALESCE(line_net_currency, estimated_line_currency, '')) as item_net_currency"
+                    : "MAX(COALESCE(line_net_currency, '')) as item_net_currency";
+                $lineNetOnlyExpr = 'SUM(COALESCE(line_net_ex_tax, 0)) as line_net_total';
+                $estimatedNetOnlyExpr = $hasEstimatedLineNet
+                    ? 'SUM(COALESCE(estimated_line_net_ex_tax, 0)) as estimated_net_total'
+                    : '0 as estimated_net_total';
+                $estimatedCurrencyExpr = $hasEstimatedLineCurrency
+                    ? "MAX(COALESCE(estimated_line_currency, '')) as estimated_net_currency"
+                    : "'' as estimated_net_currency";
+
                 $itemNetFallbackRows = DB::table('order_items')
                     ->selectRaw("
                         amazon_order_id,
-                        SUM(COALESCE(line_net_ex_tax, 0)) as item_net_total,
-                        MAX(COALESCE(line_net_currency, item_price_currency, '')) as item_net_currency
+                        {$itemNetTotalExpr},
+                        {$itemNetCurrencyExpr},
+                        {$lineNetOnlyExpr},
+                        {$estimatedNetOnlyExpr},
+                        {$estimatedCurrencyExpr}
                     ")
                     ->whereIn('amazon_order_id', $orderIdsOnPage)
                     ->groupBy('amazon_order_id')
@@ -170,13 +189,23 @@ class OrderController extends Controller
                 }
                 $total = (float) ($row->item_net_total ?? 0);
                 $currency = strtoupper(trim((string) ($row->item_net_currency ?? '')));
+                $lineNetTotal = (float) ($row->line_net_total ?? 0);
+                $estimatedNetTotal = (float) ($row->estimated_net_total ?? 0);
+                $estimatedCurrency = strtoupper(trim((string) ($row->estimated_net_currency ?? '')));
                 if ($total <= 0) {
                     continue;
+                }
+                $source = 'line_items_fallback';
+                if ($lineNetTotal <= 0 && $estimatedNetTotal > 0) {
+                    $source = 'estimated_line_items_fallback';
+                    if ($estimatedCurrency !== '') {
+                        $currency = $estimatedCurrency;
+                    }
                 }
                 $itemNetFallbackMap[$orderId] = [
                     'amount' => round($total, 2),
                     'currency' => $currency !== '' ? $currency : null,
-                    'source' => 'line_items_fallback',
+                    'source' => $source,
                 ];
             }
 

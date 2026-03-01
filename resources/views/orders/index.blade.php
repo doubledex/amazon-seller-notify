@@ -551,7 +551,12 @@
                     <td style="text-align: center;">{{ $order['NumberOfItemsUnshipped'] ?? '' }}</td>
                     <td style="text-align: center;">{{ $order['NumberOfItemsShipped'] ?? '' }}</td>
                     <td>{{ $order['PaymentMethodDetails'][0] ?? 'N/A' }}</td>
-                    <td dir="rtl">{{ $order['OrderNetExTax']['Amount'] ?? 'N/A' }}</td>
+                    <td dir="rtl">
+                        @if(str_starts_with((string) ($order['OrderNetExTax']['Source'] ?? ''), 'estimated'))
+                            *
+                        @endif
+                        {{ $order['OrderNetExTax']['Amount'] ?? 'N/A' }}
+                    </td>
                     <td dir="rtl">
                         @if(($order['AmazonFees']['Source'] ?? '') === 'estimated_product_fees')
                             *
