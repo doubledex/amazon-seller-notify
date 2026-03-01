@@ -94,6 +94,32 @@
                     <strong>Latest Available Date:</strong> {{ $latestReportDate ?? 'N/A' }}
                 </div>
             </div>
+            @php
+                $usStateNames = [
+                    'AL' => 'Alabama', 'AK' => 'Alaska', 'AZ' => 'Arizona', 'AR' => 'Arkansas',
+                    'CA' => 'California', 'CO' => 'Colorado', 'CT' => 'Connecticut', 'DE' => 'Delaware',
+                    'FL' => 'Florida', 'GA' => 'Georgia', 'HI' => 'Hawaii', 'ID' => 'Idaho',
+                    'IL' => 'Illinois', 'IN' => 'Indiana', 'IA' => 'Iowa', 'KS' => 'Kansas',
+                    'KY' => 'Kentucky', 'LA' => 'Louisiana', 'ME' => 'Maine', 'MD' => 'Maryland',
+                    'MA' => 'Massachusetts', 'MI' => 'Michigan', 'MN' => 'Minnesota', 'MS' => 'Mississippi',
+                    'MO' => 'Missouri', 'MT' => 'Montana', 'NE' => 'Nebraska', 'NV' => 'Nevada',
+                    'NH' => 'New Hampshire', 'NJ' => 'New Jersey', 'NM' => 'New Mexico', 'NY' => 'New York',
+                    'NC' => 'North Carolina', 'ND' => 'North Dakota', 'OH' => 'Ohio', 'OK' => 'Oklahoma',
+                    'OR' => 'Oregon', 'PA' => 'Pennsylvania', 'RI' => 'Rhode Island', 'SC' => 'South Carolina',
+                    'SD' => 'South Dakota', 'TN' => 'Tennessee', 'TX' => 'Texas', 'UT' => 'Utah',
+                    'VT' => 'Vermont', 'VA' => 'Virginia', 'WA' => 'Washington', 'WV' => 'West Virginia',
+                    'WI' => 'Wisconsin', 'WY' => 'Wyoming', 'DC' => 'District of Columbia',
+                ];
+                $formatStateLabel = static function (?string $stateCode) use ($usStateNames): string {
+                    $raw = strtoupper(trim((string) $stateCode));
+                    if ($raw === '') {
+                        return 'Unknown';
+                    }
+                    // Some rows store state as composite like US/AZ or US-AZ.
+                    $code = preg_replace('/^US[\/-]/', '', $raw) ?? $raw;
+                    return isset($usStateNames[$code]) ? ($code . ' - ' . $usStateNames[$code]) : $raw;
+                };
+            @endphp
 
             <div class="bg-white dark:bg-gray-800 shadow-sm sm:rounded-lg p-4 overflow-x-auto">
                 <h3 class="font-semibold mb-2">FC Quantity Map</h3>
@@ -162,25 +188,8 @@
                         $stateId = 'state-' . $stateIndex;
                         $stateIndex++;
                         $stateCode = strtoupper((string) ($stateNode['state'] ?? ''));
-                        $stateNames = [
-                            'AL' => 'Alabama', 'AK' => 'Alaska', 'AZ' => 'Arizona', 'AR' => 'Arkansas',
-                            'CA' => 'California', 'CO' => 'Colorado', 'CT' => 'Connecticut', 'DE' => 'Delaware',
-                            'FL' => 'Florida', 'GA' => 'Georgia', 'HI' => 'Hawaii', 'ID' => 'Idaho',
-                            'IL' => 'Illinois', 'IN' => 'Indiana', 'IA' => 'Iowa', 'KS' => 'Kansas',
-                            'KY' => 'Kentucky', 'LA' => 'Louisiana', 'ME' => 'Maine', 'MD' => 'Maryland',
-                            'MA' => 'Massachusetts', 'MI' => 'Michigan', 'MN' => 'Minnesota', 'MS' => 'Mississippi',
-                            'MO' => 'Missouri', 'MT' => 'Montana', 'NE' => 'Nebraska', 'NV' => 'Nevada',
-                            'NH' => 'New Hampshire', 'NJ' => 'New Jersey', 'NM' => 'New Mexico', 'NY' => 'New York',
-                            'NC' => 'North Carolina', 'ND' => 'North Dakota', 'OH' => 'Ohio', 'OK' => 'Oklahoma',
-                            'OR' => 'Oregon', 'PA' => 'Pennsylvania', 'RI' => 'Rhode Island', 'SC' => 'South Carolina',
-                            'SD' => 'South Dakota', 'TN' => 'Tennessee', 'TX' => 'Texas', 'UT' => 'Utah',
-                            'VT' => 'Vermont', 'VA' => 'Virginia', 'WA' => 'Washington', 'WV' => 'West Virginia',
-                            'WI' => 'Wisconsin', 'WY' => 'Wyoming', 'DC' => 'District of Columbia',
-                        ];
-                        $stateLabel = $stateCode;
-                        if (isset($stateNames[$stateCode])) {
-                            $stateLabel = $stateCode . ' - ' . $stateNames[$stateCode];
-                        }
+                        $groupCountry = strtoupper((string) ($stateNode['country'] ?? 'Unknown'));
+                        $stateLabel = $formatStateLabel($stateNode['state'] ?? '');
                     @endphp
                         <tr class="bg-gray-100 dark:bg-gray-700">
                             <td>
@@ -189,7 +198,7 @@
                             </td>
                             <td></td>
                             <td></td>
-                            <td><strong>{{ $stateNode['group_label'] ?? $stateLabel }}</strong></td>
+                            <td><strong>{{ $groupCountry }} / {{ $stateLabel }}</strong></td>
                             <td></td>
                             <td></td>
                             <td></td>
@@ -208,7 +217,7 @@
                                 </td>
                                 <td><strong>{{ $fcNode['fc'] }}</strong></td>
                                 <td>{{ $fcNode['city'] }}</td>
-                                <td>{{ $fcNode['state'] }}</td>
+                                <td>{{ $formatStateLabel($fcNode['state'] ?? '') }}</td>
                                 <td>{{ $fcNode['country'] ?? 'Unknown' }}</td>
                                 <td></td>
                                 <td></td>
@@ -223,7 +232,7 @@
                                     <td class="pl-12">Detail</td>
                                     <td>{{ $detailRow->fulfillment_center_id }}</td>
                                     <td>{{ $detailRow->fc_city ?? 'Unknown' }}</td>
-                                    <td>{{ $detailRow->fc_state ?? 'Unknown' }}</td>
+                                    <td>{{ $formatStateLabel($detailRow->fc_state) }}</td>
                                     <td>{{ $detailRow->fc_country_code ?? 'Unknown' }}</td>
                                     <td>{{ $detailRow->seller_sku }}</td>
                                     <td>{{ $detailRow->asin }}</td>
@@ -317,6 +326,7 @@
         <script>
             (function () {
                 const points = @json($mapPoints);
+                const stateNames = @json($usStateNames);
                 console.log('[FC MAP] points', points.length, points.slice(0, 5));
                 const selectedState = @json($state ?? '');
                 let stateLayer = null;
@@ -359,6 +369,10 @@
                     }
 
                     const qty = Number(p.qty || 0);
+                    const stateCode = String(p.state || '').toUpperCase().trim();
+                    const stateLabel = stateNames[stateCode]
+                        ? `${stateCode} - ${stateNames[stateCode]}`
+                        : (stateCode || 'Unknown');
                     const marker = L.marker([lat, lng], {
                         qty,
                         icon: L.divIcon({
@@ -387,7 +401,7 @@
 
                     marker.bindPopup(
                         `<strong>${p.fc}</strong><br>` +
-                        `${p.city}, ${p.state}, ${p.country_code || ''}<br>` +
+                        `${p.city}, ${stateLabel}, ${p.country_code || ''}<br>` +
                         `Qty: ${qty.toLocaleString()}<br>` +
                         `Rows: ${Number(p.rows || 0).toLocaleString()}<br>` +
                         `Data Date: ${p.data_date || 'N/A'}` +
@@ -407,21 +421,6 @@
                     map.setView(bounds[0], 8);
                 }
 
-                const stateNames = {
-                    AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas',
-                    CA: 'California', CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware',
-                    FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho',
-                    IL: 'Illinois', IN: 'Indiana', IA: 'Iowa', KS: 'Kansas',
-                    KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland',
-                    MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi',
-                    MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada',
-                    NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York',
-                    NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma',
-                    OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina',
-                    SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah',
-                    VT: 'Vermont', VA: 'Virginia', WA: 'Washington', WV: 'West Virginia',
-                    WI: 'Wisconsin', WY: 'Wyoming', DC: 'District of Columbia'
-                };
                 const normalize = (v) => String(v || '').trim().toLowerCase();
 
                 const loadUsStates = () => {

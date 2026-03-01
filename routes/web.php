@@ -69,6 +69,9 @@ Route::middleware('auth')->group(function () {
     Route::post('/mcus/{mcu}/identifiers', [McuController::class, 'storeIdentifier'])->name('mcus.identifiers.store');
     Route::patch('/mcus/{mcu}/identifiers/{identifier}', [McuController::class, 'updateIdentifier'])->name('mcus.identifiers.update');
     Route::delete('/mcus/{mcu}/identifiers/{identifier}', [McuController::class, 'destroyIdentifier'])->name('mcus.identifiers.destroy');
+    Route::post('/mcus/{mcu}/cost-values', [McuController::class, 'storeCostValue'])->name('mcus.cost_values.store');
+    Route::patch('/mcus/{mcu}/cost-values/{costValue}', [McuController::class, 'updateCostValue'])->name('mcus.cost_values.update');
+    Route::delete('/mcus/{mcu}/cost-values/{costValue}', [McuController::class, 'destroyCostValue'])->name('mcus.cost_values.destroy');
     Route::post('/mcus/{mcu}/marketplace-projections', [McuController::class, 'storeProjection'])->name('mcus.projections.store');
     Route::patch('/mcus/{mcu}/marketplace-projections/{projection}', [McuController::class, 'updateProjection'])->name('mcus.projections.update');
     Route::delete('/mcus/{mcu}/marketplace-projections/{projection}', [McuController::class, 'destroyProjection'])->name('mcus.projections.destroy');

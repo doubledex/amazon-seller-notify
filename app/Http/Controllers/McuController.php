@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Family;
 use App\Models\Marketplace;
+use App\Models\McuCostValue;
 use App\Models\McuIdentifier;
 use App\Models\MarketplaceProjection;
 use App\Models\Mcu;
@@ -23,6 +24,7 @@ class McuController extends Controller
             'identifiers' => fn ($query) => $query->orderBy('identifier_type')->orderBy('identifier_value'),
             'marketplaceProjections' => fn ($query) => $query->orderBy('marketplace')->orderBy('seller_sku'),
             'costContexts' => fn ($query) => $query->orderBy('region')->orderByDesc('effective_from'),
+            'costValues' => fn ($query) => $query->orderByDesc('effective_from')->orderByDesc('id'),
             'inventoryStates' => fn ($query) => $query->orderBy('location'),
         ]);
 
@@ -280,6 +282,39 @@ class McuController extends Controller
         return back()->with('status', 'MCU identifier removed.');
     }
 
+    public function storeCostValue(Request $request, Mcu $mcu): RedirectResponse
+    {
+        $payload = $this->normalizeCostPayload($this->validateCostValue($request));
+        $payload['mcu_id'] = $mcu->id;
+
+        McuCostValue::query()->create($payload);
+
+        return back()->with('status', 'MCU cost value added.');
+    }
+
+    public function updateCostValue(Request $request, Mcu $mcu, McuCostValue $costValue): RedirectResponse
+    {
+        if ((int) $costValue->mcu_id !== (int) $mcu->id) {
+            abort(404);
+        }
+
+        $payload = $this->normalizeCostPayload($this->validateCostValue($request));
+        $costValue->update($payload);
+
+        return back()->with('status', 'MCU cost value updated.');
+    }
+
+    public function destroyCostValue(Mcu $mcu, McuCostValue $costValue): RedirectResponse
+    {
+        if ((int) $costValue->mcu_id !== (int) $mcu->id) {
+            abort(404);
+        }
+
+        $costValue->delete();
+
+        return back()->with('status', 'MCU cost value removed.');
+    }
+
     private function validateProjection(Request $request): array
     {
         return $request->validate([
@@ -303,6 +338,20 @@ class McuController extends Controller
             'marketplace' => ['nullable', 'string', 'max:32'],
             'region' => ['nullable', 'string', 'max:16'],
             'is_projection_identifier' => ['nullable', 'boolean'],
+        ]);
+    }
+
+    private function validateCostValue(Request $request): array
+    {
+        return $request->validate([
+            'supplier' => ['nullable', 'string', 'max:191'],
+            'description' => ['nullable', 'string', 'max:255'],
+            'amount' => ['required', 'numeric'],
+            'currency' => ['required', 'string', 'size:3'],
+            'effective_from' => ['required', 'date'],
+            'effective_to' => ['nullable', 'date', 'after_or_equal:effective_from'],
+            'marketplace' => ['nullable', 'string', 'exists:marketplaces,id', 'required_without:region'],
+            'region' => ['nullable', 'string', 'max:16', 'required_without:marketplace'],
         ]);
     }
 
@@ -341,6 +390,20 @@ class McuController extends Controller
             'region' => trim((string) ($validated['region'] ?? '')),
             'is_projection_identifier' => !empty($validated['is_projection_identifier']),
             'asin_unique' => $type === 'asin' ? $value : null,
+        ];
+    }
+
+    private function normalizeCostPayload(array $validated): array
+    {
+        return [
+            'supplier' => $this->nullableTrimmed($validated['supplier'] ?? null),
+            'description' => $this->nullableTrimmed($validated['description'] ?? null),
+            'amount' => $validated['amount'],
+            'currency' => strtoupper(trim((string) $validated['currency'])),
+            'effective_from' => $validated['effective_from'],
+            'effective_to' => $validated['effective_to'] ?? null,
+            'marketplace' => $this->nullableTrimmed($validated['marketplace'] ?? null),
+            'region' => $this->nullableTrimmed($validated['region'] ?? null),
         ];
     }
 

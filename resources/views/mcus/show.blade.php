@@ -204,6 +204,88 @@
                 </table>
             </div>
 
+            <h3 class="text-sm font-semibold mb-3">MCU Cost Values</h3>
+            <div class="overflow-x-auto mb-4">
+                <table class="w-full text-sm border" cellspacing="0" cellpadding="6">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="text-left border">Supplier</th>
+                            <th class="text-left border">Description</th>
+                            <th class="text-left border">Amount</th>
+                            <th class="text-left border">Currency</th>
+                            <th class="text-left border">From</th>
+                            <th class="text-left border">To</th>
+                            <th class="text-left border">Marketplace</th>
+                            <th class="text-left border">Region</th>
+                            <th class="text-left border">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse($mcu->costValues as $costValue)
+                            @php
+                                $costFormId = 'cost-value-update-' . $costValue->id;
+                            @endphp
+                            <tr>
+                                <td class="border"><input name="supplier" value="{{ $costValue->supplier }}" form="{{ $costFormId }}" class="w-full border rounded px-2 py-1 text-xs"></td>
+                                <td class="border"><input name="description" value="{{ $costValue->description }}" form="{{ $costFormId }}" class="w-full border rounded px-2 py-1 text-xs"></td>
+                                <td class="border"><input type="number" step="0.0001" name="amount" value="{{ $costValue->amount }}" form="{{ $costFormId }}" class="w-full border rounded px-2 py-1 text-xs" required></td>
+                                <td class="border"><input name="currency" value="{{ $costValue->currency }}" form="{{ $costFormId }}" class="w-full border rounded px-2 py-1 text-xs" maxlength="3" required></td>
+                                <td class="border"><input type="date" name="effective_from" value="{{ optional($costValue->effective_from)->format('Y-m-d') }}" form="{{ $costFormId }}" class="w-full border rounded px-2 py-1 text-xs" required></td>
+                                <td class="border"><input type="date" name="effective_to" value="{{ optional($costValue->effective_to)->format('Y-m-d') }}" form="{{ $costFormId }}" class="w-full border rounded px-2 py-1 text-xs"></td>
+                                <td class="border">
+                                    <select name="marketplace" form="{{ $costFormId }}" class="w-full border rounded px-2 py-1 text-xs">
+                                        <option value="">-</option>
+                                        @foreach($marketplaceOptions as $option)
+                                            <option value="{{ $option['id'] }}" {{ $costValue->marketplace === $option['id'] ? 'selected' : '' }}>{{ $option['label'] }}</option>
+                                        @endforeach
+                                    </select>
+                                </td>
+                                <td class="border"><input name="region" value="{{ $costValue->region }}" form="{{ $costFormId }}" class="w-full border rounded px-2 py-1 text-xs" placeholder="EU"></td>
+                                <td class="border whitespace-nowrap">
+                                    <button type="submit" form="{{ $costFormId }}" class="px-2 py-1 rounded border border-gray-300 bg-white text-xs mb-1">Save</button>
+                                    <form method="POST" action="{{ route('mcus.cost_values.destroy', [$mcu, $costValue]) }}" onsubmit="return confirm('Delete this cost row?');">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit" class="px-2 py-1 rounded border border-gray-300 bg-white text-xs">Delete</button>
+                                    </form>
+                                    <form id="{{ $costFormId }}" method="POST" action="{{ route('mcus.cost_values.update', [$mcu, $costValue]) }}" class="hidden">
+                                        @csrf
+                                        @method('PATCH')
+                                    </form>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="9" class="border text-gray-500">No cost values yet.</td>
+                            </tr>
+                        @endforelse
+                        <tr class="bg-gray-50">
+                            <td class="border"><input name="supplier" form="cost-value-create-form" class="w-full border rounded px-2 py-1 text-xs"></td>
+                            <td class="border"><input name="description" form="cost-value-create-form" class="w-full border rounded px-2 py-1 text-xs"></td>
+                            <td class="border"><input type="number" step="0.0001" name="amount" form="cost-value-create-form" class="w-full border rounded px-2 py-1 text-xs" required></td>
+                            <td class="border"><input name="currency" form="cost-value-create-form" class="w-full border rounded px-2 py-1 text-xs" maxlength="3" value="GBP" required></td>
+                            <td class="border"><input type="date" name="effective_from" form="cost-value-create-form" class="w-full border rounded px-2 py-1 text-xs" required></td>
+                            <td class="border"><input type="date" name="effective_to" form="cost-value-create-form" class="w-full border rounded px-2 py-1 text-xs"></td>
+                            <td class="border">
+                                <select name="marketplace" form="cost-value-create-form" class="w-full border rounded px-2 py-1 text-xs">
+                                    <option value="">-</option>
+                                    @foreach($marketplaceOptions as $option)
+                                        <option value="{{ $option['id'] }}">{{ $option['label'] }}</option>
+                                    @endforeach
+                                </select>
+                            </td>
+                            <td class="border"><input name="region" form="cost-value-create-form" class="w-full border rounded px-2 py-1 text-xs" placeholder="EU"></td>
+                            <td class="border">
+                                <button type="submit" form="cost-value-create-form" class="px-2 py-1 rounded border border-gray-300 bg-white text-xs">Add</button>
+                                <form id="cost-value-create-form" method="POST" action="{{ route('mcus.cost_values.store', $mcu) }}" class="hidden">
+                                    @csrf
+                                </form>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
             <h3 class="text-sm font-semibold mb-3">Marketplace Projections</h3>
             @php
                 $asinOptions = $mcu->identifiers->where('identifier_type', 'asin')->pluck('identifier_value')->unique()->values();

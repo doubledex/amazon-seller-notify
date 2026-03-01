@@ -48,6 +48,11 @@ class Mcu extends Model
         return $this->hasMany(CostContext::class);
     }
 
+    public function costValues()
+    {
+        return $this->hasMany(McuCostValue::class);
+    }
+
     public function inventoryStates()
     {
         return $this->hasMany(InventoryState::class);
