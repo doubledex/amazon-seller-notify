@@ -476,6 +476,34 @@
                             $purchaseTimeOut = 'N/A';
                         }
                     }
+
+                    $netAmount = isset($order['OrderNetExTax']['Amount']) && is_numeric($order['OrderNetExTax']['Amount'])
+                        ? (float) $order['OrderNetExTax']['Amount']
+                        : null;
+                    $netCurrency = strtoupper(trim((string) ($order['OrderNetExTax']['CurrencyCode'] ?? '')));
+                    $feeAmount = isset($order['AmazonFees']['Amount']) && is_numeric($order['AmazonFees']['Amount'])
+                        ? abs((float) $order['AmazonFees']['Amount'])
+                        : null;
+                    $feeCurrency = strtoupper(trim((string) ($order['AmazonFees']['CurrencyCode'] ?? '')));
+                    $landedAmount = isset($order['LandedCost']['Amount']) && is_numeric($order['LandedCost']['Amount'])
+                        ? (float) $order['LandedCost']['Amount']
+                        : null;
+                    $landedCurrency = strtoupper(trim((string) ($order['LandedCost']['CurrencyCode'] ?? '')));
+                    $marginAmount = isset($order['MarginProxy']['Amount']) && is_numeric($order['MarginProxy']['Amount'])
+                        ? (float) $order['MarginProxy']['Amount']
+                        : null;
+                    $marginCurrency = strtoupper(trim((string) ($order['MarginProxy']['CurrencyCode'] ?? $netCurrency)));
+                    if (
+                        $netAmount !== null &&
+                        $feeAmount !== null &&
+                        $landedAmount !== null &&
+                        $netCurrency !== '' &&
+                        $netCurrency === $feeCurrency &&
+                        $netCurrency === $landedCurrency
+                    ) {
+                        $marginAmount = round($netAmount - $feeAmount - $landedAmount, 2);
+                        $marginCurrency = $netCurrency;
+                    }
                 @endphp
                 <tr>
                     <td>{{ $purchaseDateOut }}</td>
@@ -528,16 +556,16 @@
                         @if(($order['AmazonFees']['Source'] ?? '') === 'estimated_product_fees')
                             *
                         @endif
-                        {{ $order['AmazonFees']['Amount'] ?? 'N/A' }}
-                        {{ $order['AmazonFees']['CurrencyCode'] ?? '' }}
+                        {{ $feeAmount !== null ? number_format($feeAmount, 2) : 'N/A' }}
+                        {{ $feeCurrency }}
                     </td>
                     <td dir="rtl">
-                        {{ $order['LandedCost']['Amount'] ?? 'N/A' }}
-                        {{ $order['LandedCost']['CurrencyCode'] ?? '' }}
+                        {{ $landedAmount !== null ? number_format($landedAmount, 2) : 'N/A' }}
+                        {{ $landedCurrency }}
                     </td>
                     <td dir="rtl">
-                        {{ $order['MarginProxy']['Amount'] ?? 'N/A' }}
-                        {{ $order['MarginProxy']['CurrencyCode'] ?? '' }}
+                        {{ $marginAmount !== null ? number_format($marginAmount, 2) : 'N/A' }}
+                        {{ $marginCurrency }}
                     </td>
                     <td>{{ $order['OrderNetExTax']['CurrencyCode'] ?? '' }}</td>
                     <td>{{ $order['ShippingAddress']['CountryCode'] ?? '' }}</td>
