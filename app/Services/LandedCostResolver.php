@@ -589,6 +589,7 @@ class LandedCostResolver
             ->pluck('country_code', 'id')
             ->map(fn ($country) => strtoupper(trim((string) $country)))
             ->all();
+        $marketplaceRegionFallbacks = $this->marketplaceRegionsByConfig();
 
         $resolved = [];
         foreach ($normalized as $contextKey => $context) {
@@ -600,6 +601,9 @@ class LandedCostResolver
             $contextMarketplace = $context['marketplace_id'];
             $contextDate = $context['effective_date'];
             $contextRegion = $this->regionForCountryCode($marketplaceCountries[$contextMarketplace] ?? '');
+            if ($contextRegion === '' && $contextMarketplace !== '') {
+                $contextRegion = $marketplaceRegionFallbacks[$contextMarketplace] ?? '';
+            }
 
             $activeRows = [];
             foreach ($costRowsByMcu[$mcuId] ?? [] as $row) {
@@ -775,6 +779,29 @@ class LandedCostResolver
         }
 
         return '';
+    }
+
+    /**
+     * Build marketplace->region map from configured SP-API region marketplace lists.
+     *
+     * @return array<string,string>
+     */
+    private function marketplaceRegionsByConfig(): array
+    {
+        $map = [];
+        $regionService = new RegionConfigService();
+        foreach ($regionService->spApiRegions() as $region) {
+            $config = $regionService->spApiConfig((string) $region);
+            foreach ((array) ($config['marketplace_ids'] ?? []) as $marketplaceId) {
+                $id = trim((string) $marketplaceId);
+                if ($id === '') {
+                    continue;
+                }
+                $map[$id] = strtoupper(trim((string) $region));
+            }
+        }
+
+        return $map;
     }
 
     private function resolveLineCostInTargetCurrency(
