@@ -62,6 +62,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/inventory/fc/locations.csv', [UsFcInventoryController::class, 'uploadLocationsCsv'])->name('inventory.fc.locations.upload');
     Route::get('/inventory/us-fc', [UsFcInventoryController::class, 'index'])->name('inventory.us_fc');
     Route::get('/products', [ProductController::class, 'index'])->name('products.index');
+    Route::post('/families', [ProductController::class, 'storeFamily'])->name('families.store');
     Route::patch('/families/{family}', [ProductController::class, 'updateFamily'])->name('families.update');
     Route::get('/mcus/{mcu}', [McuController::class, 'show'])->name('mcus.show');
     Route::patch('/mcus/{mcu}', [McuController::class, 'update'])->name('mcus.update');

@@ -165,6 +165,28 @@ class ProductController extends Controller
         return back()->with('status', 'Family name updated.');
     }
 
+    public function storeFamily(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'marketplace' => ['required', 'string', 'exists:marketplaces,id'],
+            'parent_asin' => ['nullable', 'string', 'max:32'],
+        ]);
+
+        $parentAsin = strtoupper(trim((string) ($validated['parent_asin'] ?? '')));
+        if ($parentAsin === '') {
+            $parentAsin = null;
+        }
+
+        Family::query()->create([
+            'name' => trim((string) $validated['name']),
+            'marketplace' => trim((string) $validated['marketplace']),
+            'parent_asin' => $parentAsin,
+        ]);
+
+        return redirect()->route('products.index')->with('status', 'Family created.');
+    }
+
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([

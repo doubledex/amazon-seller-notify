@@ -59,6 +59,49 @@
             </form>
         </div>
 
+        <div class="bg-white dark:bg-gray-800 p-4 rounded shadow-sm">
+            <h3 class="text-sm font-semibold mb-3">Create Family</h3>
+            <form method="POST" action="{{ route('families.store') }}" class="grid grid-cols-1 md:grid-cols-6 gap-3">
+                @csrf
+                <div class="md:col-span-2">
+                    <label class="block text-xs text-gray-600 mb-1">Family name</label>
+                    <input
+                        name="name"
+                        value="{{ old('name') }}"
+                        class="w-full border rounded px-2 py-1 text-sm"
+                        maxlength="255"
+                        required
+                    />
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-xs text-gray-600 mb-1">Marketplace</label>
+                    <select name="marketplace" class="w-full border rounded px-2 py-1 text-sm" required>
+                        <option value="">Select marketplace</option>
+                        @foreach($marketplaceOptions as $option)
+                            <option value="{{ $option->id }}" {{ old('marketplace') === $option->id ? 'selected' : '' }}>
+                                {{ $option->name ?: $option->id }}
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="md:col-span-1">
+                    <label class="block text-xs text-gray-600 mb-1">Parent ASIN (optional)</label>
+                    <input
+                        name="parent_asin"
+                        value="{{ old('parent_asin') }}"
+                        class="w-full border rounded px-2 py-1 text-sm uppercase"
+                        maxlength="32"
+                        placeholder="B0..."
+                    />
+                </div>
+                <div class="md:col-span-1 flex items-end">
+                    <button type="submit" class="px-3 py-2 rounded border border-gray-300 bg-white text-sm">
+                        Create family
+                    </button>
+                </div>
+            </form>
+        </div>
+
         <div class="bg-white dark:bg-gray-800 p-4 rounded shadow-sm space-y-3">
             <div class="flex items-center justify-between">
                 <h3 class="text-sm font-semibold">Family Groups</h3>
