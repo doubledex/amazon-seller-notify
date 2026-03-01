@@ -60,7 +60,7 @@ class MarketplaceListingsReportJobProcessor implements ReportJobProcessor
                     'child_asin' => $asin,
                     'seller_sku' => $sku,
                     'fnsku' => $this->pick($row, ['fnsku', 'fulfillment-network-sku']),
-                    'fulfilment_type' => strtoupper($this->pick($row, ['fulfillment-channel', 'fulfilment_type'])) === 'AMAZON_NA' ? 'FBA' : 'MFN',
+                    'fulfilment_type' => $this->normalizeFulfilmentType($this->pick($row, ['fulfillment-channel', 'fulfilment_type'])),
                     'fulfilment_region' => 'EU',
                     'name' => $itemName,
                 ]);
@@ -88,5 +88,19 @@ class MarketplaceListingsReportJobProcessor implements ReportJobProcessor
         }
 
         return '';
+    }
+
+    private function normalizeFulfilmentType(string $raw): string
+    {
+        $value = strtoupper(trim($raw));
+        if ($value === '') {
+            return 'MFN';
+        }
+
+        if ($value === 'AFN' || $value === 'FBA' || str_starts_with($value, 'AMAZON_')) {
+            return 'FBA';
+        }
+
+        return 'MFN';
     }
 }

@@ -369,7 +369,7 @@ class MarketplaceListingsSyncService
                     'child_asin' => $asin,
                     'seller_sku' => $sku,
                     'fnsku' => $this->pick($row, ['fnsku', 'fulfillment-network-sku']),
-                    'fulfilment_type' => strtoupper($this->pick($row, ['fulfillment-channel', 'fulfilment_type'])) === 'AMAZON_NA' ? 'FBA' : 'MFN',
+                    'fulfilment_type' => $this->normalizeFulfilmentType($this->pick($row, ['fulfillment-channel', 'fulfilment_type'])),
                     'fulfilment_region' => $this->regionForMarketplace($marketplaceId),
                     'name' => $itemName,
                 ]);
@@ -501,6 +501,20 @@ class MarketplaceListingsSyncService
         }
 
         return $parentAsins->count();
+    }
+
+    private function normalizeFulfilmentType(string $raw): string
+    {
+        $value = strtoupper(trim($raw));
+        if ($value === '') {
+            return 'MFN';
+        }
+
+        if ($value === 'AFN' || $value === 'FBA' || str_starts_with($value, 'AMAZON_')) {
+            return 'FBA';
+        }
+
+        return 'MFN';
     }
 
     private function regionForMarketplace(string $marketplaceId): string
