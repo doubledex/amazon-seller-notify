@@ -679,6 +679,47 @@ class OrderController extends Controller
                 ->values();
         }
 
+        $landedCostMap = $this->landedCostResolver->resolveOrderLandedCosts([$order_id]);
+        $landed = $landedCostMap[$order_id] ?? null;
+        $landedAmount = is_array($landed) ? (float) ($landed['landed_cost_total'] ?? 0.0) : null;
+        $landedCurrency = is_array($landed) ? strtoupper(trim((string) ($landed['currency'] ?? ''))) : null;
+
+        $netAmount = $orderRecord?->order_net_ex_tax;
+        $netCurrency = $orderRecord?->order_net_ex_tax_currency
+            ?: ($orderRecord?->order_total_currency ?: ($orderArray['OrderTotal']['CurrencyCode'] ?? null));
+        if (($netAmount === null || (float) $netAmount <= 0) && isset($orderArray['OrderNetExTax']['Amount'])) {
+            $netAmount = (float) $orderArray['OrderNetExTax']['Amount'];
+            $netCurrency = $orderArray['OrderNetExTax']['CurrencyCode'] ?? $netCurrency;
+        }
+
+        $feeAmount = $orderRecord?->amazon_fee_total_v2 ?? $orderRecord?->amazon_fee_total;
+        $feeCurrency = ($orderRecord?->amazon_fee_currency_v2 ?: $orderRecord?->amazon_fee_currency) ?: $netCurrency;
+        $feeSource = $orderRecord?->amazon_fee_total_v2 !== null ? 'finance_total_v2' : 'finance_total';
+        if ($feeAmount === null && $orderRecord?->amazon_fee_estimated_total !== null) {
+            $feeAmount = (float) $orderRecord->amazon_fee_estimated_total;
+            $feeCurrency = $orderRecord->amazon_fee_estimated_currency ?: $feeCurrency;
+            $feeSource = 'estimated_product_fees';
+        }
+        if ($feeAmount === null && $feeLines->count() > 0) {
+            $feeByCurrency = $feeLines->groupBy(fn ($line) => strtoupper(trim((string) ($line->currency ?? ''))));
+            if ($feeByCurrency->count() === 1) {
+                $onlyCurrency = (string) $feeByCurrency->keys()->first();
+                $feeAmount = (float) $feeByCurrency->first()->sum(fn ($line) => (float) ($line->amount ?? 0));
+                $feeCurrency = $onlyCurrency !== '' ? $onlyCurrency : $feeCurrency;
+                $feeSource = 'finance_lines_fallback';
+            }
+        }
+
+        $marginAmount = null;
+        $marginCurrency = strtoupper(trim((string) ($netCurrency ?? '')));
+        if ($netAmount !== null && $feeAmount !== null && $landedAmount !== null) {
+            $feeCode = strtoupper(trim((string) ($feeCurrency ?? '')));
+            $landedCode = strtoupper(trim((string) ($landedCurrency ?? '')));
+            if ($marginCurrency !== '' && $marginCurrency === $feeCode && $marginCurrency === $landedCode) {
+                $marginAmount = round(((float) $netAmount) - ((float) $feeAmount) - ((float) $landedAmount), 2);
+            }
+        }
+
         return view('orders.show', [
             'order' => $orderArray,
             'orderRecord' => $orderRecord,
@@ -687,6 +728,11 @@ class OrderController extends Controller
             'feeLines' => $feeLines,
             'estimatedFeeLines' => $estimatedFeeLines,
             'marketplaces' => $marketplacesUi,
+            'landedCostAmount' => $landedAmount,
+            'landedCostCurrency' => $landedCurrency,
+            'marginAmount' => $marginAmount,
+            'marginCurrency' => $marginCurrency,
+            'feeSourceResolved' => $feeSource,
         ]);
     }
 

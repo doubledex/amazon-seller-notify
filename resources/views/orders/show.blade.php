@@ -34,6 +34,13 @@
                     $feeCurrency = $orderRecord?->amazon_fee_estimated_currency ?: $feeCurrency;
                     $feeSource = 'estimated_product_fees';
                 }
+                if (isset($feeSourceResolved) && is_string($feeSourceResolved) && trim($feeSourceResolved) !== '') {
+                    $feeSource = $feeSourceResolved;
+                }
+                $landedAmount = $landedCostAmount ?? null;
+                $landedCurrency = $landedCostCurrency ?? null;
+                $marginAmount = $marginAmount ?? null;
+                $marginCurrency = $marginCurrency ?? $netCurrency;
                 $buyerEmail = $order['BuyerInfo']['BuyerEmail']
                     ?? $order['BuyerEmail']
                     ?? null;
@@ -146,6 +153,23 @@
                     </div>
                     @if($feeSource === 'estimated_product_fees')
                         <div class="text-xs text-gray-500">(estimated fallback)</div>
+                    @elseif($feeSource === 'finance_lines_fallback')
+                        <div class="text-xs text-gray-500">(fee lines fallback)</div>
+                    @endif
+                </div>
+                <div class="mt-2 flex items-baseline gap-2">
+                    <div class="text-xs text-gray-500">Landed Cost</div>
+                    <div class="text-sm font-semibold">
+                        {{ $landedAmount !== null ? number_format((float) $landedAmount, 2) : 'N/A' }} {{ $landedCurrency ?? '' }}
+                    </div>
+                </div>
+                <div class="mt-2 flex items-baseline gap-2">
+                    <div class="text-xs text-gray-500">Margin</div>
+                    <div class="text-sm font-semibold">
+                        {{ $marginAmount !== null ? number_format((float) $marginAmount, 2) : 'N/A' }} {{ $marginCurrency ?? '' }}
+                    </div>
+                    @if($marginAmount === null)
+                        <div class="text-xs text-gray-500">(requires net, fee, landed in same currency)</div>
                     @endif
                 </div>
             </div>
