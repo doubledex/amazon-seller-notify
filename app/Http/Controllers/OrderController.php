@@ -230,17 +230,18 @@ class OrderController extends Controller
                     }
                     $feeSource = 'finance_lines_fallback';
                 }
+                $feeCostAmount = $feeAmount !== null ? abs((float) $feeAmount) : null;
 
                 $landed = $landedCostMap[$order->amazon_order_id] ?? null;
                 $landedAmount = is_array($landed) ? (float) ($landed['landed_cost_total'] ?? 0.0) : null;
                 $landedCurrency = is_array($landed) ? ($landed['currency'] ?? null) : null;
                 $marginProxy = null;
-                if ($netAmount !== null && $feeAmount !== null && $landedAmount !== null) {
+                if ($netAmount !== null && $feeCostAmount !== null && $landedAmount !== null) {
                     $netCode = strtoupper(trim((string) ($netCurrency ?? '')));
                     $feeCode = strtoupper(trim((string) ($feeCurrency ?? '')));
                     $landedCode = strtoupper(trim((string) ($landedCurrency ?? '')));
                     if ($netCode !== '' && $netCode === $feeCode && $netCode === $landedCode) {
-                        $marginProxy = round(((float) $netAmount) - ((float) $feeAmount) - ((float) $landedAmount), 2);
+                        $marginProxy = round(((float) $netAmount) - ((float) $feeCostAmount) - ((float) $landedAmount), 2);
                     }
                 }
 
@@ -263,7 +264,7 @@ class OrderController extends Controller
                             'Source' => $netSource,
                         ],
                         'AmazonFees' => [
-                            'Amount' => $feeAmount,
+                            'Amount' => $feeCostAmount,
                             'CurrencyCode' => $feeCurrency,
                             'Source' => $feeSource,
                         ],
@@ -298,7 +299,7 @@ class OrderController extends Controller
                         'Source' => $netSource,
                     ];
                     $raw['AmazonFees'] = [
-                        'Amount' => $feeAmount,
+                        'Amount' => $feeCostAmount,
                         'CurrencyCode' => $feeCurrency
                             ?: ($raw['AmazonFees']['CurrencyCode'] ?? $netCurrency ?? $order->order_total_currency ?? null),
                         'Source' => $feeSource,
@@ -709,14 +710,15 @@ class OrderController extends Controller
                 $feeSource = 'finance_lines_fallback';
             }
         }
+        $feeCostAmount = $feeAmount !== null ? abs((float) $feeAmount) : null;
 
         $marginAmount = null;
         $marginCurrency = strtoupper(trim((string) ($netCurrency ?? '')));
-        if ($netAmount !== null && $feeAmount !== null && $landedAmount !== null) {
+        if ($netAmount !== null && $feeCostAmount !== null && $landedAmount !== null) {
             $feeCode = strtoupper(trim((string) ($feeCurrency ?? '')));
             $landedCode = strtoupper(trim((string) ($landedCurrency ?? '')));
             if ($marginCurrency !== '' && $marginCurrency === $feeCode && $marginCurrency === $landedCode) {
-                $marginAmount = round(((float) $netAmount) - ((float) $feeAmount) - ((float) $landedAmount), 2);
+                $marginAmount = round(((float) $netAmount) - ((float) $feeCostAmount) - ((float) $landedAmount), 2);
             }
         }
 
@@ -733,6 +735,7 @@ class OrderController extends Controller
             'marginAmount' => $marginAmount,
             'marginCurrency' => $marginCurrency,
             'feeSourceResolved' => $feeSource,
+            'feeAmountResolved' => $feeCostAmount,
         ]);
     }
 

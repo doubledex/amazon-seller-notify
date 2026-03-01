@@ -165,7 +165,7 @@ class DailyRegionMetricsService
                 continue;
             }
             $netAmount = (float) ($row->net_amount ?? 0.0);
-            $feeAmount = (float) ($row->fee_amount ?? 0.0);
+            $feeAmount = abs((float) ($row->fee_amount ?? 0.0));
 
             $landed = $landedByOrder[$orderId] ?? null;
             $landedAmount = 0.0;
@@ -179,7 +179,7 @@ class DailyRegionMetricsService
             $feeInSalesCurrency = $feeAmount;
             if ($feeCurrency !== '' && $feeCurrency !== $salesCurrency) {
                 $convertedFee = $this->fxRateService->convert($feeAmount, $feeCurrency, $salesCurrency, $date);
-                $feeInSalesCurrency = $convertedFee ?? 0.0;
+                $feeInSalesCurrency = abs((float) ($convertedFee ?? 0.0));
             }
 
             $landedRows[] = (object) ['currency' => $salesCurrency, 'amount' => $landedAmount];

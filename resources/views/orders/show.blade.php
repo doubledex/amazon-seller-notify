@@ -34,6 +34,9 @@
                     $feeCurrency = $orderRecord?->amazon_fee_estimated_currency ?: $feeCurrency;
                     $feeSource = 'estimated_product_fees';
                 }
+                if (isset($feeAmountResolved)) {
+                    $feeAmount = $feeAmountResolved;
+                }
                 if (isset($feeSourceResolved) && is_string($feeSourceResolved) && trim($feeSourceResolved) !== '') {
                     $feeSource = $feeSourceResolved;
                 }
