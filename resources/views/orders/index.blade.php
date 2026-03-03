@@ -309,6 +309,19 @@
             Showing {{ $ordersPaginator->firstItem() ?? 0 }} to {{ $ordersPaginator->lastItem() ?? 0 }} of {{ $ordersPaginator->total() }} results
         </div>
     @endif
+    @if(isset($summaryMetrics) && request('view', 'table') !== 'map')
+        <div class="mb-4 p-3 rounded border border-gray-200 bg-gray-50 text-sm">
+            <div style="display:flex; gap:18px; flex-wrap:wrap;">
+                <span><strong>Orders:</strong> {{ number_format((int) ($summaryMetrics['order_count'] ?? 0)) }}</span>
+                <span><strong>Unshipped Units:</strong> {{ number_format((int) ($summaryMetrics['unshipped_units'] ?? 0)) }}</span>
+                <span><strong>Shipped Units:</strong> {{ number_format((int) ($summaryMetrics['shipped_units'] ?? 0)) }}</span>
+                <span><strong>Net Value (GBP):</strong> £{{ number_format((float) ($summaryMetrics['net_value_gbp'] ?? 0), 2) }}</span>
+                <span><strong>Amazon Fees (GBP):</strong> £{{ number_format((float) ($summaryMetrics['amazon_fees_gbp'] ?? 0), 2) }}</span>
+                <span><strong>Landed Costs (GBP):</strong> £{{ number_format((float) ($summaryMetrics['landed_costs_gbp'] ?? 0), 2) }}</span>
+                <span><strong>Margin Proxy (GBP):</strong> £{{ number_format((float) ($summaryMetrics['margin_proxy_gbp'] ?? 0), 2) }}</span>
+            </div>
+        </div>
+    @endif
     <div class="mb-3 text-sm text-gray-600">
         @if(session('sync_status'))
             {{ session('sync_status') }}
@@ -489,21 +502,13 @@
                         ? (float) $order['LandedCost']['Amount']
                         : null;
                     $landedCurrency = strtoupper(trim((string) ($order['LandedCost']['CurrencyCode'] ?? '')));
-                    $marginAmount = isset($order['MarginProxy']['Amount']) && is_numeric($order['MarginProxy']['Amount'])
+                    $marginGbpAmount = isset($order['MarginProxyGbp']['Amount']) && is_numeric($order['MarginProxyGbp']['Amount'])
+                        ? (float) $order['MarginProxyGbp']['Amount']
+                        : null;
+                    $marginLocalAmount = isset($order['MarginProxy']['Amount']) && is_numeric($order['MarginProxy']['Amount'])
                         ? (float) $order['MarginProxy']['Amount']
                         : null;
-                    $marginCurrency = strtoupper(trim((string) ($order['MarginProxy']['CurrencyCode'] ?? $netCurrency)));
-                    if (
-                        $netAmount !== null &&
-                        $feeAmount !== null &&
-                        $landedAmount !== null &&
-                        $netCurrency !== '' &&
-                        $netCurrency === $feeCurrency &&
-                        $netCurrency === $landedCurrency
-                    ) {
-                        $marginAmount = round($netAmount - $feeAmount - $landedAmount, 2);
-                        $marginCurrency = $netCurrency;
-                    }
+                    $marginLocalCurrency = strtoupper(trim((string) ($order['MarginProxy']['CurrencyCode'] ?? $netCurrency)));
                 @endphp
                 <tr>
                     <td>{{ $purchaseDateOut }}</td>
@@ -569,8 +574,9 @@
                         {{ $landedCurrency }}
                     </td>
                     <td dir="rtl">
-                        {{ $marginAmount !== null ? number_format($marginAmount, 2) : 'N/A' }}
-                        {{ $marginCurrency }}
+                        {{ $marginLocalAmount !== null ? number_format($marginLocalAmount, 2) . ' ' . $marginLocalCurrency : 'N/A' }}
+                        <span style="color:#6b7280;">|</span>
+                        {{ $marginGbpAmount !== null ? '£' . number_format($marginGbpAmount, 2) : 'N/A' }}
                     </td>
                     <td>{{ $order['OrderNetExTax']['CurrencyCode'] ?? '' }}</td>
                     <td>{{ $order['ShippingAddress']['CountryCode'] ?? '' }}</td>

@@ -19,6 +19,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Services\OrderQueryService;
 use App\Services\LandedCostResolver;
+use App\Services\FxRateService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -33,6 +34,7 @@ class OrderController extends Controller
     private $marketplaceTimezoneService;
     private $orderNetValueService;
     private $landedCostResolver;
+    private $fxRateService;
     private const ORDERS_MAX_RETRIES = 3;
 
     public function __construct()
@@ -52,6 +54,7 @@ class OrderController extends Controller
         $this->marketplaceTimezoneService = new MarketplaceTimezoneService();
         $this->orderNetValueService = new OrderNetValueService();
         $this->landedCostResolver = new LandedCostResolver();
+        $this->fxRateService = new FxRateService();
     }
 
     public function index(Request $request)
@@ -104,6 +107,7 @@ class OrderController extends Controller
             $selectedNetwork = $request->input('network');
             $selectedMethod = $request->input('method');
             $selectedB2b = $request->input('b2b');
+            $summaryMetrics = $this->buildFilteredSummaryMetrics($query->clone());
 
             $perPage = (int) $request->input('per_page', 25);
             $perPage = max(10, min($perPage, 200));
@@ -273,6 +277,16 @@ class OrderController extends Controller
                         $marginProxy = round(((float) $netAmount) - ((float) $feeCostAmount) - ((float) $landedAmount), 2);
                     }
                 }
+                $fxDate = $order->purchase_date_local_date
+                    ? Carbon::parse($order->purchase_date_local_date)->toDateString()
+                    : ($order->purchase_date ? Carbon::parse($order->purchase_date)->toDateString() : now()->toDateString());
+                $netGbp = $this->convertAmountToGbp($netAmount !== null ? (float) $netAmount : null, $netCurrency, $fxDate);
+                $feeGbp = $this->convertAmountToGbp($feeCostAmount, $feeCurrency, $fxDate);
+                $landedGbp = $this->convertAmountToGbp($landedAmount, $landedCurrency, $fxDate);
+                $marginProxyGbp = null;
+                if ($netGbp !== null && $feeGbp !== null && $landedGbp !== null) {
+                    $marginProxyGbp = round($netGbp - $feeGbp - $landedGbp, 2);
+                }
 
                 if (!is_array($raw) || empty($raw)) {
                     $raw = [
@@ -305,6 +319,11 @@ class OrderController extends Controller
                             'Amount' => $marginProxy,
                             'CurrencyCode' => $netCurrency,
                             'Formula' => 'net_sales_ex_tax - amazon_fees - landed_cost',
+                        ],
+                        'MarginProxyGbp' => [
+                            'Amount' => $marginProxyGbp,
+                            'CurrencyCode' => 'GBP',
+                            'Formula' => 'net_sales_ex_tax_gbp - amazon_fees_gbp - landed_cost_gbp',
                         ],
                         'SalesChannel' => $order->sales_channel,
                         'MarketplaceId' => $order->marketplace_id,
@@ -341,6 +360,11 @@ class OrderController extends Controller
                         'Amount' => $marginProxy,
                         'CurrencyCode' => $netCurrency,
                         'Formula' => 'net_sales_ex_tax - amazon_fees - landed_cost',
+                    ];
+                    $raw['MarginProxyGbp'] = [
+                        'Amount' => $marginProxyGbp,
+                        'CurrencyCode' => 'GBP',
+                        'Formula' => 'net_sales_ex_tax_gbp - amazon_fees_gbp - landed_cost_gbp',
                     ];
                 }
                 return $raw;
@@ -406,6 +430,7 @@ class OrderController extends Controller
                 'statusOptions' => $statusOptions,
                 'networkOptions' => $networkOptions,
                 'methodOptions' => $methodOptions,
+                'summaryMetrics' => $summaryMetrics,
                 'dbEmpty' => $dbEmpty,
                 'oldestDate' => $oldestDate,
                 'newestDate' => $newestDate,
@@ -1548,6 +1573,290 @@ class OrderController extends Controller
         }
 
         return $map;
+    }
+
+    private function buildFilteredSummaryMetrics($query): array
+    {
+        $orders = $query->get([
+            'amazon_order_id',
+            'purchase_date',
+            'purchase_date_local_date',
+            'order_total_currency',
+            'order_net_ex_tax',
+            'order_net_ex_tax_currency',
+            'amazon_fee_total_v2',
+            'amazon_fee_total',
+            'amazon_fee_currency_v2',
+            'amazon_fee_currency',
+            'amazon_fee_estimated_total',
+            'amazon_fee_estimated_currency',
+        ]);
+
+        $orderIds = $orders
+            ->pluck('amazon_order_id')
+            ->filter()
+            ->values()
+            ->all();
+
+        $itemNetFallbackMap = $this->buildItemNetFallbackMap($orderIds);
+        $feeFallbackMap = $this->buildFeeFallbackMap($orderIds);
+        $landedCostMap = $this->landedCostResolver->resolveOrderLandedCostsForOrderCurrency($orderIds);
+
+        $shippedUnits = 0;
+        $unshippedUnits = 0;
+        foreach (array_chunk($orderIds, 1000) as $chunk) {
+            if (empty($chunk)) {
+                continue;
+            }
+            $units = DB::table('order_items')
+                ->selectRaw('SUM(COALESCE(quantity_shipped, 0)) as shipped_units, SUM(COALESCE(quantity_unshipped, 0)) as unshipped_units')
+                ->whereIn('amazon_order_id', $chunk)
+                ->first();
+            $shippedUnits += (int) ($units->shipped_units ?? 0);
+            $unshippedUnits += (int) ($units->unshipped_units ?? 0);
+        }
+
+        $netBuckets = [];
+        $feeBuckets = [];
+        $landedBuckets = [];
+
+        foreach ($orders as $order) {
+            $financials = $this->resolveOrderFinancialComponents(
+                $order,
+                $itemNetFallbackMap,
+                $feeFallbackMap,
+                $landedCostMap
+            );
+
+            $fxDate = $order->purchase_date_local_date
+                ? Carbon::parse($order->purchase_date_local_date)->toDateString()
+                : ($order->purchase_date ? Carbon::parse($order->purchase_date)->toDateString() : now()->toDateString());
+
+            $this->addAmountBucket($netBuckets, $fxDate, $financials['net_currency'], $financials['net_amount']);
+            $this->addAmountBucket($feeBuckets, $fxDate, $financials['fee_currency'], $financials['fee_amount']);
+            $this->addAmountBucket($landedBuckets, $fxDate, $financials['landed_currency'], $financials['landed_amount']);
+        }
+
+        $netValueGbp = $this->sumBucketsToGbp($netBuckets);
+        $amazonFeesGbp = $this->sumBucketsToGbp($feeBuckets);
+        $landedCostsGbp = $this->sumBucketsToGbp($landedBuckets);
+        $marginProxyGbp = $netValueGbp - $amazonFeesGbp - $landedCostsGbp;
+
+        return [
+            'order_count' => $orders->count(),
+            'unshipped_units' => $unshippedUnits,
+            'shipped_units' => $shippedUnits,
+            'net_value_gbp' => round($netValueGbp, 2),
+            'amazon_fees_gbp' => round($amazonFeesGbp, 2),
+            'landed_costs_gbp' => round($landedCostsGbp, 2),
+            'margin_proxy_gbp' => round($marginProxyGbp, 2),
+        ];
+    }
+
+    private function buildItemNetFallbackMap(array $orderIds): array
+    {
+        if (empty($orderIds)) {
+            return [];
+        }
+
+        $hasEstimatedLineNet = Schema::hasColumn('order_items', 'estimated_line_net_ex_tax');
+        $hasEstimatedLineCurrency = Schema::hasColumn('order_items', 'estimated_line_currency');
+
+        $itemNetTotalExpr = $hasEstimatedLineNet
+            ? 'SUM(COALESCE(line_net_ex_tax, estimated_line_net_ex_tax, 0)) as item_net_total'
+            : 'SUM(COALESCE(line_net_ex_tax, 0)) as item_net_total';
+        $itemNetCurrencyExpr = $hasEstimatedLineCurrency
+            ? "MAX(COALESCE(line_net_currency, estimated_line_currency, '')) as item_net_currency"
+            : "MAX(COALESCE(line_net_currency, '')) as item_net_currency";
+        $lineNetOnlyExpr = 'SUM(COALESCE(line_net_ex_tax, 0)) as line_net_total';
+        $estimatedNetOnlyExpr = $hasEstimatedLineNet
+            ? 'SUM(COALESCE(estimated_line_net_ex_tax, 0)) as estimated_net_total'
+            : '0 as estimated_net_total';
+        $estimatedCurrencyExpr = $hasEstimatedLineCurrency
+            ? "MAX(COALESCE(estimated_line_currency, '')) as estimated_net_currency"
+            : "'' as estimated_net_currency";
+
+        $rows = DB::table('order_items')
+            ->selectRaw("
+                amazon_order_id,
+                {$itemNetTotalExpr},
+                {$itemNetCurrencyExpr},
+                {$lineNetOnlyExpr},
+                {$estimatedNetOnlyExpr},
+                {$estimatedCurrencyExpr}
+            ")
+            ->whereIn('amazon_order_id', $orderIds)
+            ->groupBy('amazon_order_id')
+            ->get();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $orderId = (string) ($row->amazon_order_id ?? '');
+            if ($orderId === '') {
+                continue;
+            }
+            $total = (float) ($row->item_net_total ?? 0);
+            if ($total <= 0) {
+                continue;
+            }
+            $currency = strtoupper(trim((string) ($row->item_net_currency ?? '')));
+            $lineNetTotal = (float) ($row->line_net_total ?? 0);
+            $estimatedNetTotal = (float) ($row->estimated_net_total ?? 0);
+            $estimatedCurrency = strtoupper(trim((string) ($row->estimated_net_currency ?? '')));
+
+            $source = 'line_items_fallback';
+            if ($lineNetTotal <= 0 && $estimatedNetTotal > 0) {
+                $source = 'estimated_line_items_fallback';
+                if ($estimatedCurrency !== '') {
+                    $currency = $estimatedCurrency;
+                }
+            }
+
+            $map[$orderId] = [
+                'amount' => round($total, 2),
+                'currency' => $currency !== '' ? $currency : null,
+                'source' => $source,
+            ];
+        }
+
+        return $map;
+    }
+
+    private function buildFeeFallbackMap(array $orderIds): array
+    {
+        if (empty($orderIds)) {
+            return [];
+        }
+
+        $rows = [];
+        if (Schema::hasTable('amazon_order_fee_lines')) {
+            $rows = DB::table('amazon_order_fee_lines')
+                ->selectRaw("
+                    amazon_order_id,
+                    MAX(COALESCE(currency, '')) as fee_currency,
+                    SUM(COALESCE(amount, 0)) as fee_total
+                ")
+                ->whereIn('amazon_order_id', $orderIds)
+                ->groupBy('amazon_order_id')
+                ->get()
+                ->all();
+        }
+
+        if (Schema::hasTable('amazon_order_fee_lines_v2')) {
+            $rowsV2 = DB::table('amazon_order_fee_lines_v2')
+                ->selectRaw("
+                    amazon_order_id,
+                    MAX(COALESCE(currency, '')) as fee_currency,
+                    SUM(COALESCE(net_ex_tax_amount, 0)) as fee_total
+                ")
+                ->whereIn('amazon_order_id', $orderIds)
+                ->groupBy('amazon_order_id')
+                ->get()
+                ->all();
+            foreach ($rowsV2 as $row) {
+                $rows[] = $row;
+            }
+        }
+
+        $map = [];
+        foreach ($rows as $row) {
+            $orderId = (string) ($row->amazon_order_id ?? '');
+            if ($orderId === '') {
+                continue;
+            }
+            $map[$orderId] = [
+                'amount' => (float) ($row->fee_total ?? 0),
+                'currency' => strtoupper(trim((string) ($row->fee_currency ?? ''))),
+            ];
+        }
+
+        return $map;
+    }
+
+    private function resolveOrderFinancialComponents(Order $order, array $itemNetFallbackMap, array $feeFallbackMap, array $landedCostMap): array
+    {
+        $fallbackNet = $itemNetFallbackMap[$order->amazon_order_id] ?? null;
+        $netAmount = $order->order_net_ex_tax;
+        $netCurrency = $order->order_net_ex_tax_currency ?: $order->order_total_currency;
+        if (($netAmount === null || (float) $netAmount <= 0) && is_array($fallbackNet)) {
+            $netAmount = $fallbackNet['amount'];
+            $netCurrency = $fallbackNet['currency'] ?: $netCurrency;
+        }
+
+        $feeAmount = $order->amazon_fee_total_v2 ?? $order->amazon_fee_total;
+        $feeCurrency = ($order->amazon_fee_currency_v2 ?: $order->amazon_fee_currency) ?: $netCurrency;
+        if ($feeAmount === null && $order->amazon_fee_estimated_total !== null) {
+            $feeAmount = $order->amazon_fee_estimated_total;
+            $feeCurrency = $order->amazon_fee_estimated_currency ?: $feeCurrency;
+        }
+        if ($feeAmount === null && isset($feeFallbackMap[$order->amazon_order_id])) {
+            $feeAmount = $feeFallbackMap[$order->amazon_order_id]['amount'];
+            $fallbackCurrency = $feeFallbackMap[$order->amazon_order_id]['currency'];
+            if ($fallbackCurrency !== '') {
+                $feeCurrency = $fallbackCurrency;
+            }
+        }
+        $feeAmount = $feeAmount !== null ? abs((float) $feeAmount) : null;
+
+        $landed = $landedCostMap[$order->amazon_order_id] ?? null;
+        $landedAmount = is_array($landed) ? (float) ($landed['landed_cost_total'] ?? 0.0) : null;
+        $landedCurrency = is_array($landed) ? strtoupper(trim((string) ($landed['currency'] ?? ''))) : null;
+
+        return [
+            'net_amount' => $netAmount !== null ? (float) $netAmount : null,
+            'net_currency' => strtoupper(trim((string) ($netCurrency ?? ''))),
+            'fee_amount' => $feeAmount,
+            'fee_currency' => strtoupper(trim((string) ($feeCurrency ?? ''))),
+            'landed_amount' => $landedAmount,
+            'landed_currency' => $landedCurrency,
+        ];
+    }
+
+    private function convertAmountToGbp(?float $amount, ?string $currency, string $date): ?float
+    {
+        if ($amount === null) {
+            return null;
+        }
+
+        $currency = strtoupper(trim((string) ($currency ?? '')));
+        if ($currency === '') {
+            return null;
+        }
+
+        if ($currency === 'GBP') {
+            return $amount;
+        }
+
+        return $this->fxRateService->convert($amount, $currency, 'GBP', $date);
+    }
+
+    private function addAmountBucket(array &$buckets, string $date, string $currency, ?float $amount): void
+    {
+        if ($amount === null) {
+            return;
+        }
+        $currency = strtoupper(trim($currency));
+        if ($currency === '') {
+            return;
+        }
+        $key = $date . '|' . $currency;
+        $buckets[$key] = ($buckets[$key] ?? 0.0) + $amount;
+    }
+
+    private function sumBucketsToGbp(array $buckets): float
+    {
+        $total = 0.0;
+        foreach ($buckets as $key => $amount) {
+            [$date, $currency] = array_pad(explode('|', (string) $key, 2), 2, '');
+            if ($date === '' || $currency === '') {
+                continue;
+            }
+            $converted = $this->convertAmountToGbp((float) $amount, $currency, $date);
+            if ($converted !== null) {
+                $total += $converted;
+            }
+        }
+        return $total;
     }
 
     private function mergeConfiguredMarketplaces(array $marketplaces): array
