@@ -740,11 +740,13 @@ class OrderController extends Controller
         $landedCurrency = is_array($landed) ? strtoupper(trim((string) ($landed['currency'] ?? ''))) : null;
 
         $netAmount = $orderRecord?->order_net_ex_tax;
+        $netSource = $orderRecord?->order_net_ex_tax_source;
         $netCurrency = $orderRecord?->order_net_ex_tax_currency
             ?: ($orderRecord?->order_total_currency ?: ($orderArray['OrderTotal']['CurrencyCode'] ?? null));
         if (($netAmount === null || (float) $netAmount <= 0) && isset($orderArray['OrderNetExTax']['Amount'])) {
             $netAmount = (float) $orderArray['OrderNetExTax']['Amount'];
             $netCurrency = $orderArray['OrderNetExTax']['CurrencyCode'] ?? $netCurrency;
+            $netSource = $orderArray['OrderNetExTax']['Source'] ?? $netSource;
         }
 
         $feeAmount = $orderRecord?->amazon_fee_total_v2 ?? $orderRecord?->amazon_fee_total;
@@ -776,6 +778,17 @@ class OrderController extends Controller
             }
         }
 
+        $fxDate = $orderRecord?->purchase_date_local_date
+            ? Carbon::parse($orderRecord->purchase_date_local_date)->toDateString()
+            : ($orderRecord?->purchase_date ? Carbon::parse($orderRecord->purchase_date)->toDateString() : now()->toDateString());
+        $netGbpAmount = $this->convertAmountToGbp($netAmount !== null ? (float) $netAmount : null, $netCurrency, $fxDate);
+        $feeGbpAmount = $this->convertAmountToGbp($feeCostAmount, $feeCurrency, $fxDate);
+        $landedGbpAmount = $this->convertAmountToGbp($landedAmount, $landedCurrency, $fxDate);
+        $marginGbpAmount = null;
+        if ($netGbpAmount !== null && $feeGbpAmount !== null && $landedGbpAmount !== null) {
+            $marginGbpAmount = round($netGbpAmount - $feeGbpAmount - $landedGbpAmount, 2);
+        }
+
         return view('orders.show', [
             'order' => $orderArray,
             'orderRecord' => $orderRecord,
@@ -786,8 +799,13 @@ class OrderController extends Controller
             'marketplaces' => $marketplacesUi,
             'landedCostAmount' => $landedAmount,
             'landedCostCurrency' => $landedCurrency,
+            'netAmountResolved' => $netAmount,
+            'netCurrencyResolved' => $netCurrency,
+            'netSourceResolved' => $netSource,
+            'netGbpAmountResolved' => $netGbpAmount,
             'marginAmount' => $marginAmount,
             'marginCurrency' => $marginCurrency,
+            'marginGbpAmountResolved' => $marginGbpAmount,
             'feeSourceResolved' => $feeSource,
             'feeAmountResolved' => $feeCostAmount,
         ]);

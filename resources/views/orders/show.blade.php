@@ -24,8 +24,11 @@
                 $isB2b = !empty($order['IsBusinessOrder']);
                 $totalAmount = $order['OrderTotal']['Amount'] ?? null;
                 $totalCurrency = $order['OrderTotal']['CurrencyCode'] ?? null;
-                $netAmount = $orderRecord?->order_net_ex_tax;
-                $netCurrency = $orderRecord?->order_net_ex_tax_currency ?: $totalCurrency;
+                $netAmount = $netAmountResolved ?? $orderRecord?->order_net_ex_tax;
+                $netCurrency = $netCurrencyResolved ?? ($orderRecord?->order_net_ex_tax_currency ?: $totalCurrency);
+                $netSource = $netSourceResolved ?? ($order['OrderNetExTax']['Source'] ?? null);
+                $isNetEstimated = str_starts_with((string) $netSource, 'estimated');
+                $netGbpAmount = $netGbpAmountResolved ?? null;
                 $feeAmount = $orderRecord?->amazon_fee_total_v2 ?? $orderRecord?->amazon_fee_total;
                 $feeCurrency = ($orderRecord?->amazon_fee_currency_v2 ?: $orderRecord?->amazon_fee_currency) ?: $netCurrency;
                 $feeSource = $orderRecord?->amazon_fee_total_v2 !== null ? 'finance_total_v2' : 'finance_total';
@@ -44,6 +47,7 @@
                 $landedCurrency = $landedCostCurrency ?? null;
                 $marginAmount = $marginAmount ?? null;
                 $marginCurrency = $marginCurrency ?? $netCurrency;
+                $marginGbpAmount = $marginGbpAmountResolved ?? null;
                 $buyerEmail = $order['BuyerInfo']['BuyerEmail']
                     ?? $order['BuyerEmail']
                     ?? null;
@@ -145,7 +149,11 @@
                 <div class="mt-4 flex items-baseline gap-2">
                     <div class="text-xs text-gray-500">Net (ex tax)</div>
                     <div class="text-lg font-semibold">
-                        {{ $netAmount ?? $totalAmount ?? 'N/A' }} {{ $netCurrency ?? '' }}
+                        @if($isNetEstimated)* @endif
+                        {{ $netAmount !== null ? number_format((float) $netAmount, 2) : ($totalAmount ?? 'N/A') }} {{ $netCurrency ?? '' }}
+                    </div>
+                    <div class="text-sm text-gray-600">
+                        | @if($isNetEstimated)* @endif {{ $netGbpAmount !== null ? '£' . number_format((float) $netGbpAmount, 2) : 'N/A' }}
                     </div>
                 </div>
                 <div class="mt-2 flex items-baseline gap-2">
@@ -169,7 +177,11 @@
                 <div class="mt-2 flex items-baseline gap-2">
                     <div class="text-xs text-gray-500">Margin</div>
                     <div class="text-sm font-semibold">
+                        @if($isNetEstimated)* @endif
                         {{ $marginAmount !== null ? number_format((float) $marginAmount, 2) : 'N/A' }} {{ $marginCurrency ?? '' }}
+                    </div>
+                    <div class="text-sm text-gray-600">
+                        | @if($isNetEstimated)* @endif {{ $marginGbpAmount !== null ? '£' . number_format((float) $marginGbpAmount, 2) : 'N/A' }}
                     </div>
                     @if($marginAmount === null)
                         <div class="text-xs text-gray-500">(requires net, fee, landed in same currency)</div>

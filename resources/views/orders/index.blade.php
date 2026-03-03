@@ -456,7 +456,7 @@
                 <th>Net (ex tax)</th>
                 <th>Amazon Fees</th>
                 <th>Landed Cost</th>
-                <th>Margin Proxy</th>
+                <th>Margin Proxy (GBP)</th>
                 <th>Currency</th>
                 <th>Ship to</th>
                 <th>Marketplace</th>
@@ -505,10 +505,6 @@
                     $marginGbpAmount = isset($order['MarginProxyGbp']['Amount']) && is_numeric($order['MarginProxyGbp']['Amount'])
                         ? (float) $order['MarginProxyGbp']['Amount']
                         : null;
-                    $marginLocalAmount = isset($order['MarginProxy']['Amount']) && is_numeric($order['MarginProxy']['Amount'])
-                        ? (float) $order['MarginProxy']['Amount']
-                        : null;
-                    $marginLocalCurrency = strtoupper(trim((string) ($order['MarginProxy']['CurrencyCode'] ?? $netCurrency)));
                 @endphp
                 <tr>
                     <td>{{ $purchaseDateOut }}</td>
@@ -574,8 +570,6 @@
                         {{ $landedCurrency }}
                     </td>
                     <td dir="rtl">
-                        {{ $marginLocalAmount !== null ? number_format($marginLocalAmount, 2) . ' ' . $marginLocalCurrency : 'N/A' }}
-                        <span style="color:#6b7280;">|</span>
                         {{ $marginGbpAmount !== null ? '£' . number_format($marginGbpAmount, 2) : 'N/A' }}
                     </td>
                     <td>{{ $order['OrderNetExTax']['CurrencyCode'] ?? '' }}</td>
