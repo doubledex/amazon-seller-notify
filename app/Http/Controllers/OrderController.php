@@ -1679,6 +1679,7 @@ class OrderController extends Controller
 
         return [
             'order_count' => $orderCount,
+            'total_units' => $unshippedUnits + $shippedUnits,
             'unshipped_units' => $unshippedUnits,
             'shipped_units' => $shippedUnits,
             'net_value_gbp' => round($netValueGbp, 2),

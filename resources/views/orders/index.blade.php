@@ -313,6 +313,7 @@
         <div class="mb-4 p-3 rounded border border-gray-200 bg-gray-50 text-sm">
             <div style="display:flex; gap:18px; flex-wrap:wrap;">
                 <span><strong>Orders:</strong> {{ number_format((int) ($summaryMetrics['order_count'] ?? 0)) }}</span>
+                <span><strong>Total Units:</strong> {{ number_format((int) ($summaryMetrics['total_units'] ?? 0)) }}</span>
                 <span><strong>Unshipped Units:</strong> {{ number_format((int) ($summaryMetrics['unshipped_units'] ?? 0)) }}</span>
                 <span><strong>Shipped Units:</strong> {{ number_format((int) ($summaryMetrics['shipped_units'] ?? 0)) }}</span>
                 <span><strong>Net Value (GBP):</strong> £{{ number_format((float) ($summaryMetrics['net_value_gbp'] ?? 0), 2) }}</span>
