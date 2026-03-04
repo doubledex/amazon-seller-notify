@@ -1865,12 +1865,12 @@ class OrderController extends Controller
         return $this->fxRateService->convert($amount, $currency, 'GBP', $date);
     }
 
-    private function addAmountBucket(array &$buckets, string $date, string $currency, ?float $amount): void
+    private function addAmountBucket(array &$buckets, string $date, ?string $currency, ?float $amount): void
     {
         if ($amount === null) {
             return;
         }
-        $currency = strtoupper(trim($currency));
+        $currency = strtoupper(trim((string) $currency));
         if ($currency === '') {
             return;
         }
