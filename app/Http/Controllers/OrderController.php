@@ -1595,65 +1595,82 @@ class OrderController extends Controller
 
     private function buildFilteredSummaryMetrics($query): array
     {
-        $orders = $query->get([
-            'amazon_order_id',
-            'purchase_date',
-            'purchase_date_local_date',
-            'order_total_currency',
-            'order_net_ex_tax',
-            'order_net_ex_tax_currency',
-            'amazon_fee_total_v2',
-            'amazon_fee_total',
-            'amazon_fee_currency_v2',
-            'amazon_fee_currency',
-            'amazon_fee_estimated_total',
-            'amazon_fee_estimated_currency',
-        ]);
-
-        $orderIds = $orders
-            ->pluck('amazon_order_id')
-            ->filter()
-            ->values()
-            ->all();
-
-        $itemNetFallbackMap = $this->buildItemNetFallbackMap($orderIds);
-        $feeFallbackMap = $this->buildFeeFallbackMap($orderIds);
-        $landedCostMap = $this->landedCostResolver->resolveOrderLandedCostsForOrderCurrency($orderIds);
-
+        $orderCount = 0;
         $shippedUnits = 0;
         $unshippedUnits = 0;
-        foreach (array_chunk($orderIds, 1000) as $chunk) {
-            if (empty($chunk)) {
-                continue;
-            }
-            $units = DB::table('order_items')
-                ->selectRaw('SUM(COALESCE(quantity_shipped, 0)) as shipped_units, SUM(COALESCE(quantity_unshipped, 0)) as unshipped_units')
-                ->whereIn('amazon_order_id', $chunk)
-                ->first();
-            $shippedUnits += (int) ($units->shipped_units ?? 0);
-            $unshippedUnits += (int) ($units->unshipped_units ?? 0);
-        }
-
         $netBuckets = [];
         $feeBuckets = [];
         $landedBuckets = [];
 
-        foreach ($orders as $order) {
-            $financials = $this->resolveOrderFinancialComponents(
-                $order,
-                $itemNetFallbackMap,
-                $feeFallbackMap,
-                $landedCostMap
-            );
+        $summaryQuery = $query->clone()
+            ->select([
+                'id',
+                'amazon_order_id',
+                'purchase_date',
+                'purchase_date_local_date',
+                'order_total_currency',
+                'order_net_ex_tax',
+                'order_net_ex_tax_currency',
+                'amazon_fee_total_v2',
+                'amazon_fee_total',
+                'amazon_fee_currency_v2',
+                'amazon_fee_currency',
+                'amazon_fee_estimated_total',
+                'amazon_fee_estimated_currency',
+            ])
+            ->orderBy('id');
 
-            $fxDate = $order->purchase_date_local_date
-                ? Carbon::parse($order->purchase_date_local_date)->toDateString()
-                : ($order->purchase_date ? Carbon::parse($order->purchase_date)->toDateString() : now()->toDateString());
+        $summaryQuery->chunkById(500, function ($orders) use (
+            &$orderCount,
+            &$shippedUnits,
+            &$unshippedUnits,
+            &$netBuckets,
+            &$feeBuckets,
+            &$landedBuckets
+        ) {
+            if ($orders->isEmpty()) {
+                return;
+            }
 
-            $this->addAmountBucket($netBuckets, $fxDate, $financials['net_currency'], $financials['net_amount']);
-            $this->addAmountBucket($feeBuckets, $fxDate, $financials['fee_currency'], $financials['fee_amount']);
-            $this->addAmountBucket($landedBuckets, $fxDate, $financials['landed_currency'], $financials['landed_amount']);
-        }
+            $orderCount += $orders->count();
+            $orderIds = $orders
+                ->pluck('amazon_order_id')
+                ->filter()
+                ->values()
+                ->all();
+
+            if (empty($orderIds)) {
+                return;
+            }
+
+            $units = DB::table('order_items')
+                ->selectRaw('SUM(COALESCE(quantity_shipped, 0)) as shipped_units, SUM(COALESCE(quantity_unshipped, 0)) as unshipped_units')
+                ->whereIn('amazon_order_id', $orderIds)
+                ->first();
+            $shippedUnits += (int) ($units->shipped_units ?? 0);
+            $unshippedUnits += (int) ($units->unshipped_units ?? 0);
+
+            $itemNetFallbackMap = $this->buildItemNetFallbackMap($orderIds);
+            $feeFallbackMap = $this->buildFeeFallbackMap($orderIds);
+            $landedCostMap = $this->landedCostResolver->resolveOrderLandedCostsForOrderCurrency($orderIds);
+
+            foreach ($orders as $order) {
+                $financials = $this->resolveOrderFinancialComponents(
+                    $order,
+                    $itemNetFallbackMap,
+                    $feeFallbackMap,
+                    $landedCostMap
+                );
+
+                $fxDate = $order->purchase_date_local_date
+                    ? Carbon::parse($order->purchase_date_local_date)->toDateString()
+                    : ($order->purchase_date ? Carbon::parse($order->purchase_date)->toDateString() : now()->toDateString());
+
+                $this->addAmountBucket($netBuckets, $fxDate, $financials['net_currency'], $financials['net_amount']);
+                $this->addAmountBucket($feeBuckets, $fxDate, $financials['fee_currency'], $financials['fee_amount']);
+                $this->addAmountBucket($landedBuckets, $fxDate, $financials['landed_currency'], $financials['landed_amount']);
+            }
+        });
 
         $netValueGbp = $this->sumBucketsToGbp($netBuckets);
         $amazonFeesGbp = $this->sumBucketsToGbp($feeBuckets);
@@ -1661,7 +1678,7 @@ class OrderController extends Controller
         $marginProxyGbp = $netValueGbp - $amazonFeesGbp - $landedCostsGbp;
 
         return [
-            'order_count' => $orders->count(),
+            'order_count' => $orderCount,
             'unshipped_units' => $unshippedUnits,
             'shipped_units' => $shippedUnits,
             'net_value_gbp' => round($netValueGbp, 2),
