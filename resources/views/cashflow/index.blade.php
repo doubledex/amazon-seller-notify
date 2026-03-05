@@ -8,8 +8,8 @@
     <div class="py-6">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-4">
             <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg p-4">
-                <form id="cashflow-filters" class="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
-                    <div>
+                <form id="cashflow-filters" class="flex flex-wrap items-end gap-3">
+                    <div class="min-w-[140px]">
                         <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">View</label>
                         <select name="view" class="w-full border-gray-300 rounded-md shadow-sm">
                             <option value="outstanding">Outstanding</option>
@@ -18,23 +18,30 @@
                             <option value="today_timing">Today timing</option>
                         </select>
                     </div>
-                    <div>
+                    <div class="min-w-[150px]">
                         <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">Date (UTC)</label>
                         <input name="date" type="date" class="w-full border-gray-300 rounded-md shadow-sm" value="{{ now()->utc()->toDateString() }}">
                     </div>
-                    <div>
+                    <div class="min-w-[170px]">
                         <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">From (Maturity UTC)</label>
-                        <input name="from" type="date" class="w-full border-gray-300 rounded-md shadow-sm" value="">
+                        <input name="from" type="date" class="w-full border-gray-300 rounded-md shadow-sm" value="{{ now()->utc()->toDateString() }}">
                     </div>
-                    <div>
+                    <div class="min-w-[170px]">
                         <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">To (Maturity UTC)</label>
-                        <input name="to" type="date" class="w-full border-gray-300 rounded-md shadow-sm" value="">
+                        <input name="to" type="date" class="w-full border-gray-300 rounded-md shadow-sm" value="{{ now()->utc()->addWeek()->toDateString() }}">
                     </div>
-                    <div>
-                        <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">Marketplace ID</label>
-                        <input name="marketplace_id" type="text" class="w-full border-gray-300 rounded-md shadow-sm" placeholder="Optional">
+                    <div class="min-w-[320px]">
+                        <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">Marketplace</label>
+                        <select name="marketplace_id" class="w-full border-gray-300 rounded-md shadow-sm">
+                            <option value="">All marketplaces</option>
+                            @foreach(($marketplaces ?? []) as $marketplace)
+                                <option value="{{ $marketplace['id'] }}">
+                                    {{ trim(($marketplace['flag'] ?? '') . ' ' . ($marketplace['country_code'] ?? '')) }} - {{ $marketplace['name'] ?? 'Unknown' }} ({{ $marketplace['id'] }})
+                                </option>
+                            @endforeach
+                        </select>
                     </div>
-                    <div>
+                    <div class="min-w-[120px]">
                         <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">Region</label>
                         <select name="region" class="w-full border-gray-300 rounded-md shadow-sm">
                             <option value="">All</option>
@@ -43,7 +50,7 @@
                             <option value="FE">FE</option>
                         </select>
                     </div>
-                    <div>
+                    <div class="min-w-[130px]">
                         <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">Currency</label>
                         <input name="currency" type="text" maxlength="3" class="w-full border-gray-300 rounded-md shadow-sm" placeholder="GBP / USD / EUR">
                     </div>

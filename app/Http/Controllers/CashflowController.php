@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Marketplace;
 use App\Services\CashflowProjectionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,7 +14,25 @@ class CashflowController extends Controller
 
     public function page(): View
     {
-        return view('cashflow.index');
+        $marketplaces = Marketplace::query()
+            ->orderBy('country_code')
+            ->orderBy('name')
+            ->get(['id', 'name', 'country_code'])
+            ->map(function ($m) {
+                $country = strtoupper(trim((string) ($m->country_code ?? '')));
+                return [
+                    'id' => (string) $m->id,
+                    'name' => (string) ($m->name ?? ''),
+                    'country_code' => $country,
+                    'flag' => $this->flagFromCountryCode($country),
+                ];
+            })
+            ->values()
+            ->all();
+
+        return view('cashflow.index', [
+            'marketplaces' => $marketplaces,
+        ]);
     }
 
     public function index(Request $request, CashflowProjectionService $service): JsonResponse
@@ -59,5 +78,20 @@ class CashflowController extends Controller
             'filters' => array_filter($filters, fn ($v) => $v !== null && trim((string) $v) !== ''),
             'data' => $data,
         ]);
+    }
+
+    private function flagFromCountryCode(string $countryCode): string
+    {
+        if (strlen($countryCode) !== 2 || !ctype_alpha($countryCode)) {
+            return '';
+        }
+
+        if (function_exists('mb_chr')) {
+            $first = 0x1F1E6 + (ord($countryCode[0]) - 65);
+            $second = 0x1F1E6 + (ord($countryCode[1]) - 65);
+            return mb_chr($first, 'UTF-8') . mb_chr($second, 'UTF-8');
+        }
+
+        return '';
     }
 }
