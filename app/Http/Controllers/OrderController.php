@@ -10,6 +10,7 @@ use App\Services\MarketplaceService;
 use App\Services\OrderNetValueService;
 use App\Services\MarketplaceTimezoneService;
 use App\Services\RegionConfigService;
+use App\Services\OrderFinancialEventsSummaryService;
 use App\Models\CityGeo;
 use App\Models\PostalCodeGeo;
 use App\Models\OrderShipAddress;
@@ -35,6 +36,7 @@ class OrderController extends Controller
     private $orderNetValueService;
     private $landedCostResolver;
     private $fxRateService;
+    private $orderFinancialEventsSummaryService;
     private const ORDERS_MAX_RETRIES = 3;
 
     public function __construct()
@@ -55,6 +57,7 @@ class OrderController extends Controller
         $this->orderNetValueService = new OrderNetValueService();
         $this->landedCostResolver = new LandedCostResolver();
         $this->fxRateService = new FxRateService();
+        $this->orderFinancialEventsSummaryService = new OrderFinancialEventsSummaryService();
     }
 
     public function index(Request $request)
@@ -621,6 +624,10 @@ class OrderController extends Controller
         }
 
         $marketplacesUi = $this->marketplaceService->getMarketplacesForUi($this->connector);
+        $financialEventsSummary = $this->orderFinancialEventsSummaryService->summarizeOrder(
+            $order_id,
+            $orderRecord?->marketplace_id
+        );
         $feeLines = collect();
         if (Schema::hasTable('amazon_order_fee_lines_v2')) {
             $feeLines = DB::table('amazon_order_fee_lines_v2')
@@ -810,6 +817,7 @@ class OrderController extends Controller
             'marginGbpAmountResolved' => $marginGbpAmount,
             'feeSourceResolved' => $feeSource,
             'feeAmountResolved' => $feeCostAmount,
+            'financialEventsSummary' => $financialEventsSummary,
         ]);
     }
 

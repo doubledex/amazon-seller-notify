@@ -190,6 +190,123 @@
             </div>
 
             <div class="p-4 rounded-lg border border-gray-200 bg-white shadow-sm mb-6">
+                @php
+                    $financialSummary = $financialEventsSummary ?? [];
+                    $financialSummaryError = $financialSummary['error'] ?? null;
+                    $financialSummaryFetchedAt = $financialSummary['fetched_at'] ?? null;
+                    $financialSummaryTotal = (int) ($financialSummary['total_transactions'] ?? 0);
+                    $financialSummaryPages = (int) ($financialSummary['pages_fetched'] ?? 0);
+                    $financialSummaryTruncated = !empty($financialSummary['truncated']);
+                    $financialSummaryPostedFrom = $financialSummary['posted_from'] ?? null;
+                    $financialSummaryPostedTo = $financialSummary['posted_to'] ?? null;
+                    $financialSummaryStatusCounts = (array) ($financialSummary['status_counts'] ?? []);
+                    $financialSummaryTypeCounts = (array) ($financialSummary['type_counts'] ?? []);
+                    $financialSummaryCurrencyTotals = (array) ($financialSummary['currency_totals'] ?? []);
+                    $financialSummaryRecent = (array) ($financialSummary['recent_transactions'] ?? []);
+                @endphp
+                <div class="text-sm font-semibold mb-3">Financial Events Summary (SP-API)</div>
+                <div class="text-xs text-gray-500 mb-3">
+                    Source: {{ $financialSummary['source'] ?? 'sp_api.finances.v2024_06_19' }}
+                    @if ($financialSummaryFetchedAt)
+                        | Fetched: {{ $formatDateTime($financialSummaryFetchedAt) }} UTC
+                    @endif
+                </div>
+                @if (!empty($financialSummaryError))
+                    <div class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">
+                        {{ $financialSummaryError }}
+                    </div>
+                @else
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                        <div class="p-3 rounded-md border border-gray-200 bg-gray-50">
+                            <div class="text-xs text-gray-500">Transactions</div>
+                            <div class="text-lg font-semibold">{{ $financialSummaryTotal }}</div>
+                        </div>
+                        <div class="p-3 rounded-md border border-gray-200 bg-gray-50">
+                            <div class="text-xs text-gray-500">Pages Fetched</div>
+                            <div class="text-lg font-semibold">{{ $financialSummaryPages }}</div>
+                        </div>
+                        <div class="p-3 rounded-md border border-gray-200 bg-gray-50">
+                            <div class="text-xs text-gray-500">Posted From</div>
+                            <div class="text-sm font-medium">{{ $financialSummaryPostedFrom ? $formatDateTime($financialSummaryPostedFrom) : 'N/A' }}</div>
+                        </div>
+                        <div class="p-3 rounded-md border border-gray-200 bg-gray-50">
+                            <div class="text-xs text-gray-500">Posted To</div>
+                            <div class="text-sm font-medium">{{ $financialSummaryPostedTo ? $formatDateTime($financialSummaryPostedTo) : 'N/A' }}</div>
+                        </div>
+                    </div>
+
+                    @if ($financialSummaryTruncated)
+                        <div class="text-xs text-amber-700 mb-4">Showing partial results after page limit.</div>
+                    @endif
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+                        <div class="p-3 rounded-md border border-gray-200">
+                            <div class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">By Status</div>
+                            @forelse($financialSummaryStatusCounts as $statusLabel => $statusCount)
+                                <div class="text-sm flex justify-between"><span>{{ $statusLabel }}</span><span>{{ (int) $statusCount }}</span></div>
+                            @empty
+                                <div class="text-sm text-gray-500">No status data</div>
+                            @endforelse
+                        </div>
+                        <div class="p-3 rounded-md border border-gray-200">
+                            <div class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">By Type</div>
+                            @forelse($financialSummaryTypeCounts as $typeLabel => $typeCount)
+                                <div class="text-sm flex justify-between"><span>{{ $typeLabel }}</span><span>{{ (int) $typeCount }}</span></div>
+                            @empty
+                                <div class="text-sm text-gray-500">No type data</div>
+                            @endforelse
+                        </div>
+                        <div class="p-3 rounded-md border border-gray-200">
+                            <div class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Amount Totals</div>
+                            @forelse($financialSummaryCurrencyTotals as $currencyCode => $currencyAmount)
+                                <div class="text-sm flex justify-between"><span>{{ $currencyCode }}</span><span>{{ number_format((float) $currencyAmount, 2) }}</span></div>
+                            @empty
+                                <div class="text-sm text-gray-500">No amount totals</div>
+                            @endforelse
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full border-collapse" border="1" cellpadding="6" cellspacing="0">
+                            <thead>
+                                <tr class="bg-gray-100">
+                                    <th>Posted</th>
+                                    <th>Status</th>
+                                    <th>Type</th>
+                                    <th>Description</th>
+                                    <th>Amount</th>
+                                    <th>Transaction ID</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse ($financialSummaryRecent as $transaction)
+                                    <tr>
+                                        <td>{{ !empty($transaction['posted_date']) ? $formatDateTime($transaction['posted_date']) : 'N/A' }}</td>
+                                        <td>{{ $transaction['status'] ?? 'N/A' }}</td>
+                                        <td>{{ $transaction['type'] ?? 'N/A' }}</td>
+                                        <td>{{ $transaction['description'] ?? 'N/A' }}</td>
+                                        <td dir="rtl">
+                                            @if (isset($transaction['amount']) && is_numeric($transaction['amount']))
+                                                {{ number_format((float) $transaction['amount'], 2) }} {{ $transaction['currency'] ?? '' }}
+                                            @else
+                                                N/A
+                                            @endif
+                                        </td>
+                                        <td>{{ $transaction['transaction_id'] ?? 'N/A' }}</td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="6" class="text-sm text-gray-600">No financial events returned for this order.</td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="text-xs text-gray-500 mt-2">Amazon notes financial events can lag up to 48 hours.</div>
+                @endif
+            </div>
+
+            <div class="p-4 rounded-lg border border-gray-200 bg-white shadow-sm mb-6">
                 <div class="text-sm font-semibold mb-3">Amazon Fee Breakdown</div>
                 @if (!empty($feeLines) && $feeLines->count() > 0)
                     <div class="overflow-x-auto">
