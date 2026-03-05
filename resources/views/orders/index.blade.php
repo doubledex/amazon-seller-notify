@@ -479,7 +479,6 @@
                 <th>Amazon Fees</th>
                 <th>Landed Cost</th>
                 <th>Margin Proxy (GBP)</th>
-                <th>Currency</th>
                 <th>Ship to</th>
                 <th>Marketplace</th>
                 <th>Company Name</th>
@@ -610,6 +609,9 @@
                             *
                         @endif
                         {{ $order['OrderNetExTax']['Amount'] ?? 'N/A' }}
+                        @if(isset($order['OrderNetExTax']['Amount']) && $netCurrency !== '')
+                            {{ $netCurrency }}
+                        @endif
                     </td>
                     <td dir="rtl">
                         @if(($order['AmazonFees']['Source'] ?? '') === 'estimated_product_fees')
@@ -625,7 +627,6 @@
                     <td dir="rtl">
                         {{ $marginGbpAmount !== null ? '£' . number_format($marginGbpAmount, 2) : 'N/A' }}
                     </td>
-                    <td>{{ $order['OrderNetExTax']['CurrencyCode'] ?? '' }}</td>
                     <td>{{ $order['ShippingAddress']['CountryCode'] ?? '' }}</td>
                     <td>
                         @if($marketplaceId)
