@@ -135,17 +135,16 @@ class CashflowProjectionService
         ];
     }
 
-    public function outstandingByMaturity(Carbon $fromUtc, Carbon $toUtc, array $filters = []): array
+    public function outstandingByMaturity(?Carbon $fromUtc, ?Carbon $toUtc, array $filters = []): array
     {
-        $start = $fromUtc->copy()->utc()->startOfDay();
-        $end = $toUtc->copy()->utc()->endOfDay();
+        $start = $fromUtc?->copy()->utc()->startOfDay();
+        $end = $toUtc?->copy()->utc()->endOfDay();
         $maturityColumn = $this->maturityDateColumn();
         $effectiveColumn = $this->cashflowDateColumn();
 
-        $rows = $this->baseQuery($filters)
+        $query = $this->baseQuery($filters)
             ->whereNotNull($maturityColumn)
-            ->whereBetween($maturityColumn, [$start, $end])
-            ->whereIn('transaction_status', ['DEFERRED'])
+            ->whereIn('transaction_status', ['DEFERRED', 'DEFERRED_RELEASED'])
             ->selectRaw('
                 marketplace_id,
                 amazon_order_id,
@@ -166,8 +165,17 @@ class CashflowProjectionService
                 'currency',
             ])
             ->orderBy($maturityColumn, 'asc')
-            ->orderBy('transaction_id', 'asc')
-            ->get();
+            ->orderBy('transaction_id', 'asc');
+
+        if ($start && $end) {
+            $query->whereBetween($maturityColumn, [$start, $end]);
+        } elseif ($start) {
+            $query->where($maturityColumn, '>=', $start);
+        } elseif ($end) {
+            $query->where($maturityColumn, '<=', $end);
+        }
+
+        $rows = $query->get();
 
         $transactions = [];
         $totalsByCurrency = [];
@@ -194,8 +202,8 @@ class CashflowProjectionService
 
         return [
             'view' => 'outstanding',
-            'from_utc' => $start->toIso8601String(),
-            'to_utc' => $end->toIso8601String(),
+            'from_utc' => $start?->toIso8601String(),
+            'to_utc' => $end?->toIso8601String(),
             'total_transactions' => count($transactions),
             'totals_by_currency' => $totalsByCurrency,
             'transactions' => $transactions,

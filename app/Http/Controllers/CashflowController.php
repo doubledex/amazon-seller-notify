@@ -32,8 +32,8 @@ class CashflowController extends Controller
         }
 
         try {
-            $fromDate = $fromInput !== '' ? Carbon::parse($fromInput)->utc() : now()->utc();
-            $toDate = $toInput !== '' ? Carbon::parse($toInput)->utc() : now()->utc()->addWeek();
+            $fromDate = $fromInput !== '' ? Carbon::parse($fromInput)->utc() : null;
+            $toDate = $toInput !== '' ? Carbon::parse($toInput)->utc() : null;
         } catch (\Throwable) {
             return response()->json([
                 'error' => 'Invalid from/to date parameters. Use date values.',
