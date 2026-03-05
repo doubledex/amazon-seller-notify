@@ -150,21 +150,79 @@ class CashflowProjectionService
     {
         $start = $fromUtc?->copy()->utc()->startOfDay();
         $end = $toUtc?->copy()->utc()->endOfDay();
+        $query = DB::table('cashflow_outstanding_transactions');
+        if (!empty($filters['marketplace_id'])) {
+            $query->where('marketplace_id', strtoupper(trim((string) $filters['marketplace_id'])));
+        }
+        if (!empty($filters['region'])) {
+            $query->where('region', strtoupper(trim((string) $filters['region'])));
+        }
+        if (!empty($filters['currency'])) {
+            $query->where('currency', strtoupper(trim((string) $filters['currency'])));
+        }
+        if ($start) {
+            $query->where('maturity_datetime_utc', '>=', $start->toDateTimeString());
+        }
+        if ($end) {
+            $query->where('maturity_datetime_utc', '<=', $end->toDateTimeString());
+        }
+
+        $rows = $query
+            ->orderBy('maturity_datetime_utc')
+            ->orderBy('transaction_id')
+            ->get();
+
         $transactions = [];
         $totalsByCurrency = [];
         $missingTotalAmountRows = 0;
+        foreach ($rows as $row) {
+            $transactions[] = [
+                'maturity_datetime_utc' => $this->formatUtcDateTime($row->maturity_datetime_utc ?? null),
+                'posted_datetime_utc' => $this->formatUtcDateTime($row->posted_datetime_utc ?? null),
+                'days_posted_to_maturity' => $row->days_posted_to_maturity !== null ? (int) $row->days_posted_to_maturity : null,
+                'marketplace_id' => $row->marketplace_id,
+                'amazon_order_id' => $row->amazon_order_id,
+                'transaction_id' => $row->transaction_id,
+                'transaction_status' => $row->transaction_status,
+                'currency' => $row->currency,
+                'outstanding_value' => $row->outstanding_value !== null ? (float) $row->outstanding_value : null,
+                'missing_total_amount' => (bool) ($row->missing_total_amount ?? false),
+            ];
 
+            if ((bool) ($row->missing_total_amount ?? false) || $row->currency === null || $row->outstanding_value === null) {
+                $missingTotalAmountRows++;
+                continue;
+            }
+
+            $currency = strtoupper(trim((string) $row->currency));
+            $totalsByCurrency[$currency] = round(($totalsByCurrency[$currency] ?? 0) + (float) $row->outstanding_value, 4);
+        }
+
+        ksort($totalsByCurrency);
+
+        return [
+            'view' => 'outstanding',
+            'source' => 'cashflow_outstanding_transactions',
+            'lookback_days' => self::OUTSTANDING_LOOKBACK_DAYS,
+            'from_utc' => $start?->toIso8601String(),
+            'to_utc' => $end?->toIso8601String(),
+            'total_transactions' => count($transactions),
+            'totals_by_currency' => $totalsByCurrency,
+            'missing_total_amount_rows' => $missingTotalAmountRows,
+            'transactions' => $transactions,
+        ];
+    }
+
+    public function syncOutstandingSnapshot(): array
+    {
         $adapter = $this->financesAdapter ?? new FinancesAdapter(new SpApiClientFactory());
         $regionService = $this->regionConfigService ?? new RegionConfigService();
-        $marketplaceFilter = strtoupper(trim((string) ($filters['marketplace_id'] ?? '')));
-        $currencyFilter = strtoupper(trim((string) ($filters['currency'] ?? '')));
-        $regionFilter = strtoupper(trim((string) ($filters['region'] ?? '')));
-        $regions = in_array($regionFilter, ['EU', 'NA', 'FE'], true)
-            ? [$regionFilter]
-            : $regionService->spApiRegions();
-
+        $regions = $regionService->spApiRegions();
         $postedAfter = now()->utc()->subDays(self::OUTSTANDING_LOOKBACK_DAYS)->startOfDay();
         $postedBefore = now()->utc()->subMinutes(2);
+
+        $rows = [];
+        $transactionsSeen = 0;
 
         foreach ($regions as $region) {
             $config = $regionService->spApiConfig($region);
@@ -172,13 +230,6 @@ class CashflowProjectionService
                 static fn ($id) => strtoupper(trim((string) $id)),
                 (array) ($config['marketplace_ids'] ?? [])
             )));
-
-            if ($marketplaceFilter !== '') {
-                $marketplaceIds = array_values(array_filter(
-                    $marketplaceIds,
-                    static fn (string $id) => strtoupper($id) === $marketplaceFilter
-                ));
-            }
 
             foreach ($marketplaceIds as $marketplaceId) {
                 $nextToken = null;
@@ -194,7 +245,7 @@ class CashflowProjectionService
                         region: $region
                     );
                     if ($response->status() >= 400) {
-                        Log::warning('cashflow outstanding API call failed', [
+                        Log::warning('cashflow snapshot API call failed', [
                             'region' => $region,
                             'marketplace_id' => $marketplaceId,
                             'status' => $response->status(),
@@ -204,6 +255,7 @@ class CashflowProjectionService
 
                     $payload = (array) (($response->json('payload') ?? null) ?: []);
                     $txns = (array) ($payload['transactions'] ?? []);
+                    $transactionsSeen += count($txns);
                     foreach ($txns as $txn) {
                         if (!is_array($txn)) {
                             continue;
@@ -220,41 +272,38 @@ class CashflowProjectionService
                             continue;
                         }
 
-                        if ($start && $maturityDate->lt($start)) {
-                            continue;
-                        }
-                        if ($end && $maturityDate->gt($end)) {
-                            continue;
-                        }
-
                         $totalAmountNode = is_array($txn['totalAmount'] ?? null) ? $txn['totalAmount'] : [];
                         $value = $this->moneyAmount($totalAmountNode);
                         $currency = $this->moneyCurrency($totalAmountNode);
-                        if ($currencyFilter !== '' && $currency !== null && strtoupper($currency) !== $currencyFilter) {
-                            continue;
-                        }
-
                         $postedRaw = $txn['postedDate'] ?? null;
+                        $postedDate = $this->formatUtcDateTime($postedRaw);
                         $marketplaceIdTx = strtoupper(trim((string) data_get($txn, 'sellingPartnerMetadata.marketplaceId', $marketplaceId)));
                         $orderId = $this->extractOrderIdFromTransaction($txn);
+                        $transactionId = trim((string) ($txn['transactionId'] ?? ''));
 
-                        if ($value === null || $currency === null) {
-                            $missingTotalAmountRows++;
-                        } else {
-                            $totalsByCurrency[$currency] = round(($totalsByCurrency[$currency] ?? 0) + (float) $value, 4);
-                        }
+                        $hash = sha1(implode('|', [
+                            strtoupper(trim((string) $region)),
+                            $marketplaceIdTx,
+                            $transactionId,
+                            $maturityDate->format('Y-m-d H:i:s'),
+                        ]));
 
-                        $transactions[] = [
-                            'maturity_datetime_utc' => $maturityDate->copy()->utc()->format('Y-m-d H:i:s'),
-                            'posted_datetime_utc' => $this->formatUtcDateTime($postedRaw),
-                            'days_posted_to_maturity' => $this->daysBetweenDates($postedRaw, $maturityRaw),
+                        $rows[] = [
+                            'row_hash' => $hash,
+                            'region' => strtoupper(trim((string) $region)),
                             'marketplace_id' => $marketplaceIdTx !== '' ? $marketplaceIdTx : null,
                             'amazon_order_id' => $orderId !== '' ? $orderId : null,
-                            'transaction_id' => trim((string) ($txn['transactionId'] ?? '')),
-                            'transaction_status' => $status,
+                            'transaction_id' => $transactionId !== '' ? $transactionId : null,
+                            'transaction_status' => $status !== '' ? $status : null,
+                            'posted_datetime_utc' => $postedDate,
+                            'maturity_datetime_utc' => $maturityDate->format('Y-m-d H:i:s'),
+                            'days_posted_to_maturity' => $this->daysBetweenDates($postedRaw, $maturityRaw),
                             'currency' => $currency,
                             'outstanding_value' => $value !== null ? round((float) $value, 4) : null,
                             'missing_total_amount' => $value === null || $currency === null,
+                            'raw_transaction' => json_encode($txn),
+                            'created_at' => now(),
+                            'updated_at' => now(),
                         ];
                     }
 
@@ -268,24 +317,17 @@ class CashflowProjectionService
             }
         }
 
-        usort($transactions, function (array $a, array $b) {
-            $aKey = (string) ($a['maturity_datetime_utc'] ?? '') . '|' . (string) ($a['transaction_id'] ?? '');
-            $bKey = (string) ($b['maturity_datetime_utc'] ?? '') . '|' . (string) ($b['transaction_id'] ?? '');
-            return strcmp($aKey, $bKey);
+        DB::transaction(function () use ($rows) {
+            DB::table('cashflow_outstanding_transactions')->delete();
+            foreach (array_chunk($rows, 500) as $chunk) {
+                DB::table('cashflow_outstanding_transactions')->insert($chunk);
+            }
         });
 
-        ksort($totalsByCurrency);
-
         return [
-            'view' => 'outstanding',
-            'source' => 'finance_api_transactions_live',
-            'lookback_days' => self::OUTSTANDING_LOOKBACK_DAYS,
-            'from_utc' => $start?->toIso8601String(),
-            'to_utc' => $end?->toIso8601String(),
-            'total_transactions' => count($transactions),
-            'totals_by_currency' => $totalsByCurrency,
-            'missing_total_amount_rows' => $missingTotalAmountRows,
-            'transactions' => $transactions,
+            'rows_written' => count($rows),
+            'transactions_seen' => $transactionsSeen,
+            'regions' => count($regions),
         ];
     }
 
@@ -304,15 +346,6 @@ class CashflowProjectionService
         }
 
         return 'posted_date';
-    }
-
-    private function maturityDateColumn(): string
-    {
-        if (Schema::hasColumn('amazon_order_fee_lines_v2', 'maturity_date')) {
-            return 'maturity_date';
-        }
-
-        return $this->cashflowDateColumn();
     }
 
     private function formatUtcDateTime(mixed $value): ?string

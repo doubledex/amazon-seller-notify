@@ -18,6 +18,7 @@ Schedule::command('orders:refresh-estimates --days=14 --limit=300 --max-lookups=
 Schedule::command('orders:refresh-fee-estimates --days=14 --limit=300 --max-lookups=120 --stale-minutes=360')->hourly()->withoutOverlapping();
 Schedule::command('fees:sync-v2 --days=2')->hourly()->name('fees-sync-v2-hourly')->withoutOverlapping();
 Schedule::command('fees:sync-v2 --days=30')->dailyAt('04:20')->name('fees-sync-v2-30d-reconcile')->withoutOverlapping();
+Schedule::command('cashflow:sync-outstanding')->everyFifteenMinutes()->name('cashflow-outstanding-sync-15m')->withoutOverlapping();
 Schedule::command('orders:sync --days=30 --max-pages=20 --items-limit=300 --address-limit=300')->dailyAt('03:50')->withoutOverlapping();
 Schedule::command('reports:queue --processor=us_fc_inventory --region=NA --marketplace=ATVPDKIKX0DER --report-type=GET_LEDGER_SUMMARY_VIEW_DATA')
     ->dailyAt('00:05')
