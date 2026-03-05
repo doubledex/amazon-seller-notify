@@ -274,6 +274,7 @@
                                     <th>Status</th>
                                     <th>Type</th>
                                     <th>Description</th>
+                                    <th>Value</th>
                                     <th>Amount</th>
                                     <th>Transaction ID</th>
                                 </tr>
@@ -285,6 +286,7 @@
                                         <td>{{ $transaction['status'] ?? 'N/A' }}</td>
                                         <td>{{ $transaction['type'] ?? 'N/A' }}</td>
                                         <td>{{ $transaction['description'] ?? 'N/A' }}</td>
+                                        <td>{{ $transaction['value'] ?? 'N/A' }}</td>
                                         <td dir="rtl">
                                             @if (isset($transaction['amount']) && is_numeric($transaction['amount']))
                                                 {{ number_format((float) $transaction['amount'], 2) }} {{ $transaction['currency'] ?? '' }}
@@ -296,13 +298,17 @@
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="6" class="text-sm text-gray-600">No financial events returned for this order.</td>
+                                        <td colspan="7" class="text-sm text-gray-600">No financial events returned for this order.</td>
                                     </tr>
                                 @endforelse
                             </tbody>
                         </table>
                     </div>
                     <div class="text-xs text-gray-500 mt-2">Amazon notes financial events can lag up to 48 hours.</div>
+                    <details class="mt-3">
+                        <summary class="cursor-pointer text-sm font-semibold">Raw Financial Events JSON (Debug)</summary>
+                        <pre class="text-xs mt-3 bg-gray-50 p-3 rounded overflow-x-auto">{{ json_encode($financialSummary, JSON_PRETTY_PRINT) }}</pre>
+                    </details>
                 @endif
             </div>
 

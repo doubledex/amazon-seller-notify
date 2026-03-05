@@ -129,7 +129,11 @@ class OrderFinancialEventsSummaryService
                 'description' => $description !== '' ? $description : null,
                 'amount' => $amount,
                 'currency' => $currency !== '' ? $currency : null,
+                'value' => ($amount !== null && $currency !== '')
+                    ? number_format((float) $amount, 2, '.', '') . ' ' . $currency
+                    : null,
                 'posted_date' => $postedDate?->toIso8601String(),
+                'raw' => $transaction,
             ];
         }
 
