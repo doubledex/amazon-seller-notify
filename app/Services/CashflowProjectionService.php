@@ -140,7 +140,6 @@ class CashflowProjectionService
         $start = $fromUtc?->copy()->utc()->startOfDay();
         $end = $toUtc?->copy()->utc()->endOfDay();
         $maturityColumn = $this->maturityDateColumn();
-        $effectiveColumn = $this->cashflowDateColumn();
 
         $query = $this->baseQuery($filters)
             ->whereNotNull($maturityColumn)
@@ -151,7 +150,7 @@ class CashflowProjectionService
                 transaction_id,
                 transaction_status,
                 ' . $maturityColumn . ' as maturity_date,
-                ' . $effectiveColumn . ' as effective_payment_date,
+                posted_date,
                 currency,
                 SUM(COALESCE(net_ex_tax_amount, 0)) as outstanding_value
             ')
@@ -161,7 +160,7 @@ class CashflowProjectionService
                 'transaction_id',
                 'transaction_status',
                 $maturityColumn,
-                $effectiveColumn,
+                'posted_date',
                 'currency',
             ])
             ->orderBy($maturityColumn, 'asc')
@@ -188,7 +187,7 @@ class CashflowProjectionService
 
             $transactions[] = [
                 'maturity_datetime_utc' => $this->formatUtcDateTime($row->maturity_date ?? null),
-                'effective_payment_datetime_utc' => $this->formatUtcDateTime($row->effective_payment_date ?? null),
+                'posted_datetime_utc' => $this->formatUtcDateTime($row->posted_date ?? null),
                 'marketplace_id' => $row->marketplace_id,
                 'amazon_order_id' => $row->amazon_order_id,
                 'transaction_id' => $row->transaction_id,

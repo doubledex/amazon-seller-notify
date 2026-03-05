@@ -125,8 +125,8 @@
 
                 const columns = Object.keys(rows[0]);
                 const thead = `<tr>${columns.map(c => `<th class="px-3 py-2 text-left border-b">${c}</th>`).join('')}</tr>`;
-                const tbody = rows.map(row => `<tr>${columns.map(c => `<td class="px-3 py-2 border-b text-sm">${formatCell(c, row[c])}</td>`).join('')}</tr>`).join('');
-                output.innerHTML = `<table class="min-w-full border-collapse">${thead}${tbody}</table>`;
+                const tbody = rows.map(row => `<tr>${columns.map(c => `<td class="px-3 py-2 border-b text-sm align-top ${cellClass(c)}">${formatCell(c, row[c])}</td>`).join('')}</tr>`).join('');
+                output.innerHTML = `<div class="w-full overflow-x-auto"><table class="w-full border-collapse table-auto">${thead}${tbody}</table></div>`;
             }
 
             function renderTodayTiming(timelineRows, transactionRows) {
@@ -156,9 +156,9 @@
             function renderTableHtml(rows, title) {
                 const columns = Object.keys(rows[0]);
                 const thead = `<tr>${columns.map(c => `<th class="px-3 py-2 text-left border-b">${c}</th>`).join('')}</tr>`;
-                const tbody = rows.map(row => `<tr>${columns.map(c => `<td class="px-3 py-2 border-b text-sm">${formatCell(c, row[c])}</td>`).join('')}</tr>`).join('');
+                const tbody = rows.map(row => `<tr>${columns.map(c => `<td class="px-3 py-2 border-b text-sm align-top ${cellClass(c)}">${formatCell(c, row[c])}</td>`).join('')}</tr>`).join('');
                 const heading = title ? `<div class="text-sm font-semibold mb-2">${title}</div>` : '';
-                return `${heading}<table class="min-w-full border-collapse">${thead}${tbody}</table>`;
+                return `${heading}<div class="w-full overflow-x-auto"><table class="w-full border-collapse table-auto">${thead}${tbody}</table></div>`;
             }
 
             function formatCell(column, value) {
@@ -180,6 +180,18 @@
                     .replaceAll('>', '&gt;')
                     .replaceAll('"', '&quot;')
                     .replaceAll("'", '&#039;');
+            }
+
+            function cellClass(column) {
+                if (['amazon_order_id', 'transaction_id', 'marketplace_id'].includes(column)) {
+                    return 'break-all';
+                }
+
+                if (['maturity_datetime_utc', 'posted_datetime_utc', 'effective_payment_time_utc', 'hour_utc'].includes(column)) {
+                    return 'whitespace-nowrap';
+                }
+
+                return '';
             }
 
             form.addEventListener('submit', function (event) {
