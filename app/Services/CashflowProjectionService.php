@@ -221,7 +221,7 @@ class CashflowProjectionService
         $postedAfter = now()->utc()->subDays(self::OUTSTANDING_LOOKBACK_DAYS)->startOfDay();
         $postedBefore = now()->utc()->subMinutes(2);
 
-        $rows = [];
+        $rowsByHash = [];
         $transactionsSeen = 0;
 
         foreach ($regions as $region) {
@@ -288,7 +288,7 @@ class CashflowProjectionService
                             $maturityDate->format('Y-m-d H:i:s'),
                         ]));
 
-                        $rows[] = [
+                        $row = [
                             'row_hash' => $hash,
                             'region' => strtoupper(trim((string) $region)),
                             'marketplace_id' => $marketplaceIdTx !== '' ? $marketplaceIdTx : null,
@@ -305,6 +305,9 @@ class CashflowProjectionService
                             'created_at' => now(),
                             'updated_at' => now(),
                         ];
+
+                        // API pages can return overlapping transactions; keep one row per hash.
+                        $rowsByHash[$hash] = $row;
                     }
 
                     $nextToken = trim((string) ($payload['nextToken'] ?? ''));
@@ -316,6 +319,8 @@ class CashflowProjectionService
                 } while ($nextToken !== null);
             }
         }
+
+        $rows = array_values($rowsByHash);
 
         DB::transaction(function () use ($rows) {
             DB::table('cashflow_outstanding_transactions')->delete();
