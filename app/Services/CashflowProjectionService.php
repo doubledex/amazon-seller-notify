@@ -160,6 +160,7 @@ class CashflowProjectionService
                 'total_transactions' => 0,
                 'totals_by_currency' => [],
                 'missing_total_amount_rows' => 0,
+                'diagnostics' => null,
                 'warning' => 'cashflow_outstanding_transactions table is missing. Run migrations and cashflow snapshot sync.',
                 'transactions' => [],
             ];
@@ -217,6 +218,25 @@ class CashflowProjectionService
 
         ksort($totalsByCurrency);
 
+        $diagnostics = null;
+        if (Schema::hasTable('cashflow_outstanding_snapshot_runs')) {
+            $latestRun = DB::table('cashflow_outstanding_snapshot_runs')->orderByDesc('id')->first();
+            if ($latestRun) {
+                $diagnostics = [
+                    'ran_at_utc' => $this->formatUtcDateTime($latestRun->ran_at_utc ?? null),
+                    'lookback_days' => (int) ($latestRun->lookback_days ?? self::OUTSTANDING_LOOKBACK_DAYS),
+                    'regions_processed' => (int) ($latestRun->regions_processed ?? 0),
+                    'marketplaces_processed' => (int) ($latestRun->marketplaces_processed ?? 0),
+                    'transactions_seen' => (int) ($latestRun->transactions_seen ?? 0),
+                    'rows_written' => (int) ($latestRun->rows_written ?? 0),
+                    'excluded_by_status' => (int) ($latestRun->excluded_by_status ?? 0),
+                    'excluded_missing_maturity' => (int) ($latestRun->excluded_missing_maturity ?? 0),
+                    'rows_missing_total_amount' => (int) ($latestRun->rows_missing_total_amount ?? 0),
+                    'outside_lookback_not_scanned' => true,
+                ];
+            }
+        }
+
         return [
             'view' => 'outstanding',
             'source' => 'cashflow_outstanding_transactions',
@@ -226,6 +246,7 @@ class CashflowProjectionService
             'total_transactions' => count($transactions),
             'totals_by_currency' => $totalsByCurrency,
             'missing_total_amount_rows' => $missingTotalAmountRows,
+            'diagnostics' => $diagnostics,
             'transactions' => $transactions,
         ];
     }
@@ -249,6 +270,10 @@ class CashflowProjectionService
 
         $rowsByHash = [];
         $transactionsSeen = 0;
+        $excludedByStatus = 0;
+        $excludedMissingMaturity = 0;
+        $rowsMissingTotalAmount = 0;
+        $marketplacesProcessed = 0;
 
         foreach ($regions as $region) {
             $config = $regionService->spApiConfig($region);
@@ -258,6 +283,7 @@ class CashflowProjectionService
             )));
 
             foreach ($marketplaceIds as $marketplaceId) {
+                $marketplacesProcessed++;
                 $nextToken = null;
                 $pages = 0;
 
@@ -289,12 +315,14 @@ class CashflowProjectionService
 
                         $status = strtoupper(trim((string) ($txn['transactionStatus'] ?? '')));
                         if ($status !== 'DEFERRED') {
+                            $excludedByStatus++;
                             continue;
                         }
 
                         $maturityRaw = $this->extractMaturityDateFromTransaction($txn);
                         $maturityDate = $this->parseAnyDate($maturityRaw);
                         if ($maturityDate === null) {
+                            $excludedMissingMaturity++;
                             continue;
                         }
 
@@ -336,6 +364,10 @@ class CashflowProjectionService
 
                         // API pages can return overlapping transactions; keep one row per hash.
                         $rowsByHash[$hash] = $row;
+
+                        if ($row['missing_total_amount']) {
+                            $rowsMissingTotalAmount++;
+                        }
                     }
 
                     $nextToken = trim((string) ($payload['nextToken'] ?? ''));
@@ -357,10 +389,30 @@ class CashflowProjectionService
             }
         });
 
+        if (Schema::hasTable('cashflow_outstanding_snapshot_runs')) {
+            DB::table('cashflow_outstanding_snapshot_runs')->insert([
+                'ran_at_utc' => now()->utc()->format('Y-m-d H:i:s'),
+                'lookback_days' => self::OUTSTANDING_LOOKBACK_DAYS,
+                'regions_processed' => count($regions),
+                'marketplaces_processed' => $marketplacesProcessed,
+                'transactions_seen' => $transactionsSeen,
+                'rows_written' => count($rows),
+                'excluded_by_status' => $excludedByStatus,
+                'excluded_missing_maturity' => $excludedMissingMaturity,
+                'rows_missing_total_amount' => $rowsMissingTotalAmount,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
         return [
             'rows_written' => count($rows),
             'transactions_seen' => $transactionsSeen,
             'regions' => count($regions),
+            'marketplaces_processed' => $marketplacesProcessed,
+            'excluded_by_status' => $excludedByStatus,
+            'excluded_missing_maturity' => $excludedMissingMaturity,
+            'rows_missing_total_amount' => $rowsMissingTotalAmount,
         ];
     }
 
