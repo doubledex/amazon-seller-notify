@@ -111,6 +111,7 @@ class OrderFinancialEventsSummaryService
             }
             $currency = strtoupper(trim((string) data_get($transaction, 'totalAmount.currencyCode')));
             $maturityDate = $this->extractMaturityDate($transaction);
+            $deferralReason = $this->extractDeferralReason($transaction);
             $currencyAmountBreakdown = $this->extractCurrencyAmountBreakdown($transaction, $currency);
 
             $statusCounts[$status] = ($statusCounts[$status] ?? 0) + 1;
@@ -140,6 +141,7 @@ class OrderFinancialEventsSummaryService
                     ? number_format((float) $amount, 2, '.', '') . ' ' . $currency
                     : null,
                 'posted_date' => $postedDate?->toIso8601String(),
+                'deferral_reason' => $deferralReason,
                 'maturity_date' => $maturityDate,
                 'currency_amount_breakdown' => $currencyAmountBreakdown,
                 'raw' => $transaction,
@@ -268,6 +270,67 @@ class OrderFinancialEventsSummaryService
         foreach ($node as $value) {
             if (is_array($value)) {
                 $found = $this->findMaturityDateRecursive($value);
+                if ($found !== null) {
+                    return $found;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function extractDeferralReason(array $transaction): ?string
+    {
+        $contexts = [];
+        if (is_array($transaction['contexts'] ?? null)) {
+            $contexts = array_merge($contexts, (array) $transaction['contexts']);
+        }
+
+        $items = $transaction['items'] ?? null;
+        if (is_array($items)) {
+            foreach ($items as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                if (is_array($item['contexts'] ?? null)) {
+                    $contexts = array_merge($contexts, (array) $item['contexts']);
+                }
+            }
+        }
+
+        foreach ($contexts as $context) {
+            if (!is_array($context)) {
+                continue;
+            }
+
+            $candidate = data_get($context, 'deferredContext.deferralReason')
+                ?? data_get($context, 'deferred.deferralReason')
+                ?? data_get($context, 'paymentsContext.deferralReason')
+                ?? data_get($context, 'paymentContext.deferralReason')
+                ?? data_get($context, 'deferralReason');
+
+            if (is_string($candidate) && trim($candidate) !== '') {
+                return trim($candidate);
+            }
+        }
+
+        return $this->findDeferralReasonRecursive($transaction);
+    }
+
+    private function findDeferralReasonRecursive(mixed $node): ?string
+    {
+        if (!is_array($node)) {
+            return null;
+        }
+
+        $direct = $node['deferralReason'] ?? null;
+        if (is_string($direct) && trim($direct) !== '') {
+            return trim($direct);
+        }
+
+        foreach ($node as $value) {
+            if (is_array($value)) {
+                $found = $this->findDeferralReasonRecursive($value);
                 if ($found !== null) {
                     return $found;
                 }

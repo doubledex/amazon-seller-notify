@@ -274,6 +274,7 @@
                                     <th>Status</th>
                                     <th>Type</th>
                                     <th>Description</th>
+                                    <th>Deferral Reason</th>
                                     <th>Maturity Date</th>
                                     <th>Value</th>
                                     <th>Amount</th>
@@ -287,6 +288,7 @@
                                         <td>{{ $transaction['status'] ?? 'N/A' }}</td>
                                         <td>{{ $transaction['type'] ?? 'N/A' }}</td>
                                         <td>{{ $transaction['description'] ?? 'N/A' }}</td>
+                                        <td>{{ $transaction['deferral_reason'] ?? 'N/A' }}</td>
                                         <td>{{ !empty($transaction['maturity_date']) ? $formatDateTime($transaction['maturity_date']) : 'N/A' }}</td>
                                         <td>{{ $transaction['value'] ?? 'N/A' }}</td>
                                         <td dir="rtl" class="relative group">
@@ -330,7 +332,7 @@
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="8" class="text-sm text-gray-600">No financial events returned for this order.</td>
+                                        <td colspan="9" class="text-sm text-gray-600">No financial events returned for this order.</td>
                                     </tr>
                                 @endforelse
                             </tbody>
