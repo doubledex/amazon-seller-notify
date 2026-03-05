@@ -262,7 +262,7 @@ class CashflowProjectionService
                         }
 
                         $status = strtoupper(trim((string) ($txn['transactionStatus'] ?? '')));
-                        if (!in_array($status, ['DEFERRED', 'DEFERRED_RELEASED'], true)) {
+                        if ($status !== 'DEFERRED') {
                             continue;
                         }
 
