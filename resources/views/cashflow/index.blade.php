@@ -56,34 +56,43 @@
             const form = document.getElementById('cashflow-filters');
             const output = document.getElementById('cashflow-output');
             const meta = document.getElementById('cashflow-meta');
+            const projectionUrl = @json(route('cashflow.projection'));
 
             async function load() {
-                const params = new URLSearchParams();
-                for (const [key, value] of new FormData(form).entries()) {
-                    if ((value || '').toString().trim() !== '') {
-                        params.set(key, value.toString().trim());
+                try {
+                    const params = new URLSearchParams();
+                    for (const [key, value] of new FormData(form).entries()) {
+                        if ((value || '').toString().trim() !== '') {
+                            params.set(key, value.toString().trim());
+                        }
                     }
-                }
 
-                output.innerHTML = '<div class="text-sm text-gray-500">Loading…</div>';
-                const response = await fetch(`/cashflow/projection?${params.toString()}`, {
-                    headers: {
-                        'Accept': 'application/json'
+                    output.innerHTML = '<div class="text-sm text-gray-500">Loading…</div>';
+                    meta.textContent = '';
+
+                    const url = `${projectionUrl}?${params.toString()}`;
+                    const response = await fetch(url, {
+                        headers: {
+                            'Accept': 'application/json'
+                        }
+                    });
+
+                    const json = await response.json().catch(() => null);
+                    if (!response.ok || !json) {
+                        const message = json && json.error ? json.error : `Failed to load projection (HTTP ${response.status}).`;
+                        output.innerHTML = `<div class="text-red-600 text-sm">${message}</div>`;
+                        return;
                     }
-                });
 
-                const json = await response.json();
-                if (!response.ok) {
-                    output.innerHTML = `<div class="text-red-600 text-sm">${json.error || 'Failed to load projection.'}</div>`;
-                    return;
-                }
+                    meta.textContent = `Generated: ${json.generated_at_utc} | View: ${json.data.view}`;
 
-                meta.textContent = `Generated: ${json.generated_at_utc} | View: ${json.data.view}`;
-
-                if (json.data.view === 'today_timing') {
-                    renderTable(json.data.timeline || []);
-                } else {
-                    renderTable(json.data.buckets || []);
+                    if (json.data.view === 'today_timing') {
+                        renderTable(json.data.timeline || []);
+                    } else {
+                        renderTable(json.data.buckets || []);
+                    }
+                } catch (error) {
+                    output.innerHTML = '<div class="text-red-600 text-sm">Failed to load projection.</div>';
                 }
             }
 
