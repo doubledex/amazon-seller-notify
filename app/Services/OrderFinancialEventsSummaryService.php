@@ -6,11 +6,12 @@ use App\Integrations\Amazon\SpApi\FinancesAdapter;
 use App\Integrations\Amazon\SpApi\SpApiClientFactory;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class OrderFinancialEventsSummaryService
 {
-    private const CACHE_KEY_VERSION = 'v4';
+    private const CACHE_KEY_VERSION = 'v5';
     private const CACHE_MINUTES = 10;
     private const MAX_PAGES = 6;
     private const MAX_RECENT_ROWS = 10;
@@ -37,6 +38,7 @@ class OrderFinancialEventsSummaryService
     private function fetchAndSummarize(string $orderId, ?string $marketplaceId): array
     {
         $adapter = $this->financesAdapter ?? new FinancesAdapter(new SpApiClientFactory());
+        $region = $this->resolveRegionForMarketplace($marketplaceId);
 
         try {
             $transactions = [];
@@ -45,13 +47,19 @@ class OrderFinancialEventsSummaryService
             $truncated = false;
 
             do {
-                $response = $adapter->listTransactionsByOrderId($orderId, $marketplaceId, $nextToken);
+                $response = $adapter->listTransactionsByOrderId(
+                    $orderId,
+                    $marketplaceId,
+                    $nextToken,
+                    $region
+                );
                 if ($response->status() >= 400) {
                     return $this->emptySummary(
                         'Could not load financial events from Amazon SP-API.',
                         [
                             'http_status' => $response->status(),
                             'marketplace_id' => $marketplaceId,
+                            'region' => $region,
                         ]
                     );
                 }
@@ -79,6 +87,7 @@ class OrderFinancialEventsSummaryService
             Log::warning('order financial summary fetch failed', [
                 'order_id' => $orderId,
                 'marketplace_id' => $marketplaceId,
+                'region' => $region,
                 'error' => $e->getMessage(),
             ]);
 
@@ -398,5 +407,36 @@ class OrderFinancialEventsSummaryService
         }
 
         return $this->toFloat($moneyNode['currencyAmount'] ?? null);
+    }
+
+    private function resolveRegionForMarketplace(?string $marketplaceId): ?string
+    {
+        $marketplaceId = trim((string) $marketplaceId);
+        if ($marketplaceId === '') {
+            return null;
+        }
+
+        $countryCode = DB::table('marketplaces')
+            ->where('id', $marketplaceId)
+            ->value('country_code');
+
+        if (!is_string($countryCode) || trim($countryCode) === '') {
+            $countryCode = (string) data_get(config('marketplaces'), $marketplaceId . '.country', '');
+        }
+
+        $countryCode = strtoupper(trim((string) $countryCode));
+        if ($countryCode === '') {
+            return null;
+        }
+
+        if (in_array($countryCode, ['US', 'CA', 'MX', 'BR'], true)) {
+            return 'NA';
+        }
+
+        if (in_array($countryCode, ['JP', 'AU', 'SG', 'IN', 'AE', 'SA', 'TR', 'EG', 'ZA'], true)) {
+            return 'FE';
+        }
+
+        return 'EU';
     }
 }
