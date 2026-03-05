@@ -10,10 +10,11 @@ use Illuminate\Support\Facades\Log;
 
 class OrderFinancialEventsSummaryService
 {
-    private const CACHE_KEY_VERSION = 'v2';
+    private const CACHE_KEY_VERSION = 'v3';
     private const CACHE_MINUTES = 10;
     private const MAX_PAGES = 6;
     private const MAX_RECENT_ROWS = 10;
+    private const MAX_BREAKDOWN_ROWS = 8;
 
     public function __construct(
         private readonly ?FinancesAdapter $financesAdapter = null
@@ -110,6 +111,7 @@ class OrderFinancialEventsSummaryService
             }
             $currency = strtoupper(trim((string) data_get($transaction, 'totalAmount.currencyCode')));
             $maturityDate = $this->extractMaturityDate($transaction);
+            $currencyAmountBreakdown = $this->extractCurrencyAmountBreakdown($transaction, $currency);
 
             $statusCounts[$status] = ($statusCounts[$status] ?? 0) + 1;
             $typeCounts[$type] = ($typeCounts[$type] ?? 0) + 1;
@@ -139,6 +141,7 @@ class OrderFinancialEventsSummaryService
                     : null,
                 'posted_date' => $postedDate?->toIso8601String(),
                 'maturity_date' => $maturityDate,
+                'currency_amount_breakdown' => $currencyAmountBreakdown,
                 'raw' => $transaction,
             ];
         }
@@ -272,5 +275,65 @@ class OrderFinancialEventsSummaryService
         }
 
         return null;
+    }
+
+    private function extractCurrencyAmountBreakdown(array $transaction, ?string $transactionCurrency): array
+    {
+        $rows = [];
+        $topBreakdowns = $transaction['breakdowns'] ?? null;
+        if (is_array($topBreakdowns)) {
+            foreach ($topBreakdowns as $node) {
+                if (!is_array($node)) {
+                    continue;
+                }
+
+                $amount = $this->extractCurrencyAmount($node['breakdownAmount'] ?? null);
+                if ($amount === null) {
+                    continue;
+                }
+
+                $currency = strtoupper(trim((string) data_get($node, 'breakdownAmount.currencyCode')));
+                if ($currency === '') {
+                    $currency = strtoupper(trim((string) ($transactionCurrency ?? '')));
+                }
+
+                $rows[] = [
+                    'label' => trim((string) ($node['breakdownType'] ?? 'Breakdown')),
+                    'amount' => round($amount, 4),
+                    'currency' => $currency !== '' ? $currency : null,
+                ];
+            }
+        }
+
+        if (empty($rows)) {
+            return [];
+        }
+
+        $rows = array_slice($rows, 0, self::MAX_BREAKDOWN_ROWS);
+
+        $transactionTotal = $this->extractCurrencyAmount($transaction['totalAmount'] ?? null);
+        if ($transactionTotal !== null) {
+            $rows[] = [
+                'label' => 'Transaction Total',
+                'amount' => round($transactionTotal, 4),
+                'currency' => strtoupper(trim((string) ($transactionCurrency ?? ''))) ?: null,
+            ];
+        }
+
+        return $rows;
+    }
+
+    private function extractCurrencyAmount(mixed $moneyNode): ?float
+    {
+        if (!is_array($moneyNode)) {
+            return null;
+        }
+
+        $amount = $this->toFloat($moneyNode['amount'] ?? null);
+        if ($amount !== null) {
+            return $amount;
+        }
+
+        return $this->toFloat($moneyNode['currencyAmount'] ?? null);
     }
 }
