@@ -173,6 +173,8 @@ class AmazonOrderFeeSyncV2Service
                     'posted_date',
                     'maturity_date',
                     'effective_payment_date',
+                    'transaction_total_amount',
+                    'transaction_total_currency',
                     'fee_type',
                     'description',
                     'gross_amount',
@@ -318,6 +320,8 @@ class AmazonOrderFeeSyncV2Service
         $postedDate = $this->normalizePostedDate($this->firstValue($txn, ['postedDate', 'PostedDate', 'transactionDate', 'TransactionDate']));
         $maturityDate = $this->extractMaturityDate($txn);
         $effectivePaymentDate = $maturityDate ?? $postedDate;
+        $transactionTotalAmount = $this->moneyAmount($this->firstArray($txn, ['totalAmount', 'TotalAmount']));
+        $transactionTotalCurrency = $this->moneyCurrency($this->firstArray($txn, ['totalAmount', 'TotalAmount']));
         $normalizedStatus = strtoupper(trim($transactionStatus));
 
         $sources = $this->transactionBreakdownSources($txn);
@@ -369,6 +373,8 @@ class AmazonOrderFeeSyncV2Service
                         'posted_date' => $postedDate,
                         'maturity_date' => $maturityDate,
                         'effective_payment_date' => $effectivePaymentDate,
+                        'transaction_total_amount' => $transactionTotalAmount !== null ? round((float) $transactionTotalAmount, 4) : null,
+                        'transaction_total_currency' => $transactionTotalCurrency,
                         'fee_type' => $type !== '' ? $type : null,
                         'description' => $type !== '' ? $type : 'AmazonFee',
                         'gross_amount' => round((float) $gross, 4),

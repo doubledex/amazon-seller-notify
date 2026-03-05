@@ -30,6 +30,27 @@ class FinancesAdapter
         );
     }
 
+    public function listTransactions(
+        ?\DateTimeInterface $postedAfter,
+        ?\DateTimeInterface $postedBefore,
+        ?string $marketplaceId = null,
+        ?string $transactionStatus = null,
+        ?string $nextToken = null,
+        ?string $region = null
+    ): Response {
+        $financesApi = $this->financesApiForRegion($region);
+
+        return $financesApi->listTransactions(
+            postedAfter: $postedAfter,
+            postedBefore: $postedBefore,
+            marketplaceId: $marketplaceId,
+            transactionStatus: $transactionStatus,
+            relatedIdentifierName: null,
+            relatedIdentifierValue: null,
+            nextToken: $nextToken
+        );
+    }
+
     private function financesApiForRegion(?string $region): mixed
     {
         $region = strtoupper(trim((string) $region));

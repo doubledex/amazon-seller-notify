@@ -132,7 +132,7 @@
                 }
 
                 const columns = Object.keys(rows[0]);
-                const thead = `<tr>${columns.map(c => `<th class="px-3 py-2 text-left border-b">${c}</th>`).join('')}</tr>`;
+                const thead = `<tr>${columns.map(c => `<th class="px-3 py-2 text-left border-b">${headerLabel(c)}</th>`).join('')}</tr>`;
                 const tbody = rows.map(row => `<tr>${columns.map(c => `<td class="px-3 py-2 border-b text-sm align-top ${cellClass(c)}">${formatCell(c, row[c])}</td>`).join('')}</tr>`).join('');
                 output.innerHTML = `<div class="w-full overflow-x-auto"><table class="w-full border-collapse table-auto">${thead}${tbody}</table></div>`;
             }
@@ -150,16 +150,12 @@
 
             function renderOutstanding(data) {
                 const totals = data.totals_by_currency || {};
-                const sourceCounts = data.value_source_counts || {};
+                const missingRows = Number(data.missing_total_amount_rows || 0);
                 const totalLines = Object.keys(totals)
                     .sort()
                     .map(code => `${code}: ${Number(totals[code]).toFixed(2)}`)
                     .join(' | ');
-                const sourceLines = Object.keys(sourceCounts)
-                    .sort()
-                    .map(source => `${source}: ${sourceCounts[source]}`)
-                    .join(' | ');
-                const summary = `<div class="text-sm mb-3">Outstanding transactions: ${data.total_transactions || 0}${totalLines ? ` | Totals: ${totalLines}` : ''}${sourceLines ? ` | Value source: ${sourceLines}` : ''}</div>`;
+                const summary = `<div class="text-sm mb-3">Outstanding transactions: ${data.total_transactions || 0}${totalLines ? ` | Totals: ${totalLines}` : ''}${missingRows > 0 ? ` | Missing totalAmount rows: ${missingRows}` : ''}</div>`;
                 const table = (data.transactions || []).length
                     ? renderTableHtml(data.transactions, 'Outstanding Transactions by Maturity (UTC, ascending)')
                     : '<div class="text-sm text-gray-500">No outstanding transactions found for selected filters.</div>';
@@ -168,7 +164,7 @@
 
             function renderTableHtml(rows, title) {
                 const columns = Object.keys(rows[0]);
-                const thead = `<tr>${columns.map(c => `<th class="px-3 py-2 text-left border-b">${c}</th>`).join('')}</tr>`;
+                const thead = `<tr>${columns.map(c => `<th class="px-3 py-2 text-left border-b">${headerLabel(c)}</th>`).join('')}</tr>`;
                 const tbody = rows.map(row => `<tr>${columns.map(c => `<td class="px-3 py-2 border-b text-sm align-top ${cellClass(c)}">${formatCell(c, row[c])}</td>`).join('')}</tr>`).join('');
                 const heading = title ? `<div class="text-sm font-semibold mb-2">${title}</div>` : '';
                 return `${heading}<div class="w-full overflow-x-auto"><table class="w-full border-collapse table-auto">${thead}${tbody}</table></div>`;
@@ -215,6 +211,14 @@
                 }
 
                 return '';
+            }
+
+            function headerLabel(column) {
+                if (column === 'days_posted_to_maturity') {
+                    return 'days';
+                }
+
+                return column;
             }
 
             form.addEventListener('submit', function (event) {

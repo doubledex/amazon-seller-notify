@@ -2,12 +2,23 @@
 
 namespace App\Services;
 
+use App\Integrations\Amazon\SpApi\FinancesAdapter;
+use App\Integrations\Amazon\SpApi\SpApiClientFactory;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
 class CashflowProjectionService
 {
+    private const OUTSTANDING_LOOKBACK_DAYS = 30;
+    private const OUTSTANDING_MAX_PAGES_PER_MARKETPLACE = 10;
+
+    public function __construct(
+        private readonly ?FinancesAdapter $financesAdapter = null,
+        private readonly ?RegionConfigService $regionConfigService = null
+    ) {}
+
     public function forDay(Carbon $dayUtc, array $filters = []): array
     {
         $start = $dayUtc->copy()->utc()->startOfDay();
@@ -139,109 +150,141 @@ class CashflowProjectionService
     {
         $start = $fromUtc?->copy()->utc()->startOfDay();
         $end = $toUtc?->copy()->utc()->endOfDay();
-        $maturityColumn = $this->maturityDateColumn();
-        $hasTxnTotalAmount = Schema::hasColumn('amazon_order_fee_lines_v2', 'transaction_total_amount');
-        $hasTxnTotalCurrency = Schema::hasColumn('amazon_order_fee_lines_v2', 'transaction_total_currency');
-        $txnAmountExpr = $hasTxnTotalAmount ? 'MAX(amazon_order_fee_lines_v2.transaction_total_amount)' : 'NULL';
-        $txnCurrencyExpr = $hasTxnTotalCurrency
-            ? "NULLIF(MAX(COALESCE(amazon_order_fee_lines_v2.transaction_total_currency, '')), '')"
-            : 'NULL';
-
-        $query = $this->baseQuery($filters)
-            ->whereNotNull($maturityColumn)
-            ->whereIn('transaction_status', ['DEFERRED', 'DEFERRED_RELEASED'])
-            ->leftJoin('orders', 'orders.amazon_order_id', '=', 'amazon_order_fee_lines_v2.amazon_order_id')
-            ->selectRaw('
-                amazon_order_fee_lines_v2.marketplace_id,
-                amazon_order_fee_lines_v2.amazon_order_id,
-                amazon_order_fee_lines_v2.transaction_id,
-                amazon_order_fee_lines_v2.transaction_status,
-                ' . $maturityColumn . ' as maturity_date,
-                amazon_order_fee_lines_v2.posted_date,
-                ' . $txnAmountExpr . ' as txn_total_amount_candidate,
-                ' . $txnCurrencyExpr . ' as txn_total_currency_candidate,
-                MAX(orders.order_total_amount) as order_total_amount_candidate,
-                NULLIF(MAX(COALESCE(orders.order_total_currency, \'\')), \'\') as order_total_currency_candidate,
-                SUM(COALESCE(amazon_order_fee_lines_v2.net_ex_tax_amount, 0)) as fee_sum_amount_candidate,
-                NULLIF(MAX(COALESCE(amazon_order_fee_lines_v2.currency, \'\')), \'\') as fee_sum_currency_candidate
-            ')
-            ->groupBy([
-                'amazon_order_fee_lines_v2.marketplace_id',
-                'amazon_order_fee_lines_v2.amazon_order_id',
-                'amazon_order_fee_lines_v2.transaction_id',
-                'amazon_order_fee_lines_v2.transaction_status',
-                $maturityColumn,
-                'amazon_order_fee_lines_v2.posted_date',
-            ])
-            ->orderBy($maturityColumn, 'asc')
-            ->orderBy('amazon_order_fee_lines_v2.transaction_id', 'asc');
-
-        if ($start && $end) {
-            $query->whereBetween($maturityColumn, [$start, $end]);
-        } elseif ($start) {
-            $query->where($maturityColumn, '>=', $start);
-        } elseif ($end) {
-            $query->where($maturityColumn, '<=', $end);
-        }
-
-        $rows = $query->get();
-
         $transactions = [];
         $totalsByCurrency = [];
-        $valueSourceCounts = [];
-        foreach ($rows as $row) {
-            $txnTotalAmount = $row->txn_total_amount_candidate !== null ? (float) $row->txn_total_amount_candidate : null;
-            $orderTotalAmount = $row->order_total_amount_candidate !== null ? (float) $row->order_total_amount_candidate : null;
-            $feeSumAmount = (float) ($row->fee_sum_amount_candidate ?? 0.0);
+        $missingTotalAmountRows = 0;
 
-            $txnCurrency = strtoupper(trim((string) ($row->txn_total_currency_candidate ?? '')));
-            $orderCurrency = strtoupper(trim((string) ($row->order_total_currency_candidate ?? '')));
-            $feeCurrency = strtoupper(trim((string) ($row->fee_sum_currency_candidate ?? '')));
+        $adapter = $this->financesAdapter ?? new FinancesAdapter(new SpApiClientFactory());
+        $regionService = $this->regionConfigService ?? new RegionConfigService();
+        $marketplaceFilter = strtoupper(trim((string) ($filters['marketplace_id'] ?? '')));
+        $currencyFilter = strtoupper(trim((string) ($filters['currency'] ?? '')));
+        $regionFilter = strtoupper(trim((string) ($filters['region'] ?? '')));
+        $regions = in_array($regionFilter, ['EU', 'NA', 'FE'], true)
+            ? [$regionFilter]
+            : $regionService->spApiRegions();
 
-            if ($txnTotalAmount !== null) {
-                $value = round($txnTotalAmount, 4);
-                $currency = $txnCurrency !== '' ? $txnCurrency : ($orderCurrency !== '' ? $orderCurrency : $feeCurrency);
-                $valueSource = 'transaction_total';
-            } elseif ($orderTotalAmount !== null) {
-                $value = round($orderTotalAmount, 4);
-                $currency = $orderCurrency !== '' ? $orderCurrency : $feeCurrency;
-                $valueSource = 'order_total_fallback';
-            } else {
-                $value = round($feeSumAmount, 4);
-                $currency = $feeCurrency;
-                $valueSource = 'fee_sum_fallback';
+        $postedAfter = now()->utc()->subDays(self::OUTSTANDING_LOOKBACK_DAYS)->startOfDay();
+        $postedBefore = now()->utc()->subMinutes(2);
+
+        foreach ($regions as $region) {
+            $config = $regionService->spApiConfig($region);
+            $marketplaceIds = array_values(array_filter(array_map(
+                static fn ($id) => strtoupper(trim((string) $id)),
+                (array) ($config['marketplace_ids'] ?? [])
+            )));
+
+            if ($marketplaceFilter !== '') {
+                $marketplaceIds = array_values(array_filter(
+                    $marketplaceIds,
+                    static fn (string $id) => strtoupper($id) === $marketplaceFilter
+                ));
             }
 
-            $currency = strtoupper(trim((string) $currency));
-            if ($currency !== '') {
-                $totalsByCurrency[$currency] = round(($totalsByCurrency[$currency] ?? 0) + $value, 4);
-            }
-            $valueSourceCounts[$valueSource] = ($valueSourceCounts[$valueSource] ?? 0) + 1;
+            foreach ($marketplaceIds as $marketplaceId) {
+                $nextToken = null;
+                $pages = 0;
 
-            $transactions[] = [
-                'maturity_datetime_utc' => $this->formatUtcDateTime($row->maturity_date ?? null),
-                'posted_datetime_utc' => $this->formatUtcDateTime($row->posted_date ?? null),
-                'days_posted_to_maturity' => $this->daysBetweenDates($row->posted_date ?? null, $row->maturity_date ?? null),
-                'marketplace_id' => $row->marketplace_id,
-                'amazon_order_id' => $row->amazon_order_id,
-                'transaction_id' => $row->transaction_id,
-                'transaction_status' => $row->transaction_status,
-                'currency' => $currency !== '' ? $currency : null,
-                'outstanding_value' => $value,
-                'value_source' => $valueSource,
-            ];
+                do {
+                    $response = $adapter->listTransactions(
+                        postedAfter: $postedAfter,
+                        postedBefore: $postedBefore,
+                        marketplaceId: $marketplaceId,
+                        transactionStatus: null,
+                        nextToken: $nextToken,
+                        region: $region
+                    );
+                    if ($response->status() >= 400) {
+                        Log::warning('cashflow outstanding API call failed', [
+                            'region' => $region,
+                            'marketplace_id' => $marketplaceId,
+                            'status' => $response->status(),
+                        ]);
+                        break;
+                    }
+
+                    $payload = (array) (($response->json('payload') ?? null) ?: []);
+                    $txns = (array) ($payload['transactions'] ?? []);
+                    foreach ($txns as $txn) {
+                        if (!is_array($txn)) {
+                            continue;
+                        }
+
+                        $status = strtoupper(trim((string) ($txn['transactionStatus'] ?? '')));
+                        if (!in_array($status, ['DEFERRED', 'DEFERRED_RELEASED'], true)) {
+                            continue;
+                        }
+
+                        $maturityRaw = $this->extractMaturityDateFromTransaction($txn);
+                        $maturityDate = $this->parseAnyDate($maturityRaw);
+                        if ($maturityDate === null) {
+                            continue;
+                        }
+
+                        if ($start && $maturityDate->lt($start)) {
+                            continue;
+                        }
+                        if ($end && $maturityDate->gt($end)) {
+                            continue;
+                        }
+
+                        $totalAmountNode = is_array($txn['totalAmount'] ?? null) ? $txn['totalAmount'] : [];
+                        $value = $this->moneyAmount($totalAmountNode);
+                        $currency = $this->moneyCurrency($totalAmountNode);
+                        if ($currencyFilter !== '' && $currency !== null && strtoupper($currency) !== $currencyFilter) {
+                            continue;
+                        }
+
+                        $postedRaw = $txn['postedDate'] ?? null;
+                        $marketplaceIdTx = strtoupper(trim((string) data_get($txn, 'sellingPartnerMetadata.marketplaceId', $marketplaceId)));
+                        $orderId = $this->extractOrderIdFromTransaction($txn);
+
+                        if ($value === null || $currency === null) {
+                            $missingTotalAmountRows++;
+                        } else {
+                            $totalsByCurrency[$currency] = round(($totalsByCurrency[$currency] ?? 0) + (float) $value, 4);
+                        }
+
+                        $transactions[] = [
+                            'maturity_datetime_utc' => $maturityDate->copy()->utc()->format('Y-m-d H:i:s'),
+                            'posted_datetime_utc' => $this->formatUtcDateTime($postedRaw),
+                            'days_posted_to_maturity' => $this->daysBetweenDates($postedRaw, $maturityRaw),
+                            'marketplace_id' => $marketplaceIdTx !== '' ? $marketplaceIdTx : null,
+                            'amazon_order_id' => $orderId !== '' ? $orderId : null,
+                            'transaction_id' => trim((string) ($txn['transactionId'] ?? '')),
+                            'transaction_status' => $status,
+                            'currency' => $currency,
+                            'outstanding_value' => $value !== null ? round((float) $value, 4) : null,
+                            'missing_total_amount' => $value === null || $currency === null,
+                        ];
+                    }
+
+                    $nextToken = trim((string) ($payload['nextToken'] ?? ''));
+                    $nextToken = $nextToken !== '' ? $nextToken : null;
+                    $pages++;
+                    if ($pages >= self::OUTSTANDING_MAX_PAGES_PER_MARKETPLACE) {
+                        $nextToken = null;
+                    }
+                } while ($nextToken !== null);
+            }
         }
 
+        usort($transactions, function (array $a, array $b) {
+            $aKey = (string) ($a['maturity_datetime_utc'] ?? '') . '|' . (string) ($a['transaction_id'] ?? '');
+            $bKey = (string) ($b['maturity_datetime_utc'] ?? '') . '|' . (string) ($b['transaction_id'] ?? '');
+            return strcmp($aKey, $bKey);
+        });
+
         ksort($totalsByCurrency);
-        ksort($valueSourceCounts);
 
         return [
             'view' => 'outstanding',
+            'source' => 'finance_api_transactions_live',
+            'lookback_days' => self::OUTSTANDING_LOOKBACK_DAYS,
             'from_utc' => $start?->toIso8601String(),
             'to_utc' => $end?->toIso8601String(),
             'total_transactions' => count($transactions),
             'totals_by_currency' => $totalsByCurrency,
-            'value_source_counts' => $valueSourceCounts,
+            'missing_total_amount_rows' => $missingTotalAmountRows,
             'transactions' => $transactions,
         ];
     }
@@ -315,6 +358,80 @@ class CashflowProjectionService
         }
 
         return null;
+    }
+
+    private function extractMaturityDateFromTransaction(array $transaction): ?string
+    {
+        $contexts = [];
+        if (is_array($transaction['contexts'] ?? null)) {
+            $contexts = array_merge($contexts, (array) $transaction['contexts']);
+        }
+
+        $items = $transaction['items'] ?? null;
+        if (is_array($items)) {
+            foreach ($items as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                if (is_array($item['contexts'] ?? null)) {
+                    $contexts = array_merge($contexts, (array) $item['contexts']);
+                }
+            }
+        }
+
+        foreach ($contexts as $context) {
+            if (!is_array($context)) {
+                continue;
+            }
+            $candidate = data_get($context, 'deferredContext.maturityDate')
+                ?? data_get($context, 'deferred.maturityDate')
+                ?? data_get($context, 'maturityDate');
+            if (is_string($candidate) && trim($candidate) !== '') {
+                return trim($candidate);
+            }
+        }
+
+        return null;
+    }
+
+    private function extractOrderIdFromTransaction(array $transaction): string
+    {
+        $related = $transaction['relatedIdentifiers'] ?? [];
+        if (!is_array($related)) {
+            return '';
+        }
+
+        foreach ($related as $identifier) {
+            if (!is_array($identifier)) {
+                continue;
+            }
+            $name = strtoupper(trim((string) ($identifier['relatedIdentifierName'] ?? '')));
+            if ($name !== 'ORDER_ID') {
+                continue;
+            }
+            $value = trim((string) ($identifier['relatedIdentifierValue'] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return '';
+    }
+
+    private function moneyAmount(array $money): ?float
+    {
+        $amount = $money['CurrencyAmount']
+            ?? $money['currencyAmount']
+            ?? $money['Amount']
+            ?? $money['amount']
+            ?? null;
+        return is_numeric($amount) ? (float) $amount : null;
+    }
+
+    private function moneyCurrency(array $money): ?string
+    {
+        $currency = trim((string) ($money['CurrencyCode'] ?? $money['currencyCode'] ?? ''));
+        return $currency !== '' ? strtoupper($currency) : null;
     }
 
     private function summarizeBuckets(array $rows): array
