@@ -359,3 +359,17 @@ A simple rhythm is:
 2. Merge `work` -> `release/pre-us-baseline`.
 3. Push `release/pre-us-baseline` and deploy from it.
 4. Checkout `work` again for the next round of edits.
+
+
+## Cashflow projection (Finances timing)
+- Data source: `amazon_order_fee_lines_v2` (populated by `php artisan amazon:sync-order-fees-v2`).
+- New projection fields persisted per fee line: `maturity_date`, `effective_payment_date`, `deferred_amount`, `released_amount`.
+- UI page (auth required): `GET /cashflow`
+- Endpoint (auth required): `GET /cashflow/projection`
+  - Query params:
+    - `view=day|week|today_timing` (default `day`)
+    - `date=<ISO-8601>` (defaults to current UTC time)
+    - `marketplace_id=<id>` (optional)
+    - `region=EU|NA|FE` (optional)
+    - `currency=<ISO code>` (optional)
+- Response includes UTC bucket boundaries and totals split by marketplace/currency.

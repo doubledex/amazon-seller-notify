@@ -15,12 +15,18 @@ class AmazonOrderFeeLine extends Model
         'description',
         'amount',
         'currency',
+        'deferred_amount',
+        'released_amount',
         'posted_date',
+        'maturity_date',
+        'effective_payment_date',
         'raw_line',
     ];
 
     protected $casts = [
         'posted_date' => 'datetime',
+        'maturity_date' => 'datetime',
+        'effective_payment_date' => 'datetime',
         'raw_line' => 'array',
     ];
 }

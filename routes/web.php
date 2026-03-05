@@ -13,6 +13,7 @@ use App\Http\Controllers\ProductController;
 use App\Http\Controllers\McuController;
 use App\Http\Controllers\ReportJobsController;
 use App\Http\Controllers\ProductPricingController;
+use App\Http\Controllers\CashflowController;
 
 use Illuminate\Support\Facades\Route;
 
@@ -52,6 +53,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/marketplaces', [OrderController::class, 'marketplaces'])->name('marketplaces');
     Route::get('/asins/europe', [AsinController::class, 'index'])->name('asins.europe');
     Route::get('/metrics/daily', [MetricsController::class, 'index'])->name('metrics.index');
+    Route::get('/cashflow', [CashflowController::class, 'page'])->name('cashflow.index');
+    Route::get('/cashflow/projection', [CashflowController::class, 'index'])->name('cashflow.projection');
     Route::get('/ads/reports', [AdsReportController::class, 'index'])->name('ads.reports');
     Route::post('/ads/reports/poll-now', [AdsReportController::class, 'pollNow'])->name('ads.reports.poll');
     Route::get('/reports/jobs', [ReportJobsController::class, 'index'])->name('reports.jobs');
