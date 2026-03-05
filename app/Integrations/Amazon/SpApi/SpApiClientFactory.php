@@ -2,20 +2,25 @@
 
 namespace App\Integrations\Amazon\SpApi;
 
-use SellingPartnerApi\Enums\Endpoint;
+use App\Services\RegionConfigService;
 use SellingPartnerApi\SellingPartnerApi;
 
 class SpApiClientFactory
 {
-    public function makeSellerConnector()
+    public function __construct(private readonly ?RegionConfigService $regionConfigService = null)
     {
-        $endpointValue = strtoupper((string) config('services.amazon_sp_api.endpoint', 'EU'));
-        $endpoint = Endpoint::tryFrom($endpointValue) ?? Endpoint::EU;
+    }
+
+    public function makeSellerConnector(?string $region = null)
+    {
+        $regionService = $this->regionConfigService ?? new RegionConfigService();
+        $config = $regionService->spApiConfig($region);
+        $endpoint = $regionService->spApiEndpointEnum($region);
 
         return SellingPartnerApi::seller(
-            clientId: config('services.amazon_sp_api.client_id'),
-            clientSecret: config('services.amazon_sp_api.client_secret'),
-            refreshToken: config('services.amazon_sp_api.refresh_token'),
+            clientId: $config['client_id'],
+            clientSecret: $config['client_secret'],
+            refreshToken: $config['refresh_token'],
             endpoint: $endpoint
         );
     }
