@@ -318,17 +318,19 @@
                                             @php
                                                 $amountBreakdown = (array) ($transaction['currency_amount_breakdown'] ?? []);
                                             @endphp
-                                            <div class="inline-flex items-center gap-2 relative group" dir="ltr" tabindex="0">
-                                                <span dir="rtl">
-                                                    @if (isset($transaction['amount']) && is_numeric($transaction['amount']))
-                                                        {{ number_format((float) $transaction['amount'], 2) }} {{ $transaction['currency'] ?? '' }}
-                                                    @else
-                                                        N/A
-                                                    @endif
-                                                </span>
-                                                @if (!empty($amountBreakdown))
-                                                    <span class="text-[11px] px-1.5 py-0.5 border border-gray-300 rounded bg-gray-50 text-gray-600 cursor-help">Breakdown</span>
-                                                    <div class="hidden group-hover:block group-focus-within:block absolute right-0 top-full mt-1 z-30 min-w-64 bg-white border border-gray-200 rounded-md shadow-lg p-2 text-left">
+                                            @if (!empty($amountBreakdown))
+                                                <details class="relative inline-block text-left" dir="ltr">
+                                                    <summary class="list-none cursor-pointer inline-flex items-center gap-2">
+                                                        <span dir="rtl" class="underline decoration-dotted underline-offset-2">
+                                                            @if (isset($transaction['amount']) && is_numeric($transaction['amount']))
+                                                                {{ number_format((float) $transaction['amount'], 2) }} {{ $transaction['currency'] ?? '' }}
+                                                            @else
+                                                                N/A
+                                                            @endif
+                                                        </span>
+                                                        <span class="text-[11px] px-1.5 py-0.5 border border-gray-300 rounded bg-gray-50 text-gray-600">View</span>
+                                                    </summary>
+                                                    <div class="absolute right-0 top-full mt-1 z-30 min-w-64 bg-white border border-gray-200 rounded-md shadow-lg p-2">
                                                         <div class="text-[11px] font-semibold text-gray-600 mb-1">Currency Amount Breakdown</div>
                                                         <table class="w-full text-[11px] border-collapse" cellpadding="3">
                                                             <thead>
@@ -353,8 +355,14 @@
                                                             </tbody>
                                                         </table>
                                                     </div>
+                                                </details>
+                                            @else
+                                                @if (isset($transaction['amount']) && is_numeric($transaction['amount']))
+                                                    {{ number_format((float) $transaction['amount'], 2) }} {{ $transaction['currency'] ?? '' }}
+                                                @else
+                                                    N/A
                                                 @endif
-                                            </div>
+                                            @endif
                                         </td>
                                         <td>{{ $transaction['transaction_id'] ?? 'N/A' }}</td>
                                     </tr>
