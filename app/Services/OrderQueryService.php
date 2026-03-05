@@ -57,6 +57,21 @@ class OrderQueryService
             $query->where('order_status', $selectedStatus);
         }
 
+        $selectedUnshipped = $request->input('unshipped');
+        if ($selectedUnshipped === '1') {
+            $query->where(function ($innerQuery) {
+                $innerQuery
+                    ->whereRaw("UPPER(COALESCE(order_status, '')) = 'UNSHIPPED'")
+                    ->orWhereExists(function ($existsQuery) {
+                        $existsQuery
+                            ->selectRaw('1')
+                            ->from('order_items')
+                            ->whereColumn('order_items.amazon_order_id', 'orders.amazon_order_id')
+                            ->whereRaw('COALESCE(order_items.quantity_unshipped, 0) > 0');
+                    });
+            });
+        }
+
         $selectedNetwork = $request->input('network');
         if (!empty($selectedNetwork)) {
             $query->where('fulfillment_channel', $selectedNetwork);

@@ -104,6 +104,7 @@ class OrderController extends Controller
             $methodOptions = $query->clone()->select('payment_method')->distinct()->pluck('payment_method')->filter()->sort()->values()->all();
 
             $selectedStatus = $request->input('status');
+            $selectedUnshipped = $request->input('unshipped');
             $selectedNetwork = $request->input('network');
             $selectedMethod = $request->input('method');
             $selectedB2b = $request->input('b2b');
@@ -424,6 +425,7 @@ class OrderController extends Controller
                 'countries' => $countries,
                 'selectedCountries' => $selectedCountries,
                 'selectedStatus' => $selectedStatus,
+                'selectedUnshipped' => $selectedUnshipped,
                 'selectedNetwork' => $selectedNetwork,
                 'selectedMethod' => $selectedMethod,
                 'selectedB2b' => $selectedB2b,

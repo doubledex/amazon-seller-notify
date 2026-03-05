@@ -93,6 +93,19 @@
                 </div>
 
                 <div class="flex items-center gap-3">
+                    <label for="unshipped" class="block"><strong>Unshipped:</strong></label>
+                    <select
+                        id="unshipped"
+                        name="unshipped"
+                        class="border rounded px-2 py-1"
+                        onchange="document.getElementById('filterForm').submit()"
+                    >
+                        <option value="">All</option>
+                        <option value="1" {{ ($selectedUnshipped ?? '') === '1' ? 'selected' : '' }}>Unshipped only</option>
+                    </select>
+                </div>
+
+                <div class="flex items-center gap-3">
                     <label for="network" class="block"><strong>Network:</strong></label>
                     <select
                         id="network"
@@ -312,7 +325,8 @@
     @if(isset($summaryMetrics) && request('view', 'table') !== 'map')
         <div class="mb-4 p-3 rounded border border-gray-200 bg-gray-50 text-sm">
             @php
-                $isUnshippedFilter = strcasecmp((string) ($selectedStatus ?? ''), 'Unshipped') === 0;
+                $isUnshippedFilter = (($selectedUnshipped ?? '') === '1')
+                    || strcasecmp((string) ($selectedStatus ?? ''), 'Unshipped') === 0;
                 $unshippedCashValueGbp = ((float) ($summaryMetrics['net_value_gbp'] ?? 0)) - ((float) ($summaryMetrics['amazon_fees_gbp'] ?? 0));
             @endphp
             <div style="display:flex; gap:18px; flex-wrap:wrap;">
