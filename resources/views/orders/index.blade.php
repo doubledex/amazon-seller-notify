@@ -464,7 +464,7 @@
         <table class="w-full border-collapse" border="1" cellpadding="5" cellspacing="0">
             <thead>
             <tr class="bg-gray-100 dark:bg-gray-800">
-                <th colspan="2">Purchase Date</th>
+                <th colspan="2" id="purchase-date-toggle-header" style="cursor:pointer;" title="Click to toggle Local/UTC date display" aria-label="Toggle purchase date timezone">Purchase Date</th>
                 <th>Order Status</th>
                 <th>Order ID</th>
                 <th>B2B</th>
@@ -498,17 +498,32 @@
                         : null;
                     $purchaseLocal = $order['PurchaseDateLocal'] ?? null;
                     $purchaseUtc = $order['PurchaseDate'] ?? null;
-                    $purchaseSource = $purchaseLocal ?: $purchaseUtc;
-                    $purchaseDateOut = 'N/A';
-                    $purchaseTimeOut = 'N/A';
-                    if (!empty($purchaseSource)) {
+                    $purchaseDateOutLocal = 'N/A';
+                    $purchaseTimeOutLocal = 'N/A';
+                    $purchaseDateOutUtc = 'N/A';
+                    $purchaseTimeOutUtc = 'N/A';
+
+                    $purchaseSourceLocal = $purchaseLocal ?: $purchaseUtc;
+                    if (!empty($purchaseSourceLocal)) {
                         try {
-                            $dt = new DateTime($purchaseSource);
-                            $purchaseDateOut = $dt->format('Y-m-d');
-                            $purchaseTimeOut = $dt->format('H:i:s');
+                            $dtLocal = new DateTime($purchaseSourceLocal);
+                            $purchaseDateOutLocal = $dtLocal->format('Y-m-d');
+                            $purchaseTimeOutLocal = $dtLocal->format('H:i:s');
                         } catch (Exception $e) {
-                            $purchaseDateOut = 'N/A';
-                            $purchaseTimeOut = 'N/A';
+                            $purchaseDateOutLocal = 'N/A';
+                            $purchaseTimeOutLocal = 'N/A';
+                        }
+                    }
+
+                    if (!empty($purchaseUtc)) {
+                        try {
+                            $dtUtc = new DateTime($purchaseUtc);
+                            $dtUtc->setTimezone(new DateTimeZone('UTC'));
+                            $purchaseDateOutUtc = $dtUtc->format('Y-m-d');
+                            $purchaseTimeOutUtc = $dtUtc->format('H:i:s');
+                        } catch (Exception $e) {
+                            $purchaseDateOutUtc = 'N/A';
+                            $purchaseTimeOutUtc = 'N/A';
                         }
                     }
 
@@ -528,9 +543,25 @@
                         ? (float) $order['MarginProxyGbp']['Amount']
                         : null;
                 @endphp
-                <tr>
-                    <td>{{ $purchaseDateOut }}</td>
-                    <td>{{ $purchaseTimeOut }}</td>
+                @php
+                    $purchaseSortLocal = ($purchaseDateOutLocal !== 'N/A' && $purchaseTimeOutLocal !== 'N/A')
+                        ? ($purchaseDateOutLocal . ' ' . $purchaseTimeOutLocal)
+                        : '';
+                    $purchaseSortUtc = ($purchaseDateOutUtc !== 'N/A' && $purchaseTimeOutUtc !== 'N/A')
+                        ? ($purchaseDateOutUtc . ' ' . $purchaseTimeOutUtc)
+                        : '';
+                @endphp
+                <tr data-purchase-local-sort="{{ $purchaseSortLocal }}" data-purchase-utc-sort="{{ $purchaseSortUtc }}">
+                    <td
+                        class="purchase-date-col"
+                        data-local="{{ $purchaseDateOutLocal }}"
+                        data-utc="{{ $purchaseDateOutUtc }}"
+                    >{{ $purchaseDateOutLocal }}</td>
+                    <td
+                        class="purchase-time-col"
+                        data-local="{{ $purchaseTimeOutLocal }}"
+                        data-utc="{{ $purchaseTimeOutUtc }}"
+                    >{{ $purchaseTimeOutLocal }}</td>
                     <td>{{ $order['OrderStatus'] }}</td>
                     <td>
                         <a href="{{ route('orders.show', ['order_id' => $order['AmazonOrderId']]) }}" class="text-blue-600 hover:underline">
@@ -614,6 +645,58 @@
             </tbody>
         </table>
         </div>
+
+        <script>
+            (function () {
+                const header = document.getElementById('purchase-date-toggle-header');
+                if (!header) return;
+                const rowsContainer = document.querySelector('table tbody');
+                if (!rowsContainer) return;
+
+                let showingUtc = false;
+                let rowIndex = 0;
+                rowsContainer.querySelectorAll('tr').forEach((row) => {
+                    row.dataset.originalIndex = String(rowIndex++);
+                });
+
+                const sortRows = () => {
+                    const sortKey = showingUtc ? 'purchaseUtcSort' : 'purchaseLocalSort';
+                    const rows = Array.from(rowsContainer.querySelectorAll('tr'));
+                    rows.sort((a, b) => {
+                        const aKey = a.dataset[sortKey] || '';
+                        const bKey = b.dataset[sortKey] || '';
+
+                        if (aKey === bKey) {
+                            const aIndex = Number(a.dataset.originalIndex || '0');
+                            const bIndex = Number(b.dataset.originalIndex || '0');
+                            return aIndex - bIndex;
+                        }
+                        if (aKey === '') return 1;
+                        if (bKey === '') return -1;
+
+                        return aKey < bKey ? 1 : -1;
+                    });
+
+                    rows.forEach((row) => rowsContainer.appendChild(row));
+                };
+
+                const applyMode = () => {
+                    header.textContent = showingUtc ? 'UTC Date' : 'Purchase Date';
+                    document.querySelectorAll('td.purchase-date-col').forEach((cell) => {
+                        cell.textContent = showingUtc ? (cell.dataset.utc || 'N/A') : (cell.dataset.local || 'N/A');
+                    });
+                    document.querySelectorAll('td.purchase-time-col').forEach((cell) => {
+                        cell.textContent = showingUtc ? (cell.dataset.utc || 'N/A') : (cell.dataset.local || 'N/A');
+                    });
+                    sortRows();
+                };
+
+                header.addEventListener('click', () => {
+                    showingUtc = !showingUtc;
+                    applyMode();
+                });
+            })();
+        </script>
 
         @if(isset($ordersPaginator))
             <div class="mt-4">
