@@ -171,12 +171,16 @@ class AmazonOrderFeeSyncV2Service
                     'transaction_status',
                     'transaction_type',
                     'posted_date',
+                    'maturity_date',
+                    'effective_payment_date',
                     'fee_type',
                     'description',
                     'gross_amount',
                     'base_amount',
                     'tax_amount',
                     'net_ex_tax_amount',
+                    'deferred_amount',
+                    'released_amount',
                     'currency',
                     'raw_line',
                     'updated_at',
@@ -312,6 +316,9 @@ class AmazonOrderFeeSyncV2Service
         $transactionStatus = trim((string) $this->firstValue($txn, ['transactionStatus', 'TransactionStatus']));
         $transactionType = trim((string) $this->firstValue($txn, ['transactionType', 'TransactionType']));
         $postedDate = $this->normalizePostedDate($this->firstValue($txn, ['postedDate', 'PostedDate', 'transactionDate', 'TransactionDate']));
+        $maturityDate = $this->extractMaturityDate($txn);
+        $effectivePaymentDate = $maturityDate ?? $postedDate;
+        $normalizedStatus = strtoupper(trim($transactionStatus));
 
         $sources = $this->transactionBreakdownSources($txn);
         $rows = [];
@@ -360,12 +367,16 @@ class AmazonOrderFeeSyncV2Service
                         'transaction_status' => $transactionStatus !== '' ? $transactionStatus : null,
                         'transaction_type' => $transactionType !== '' ? $transactionType : null,
                         'posted_date' => $postedDate,
+                        'maturity_date' => $maturityDate,
+                        'effective_payment_date' => $effectivePaymentDate,
                         'fee_type' => $type !== '' ? $type : null,
                         'description' => $type !== '' ? $type : 'AmazonFee',
                         'gross_amount' => round((float) $gross, 4),
                         'base_amount' => $base !== null ? round((float) $base, 4) : null,
                         'tax_amount' => $tax !== null ? round((float) $tax, 4) : null,
                         'net_ex_tax_amount' => round((float) $net, 4),
+                        'deferred_amount' => $normalizedStatus === 'DEFERRED' ? round((float) $net, 4) : null,
+                        'released_amount' => $normalizedStatus === 'RELEASED' ? round((float) $net, 4) : null,
                         'currency' => $currency,
                         'raw_line' => json_encode([
                             'source_path' => $sourcePath,
@@ -579,6 +590,74 @@ class AmazonOrderFeeSyncV2Service
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    private function extractMaturityDate(array $transaction): ?string
+    {
+        $contexts = [];
+        if (is_array($transaction['contexts'] ?? null)) {
+            $contexts = array_merge($contexts, (array) $transaction['contexts']);
+        }
+
+        $items = $transaction['items'] ?? null;
+        if (is_array($items)) {
+            foreach ($items as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                if (is_array($item['contexts'] ?? null)) {
+                    $contexts = array_merge($contexts, (array) $item['contexts']);
+                }
+            }
+        }
+
+        foreach ($contexts as $context) {
+            if (!is_array($context)) {
+                continue;
+            }
+
+            $candidate = data_get($context, 'deferredContext.maturityDate')
+                ?? data_get($context, 'deferred.maturityDate')
+                ?? data_get($context, 'paymentsContext.maturityDate')
+                ?? data_get($context, 'paymentContext.maturityDate')
+                ?? data_get($context, 'maturityDate');
+
+            if (!is_string($candidate) || trim($candidate) === '') {
+                continue;
+            }
+
+            $normalized = $this->normalizePostedDate($candidate);
+            if ($normalized !== null) {
+                return $normalized;
+            }
+        }
+
+        return $this->findMaturityDateRecursive($transaction);
+    }
+
+    private function findMaturityDateRecursive($node): ?string
+    {
+        if (!is_array($node)) {
+            return null;
+        }
+
+        $direct = $node['maturityDate'] ?? null;
+        if (is_string($direct) && trim($direct) !== '') {
+            return $this->normalizePostedDate($direct) ?? trim($direct);
+        }
+
+        foreach ($node as $value) {
+            if (!is_array($value)) {
+                continue;
+            }
+
+            $found = $this->findMaturityDateRecursive($value);
+            if ($found !== null) {
+                return $found;
+            }
+        }
+
+        return null;
     }
 
     private function callSignedJsonWithRetries(callable $callback, string $operation): ?array
