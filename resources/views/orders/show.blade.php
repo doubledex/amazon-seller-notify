@@ -276,7 +276,6 @@
                                     <th>Description</th>
                                     <th>Deferral Reason</th>
                                     <th>Maturity Date</th>
-                                    <th>Value</th>
                                     <th>Amount</th>
                                     <th>Transaction ID</th>
                                 </tr>
@@ -315,49 +314,53 @@
                                         <td>{{ $transaction['description'] ?? 'N/A' }}</td>
                                         <td>{{ $deferralReasonDisplay ?? 'N/A' }}</td>
                                         <td>{{ !empty($transaction['maturity_date']) ? $formatDateTime($transaction['maturity_date']) : 'N/A' }}</td>
-                                        <td>{{ $transaction['value'] ?? 'N/A' }}</td>
-                                        <td dir="rtl" class="relative group">
-                                            @if (isset($transaction['amount']) && is_numeric($transaction['amount']))
-                                                {{ number_format((float) $transaction['amount'], 2) }} {{ $transaction['currency'] ?? '' }}
-                                            @else
-                                                N/A
-                                            @endif
+                                        <td dir="rtl" class="relative">
                                             @php
                                                 $amountBreakdown = (array) ($transaction['currency_amount_breakdown'] ?? []);
                                             @endphp
-                                            @if (!empty($amountBreakdown))
-                                                <div class="hidden group-hover:block absolute right-0 top-full mt-1 z-20 min-w-64 bg-white border border-gray-200 rounded-md shadow-lg p-2 text-left" dir="ltr">
-                                                    <div class="text-[11px] font-semibold text-gray-600 mb-1">Currency Amount Breakdown</div>
-                                                    <table class="w-full text-[11px] border-collapse" cellpadding="3">
-                                                        <thead>
-                                                            <tr class="bg-gray-50">
-                                                                <th class="text-left">Component</th>
-                                                                <th class="text-right">Amount</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            @foreach ($amountBreakdown as $row)
-                                                                <tr>
-                                                                    <td>{{ $row['label'] ?? 'N/A' }}</td>
-                                                                    <td class="text-right">
-                                                                        @if (isset($row['amount']) && is_numeric($row['amount']))
-                                                                            {{ number_format((float) $row['amount'], 2) }} {{ $row['currency'] ?? '' }}
-                                                                        @else
-                                                                            N/A
-                                                                        @endif
-                                                                    </td>
+                                            <div class="inline-flex items-center gap-2 relative group" dir="ltr" tabindex="0">
+                                                <span dir="rtl">
+                                                    @if (isset($transaction['amount']) && is_numeric($transaction['amount']))
+                                                        {{ number_format((float) $transaction['amount'], 2) }} {{ $transaction['currency'] ?? '' }}
+                                                    @else
+                                                        N/A
+                                                    @endif
+                                                </span>
+                                                @if (!empty($amountBreakdown))
+                                                    <span class="text-[11px] px-1.5 py-0.5 border border-gray-300 rounded bg-gray-50 text-gray-600 cursor-help">Breakdown</span>
+                                                    <div class="hidden group-hover:block group-focus-within:block absolute right-0 top-full mt-1 z-30 min-w-64 bg-white border border-gray-200 rounded-md shadow-lg p-2 text-left">
+                                                        <div class="text-[11px] font-semibold text-gray-600 mb-1">Currency Amount Breakdown</div>
+                                                        <table class="w-full text-[11px] border-collapse" cellpadding="3">
+                                                            <thead>
+                                                                <tr class="bg-gray-50">
+                                                                    <th class="text-left">Component</th>
+                                                                    <th class="text-right">Amount</th>
                                                                 </tr>
-                                                            @endforeach
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            @endif
+                                                            </thead>
+                                                            <tbody>
+                                                                @foreach ($amountBreakdown as $row)
+                                                                    <tr>
+                                                                        <td>{{ $row['label'] ?? 'N/A' }}</td>
+                                                                        <td class="text-right">
+                                                                            @if (isset($row['amount']) && is_numeric($row['amount']))
+                                                                                {{ number_format((float) $row['amount'], 2) }} {{ $row['currency'] ?? '' }}
+                                                                            @else
+                                                                                N/A
+                                                                            @endif
+                                                                        </td>
+                                                                    </tr>
+                                                                @endforeach
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                @endif
+                                            </div>
                                         </td>
                                         <td>{{ $transaction['transaction_id'] ?? 'N/A' }}</td>
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="9" class="text-sm text-gray-600">No financial events returned for this order.</td>
+                                        <td colspan="8" class="text-sm text-gray-600">No financial events returned for this order.</td>
                                     </tr>
                                 @endforelse
                             </tbody>
