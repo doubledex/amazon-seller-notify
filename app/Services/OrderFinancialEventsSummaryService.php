@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Log;
 
 class OrderFinancialEventsSummaryService
 {
+    private const CACHE_KEY_VERSION = 'v2';
     private const CACHE_MINUTES = 10;
     private const MAX_PAGES = 6;
     private const MAX_RECENT_ROWS = 10;
@@ -25,7 +26,7 @@ class OrderFinancialEventsSummaryService
             return $this->emptySummary('Order ID is required.');
         }
 
-        $cacheKey = 'orders:financial-events-summary:' . sha1($normalizedOrderId . '|' . strtoupper((string) $marketplaceId));
+        $cacheKey = 'orders:financial-events-summary:' . self::CACHE_KEY_VERSION . ':' . sha1($normalizedOrderId . '|' . strtoupper((string) $marketplaceId));
 
         return Cache::remember($cacheKey, now()->addMinutes(self::CACHE_MINUTES), function () use ($normalizedOrderId, $marketplaceId) {
             return $this->fetchAndSummarize($normalizedOrderId, $marketplaceId);
@@ -104,6 +105,9 @@ class OrderFinancialEventsSummaryService
             $description = trim((string) ($transaction['description'] ?? ''));
             $postedDate = $this->parseDate($transaction['postedDate'] ?? null);
             $amount = $this->toFloat(data_get($transaction, 'totalAmount.amount'));
+            if ($amount === null) {
+                $amount = $this->toFloat(data_get($transaction, 'totalAmount.currencyAmount'));
+            }
             $currency = strtoupper(trim((string) data_get($transaction, 'totalAmount.currencyCode')));
             $maturityDate = $this->extractMaturityDate($transaction);
 
@@ -209,9 +213,21 @@ class OrderFinancialEventsSummaryService
 
     private function extractMaturityDate(array $transaction): ?string
     {
-        $contexts = $transaction['contexts'] ?? null;
-        if (!is_array($contexts)) {
-            return null;
+        $contexts = [];
+        if (is_array($transaction['contexts'] ?? null)) {
+            $contexts = array_merge($contexts, (array) $transaction['contexts']);
+        }
+
+        $items = $transaction['items'] ?? null;
+        if (is_array($items)) {
+            foreach ($items as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                if (is_array($item['contexts'] ?? null)) {
+                    $contexts = array_merge($contexts, (array) $item['contexts']);
+                }
+            }
         }
 
         foreach ($contexts as $context) {
@@ -228,6 +244,30 @@ class OrderFinancialEventsSummaryService
             if (is_string($candidate) && trim($candidate) !== '') {
                 $date = $this->parseDate($candidate);
                 return $date?->toIso8601String() ?? trim($candidate);
+            }
+        }
+
+        return $this->findMaturityDateRecursive($transaction);
+    }
+
+    private function findMaturityDateRecursive(mixed $node): ?string
+    {
+        if (!is_array($node)) {
+            return null;
+        }
+
+        $direct = $node['maturityDate'] ?? null;
+        if (is_string($direct) && trim($direct) !== '') {
+            $date = $this->parseDate($direct);
+            return $date?->toIso8601String() ?? trim($direct);
+        }
+
+        foreach ($node as $value) {
+            if (is_array($value)) {
+                $found = $this->findMaturityDateRecursive($value);
+                if ($found !== null) {
+                    return $found;
+                }
             }
         }
 
