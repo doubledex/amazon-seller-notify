@@ -311,6 +311,10 @@
     @endif
     @if(isset($summaryMetrics) && request('view', 'table') !== 'map')
         <div class="mb-4 p-3 rounded border border-gray-200 bg-gray-50 text-sm">
+            @php
+                $isUnshippedFilter = strcasecmp((string) ($selectedStatus ?? ''), 'Unshipped') === 0;
+                $unshippedCashValueGbp = ((float) ($summaryMetrics['net_value_gbp'] ?? 0)) - ((float) ($summaryMetrics['amazon_fees_gbp'] ?? 0));
+            @endphp
             <div style="display:flex; gap:18px; flex-wrap:wrap;">
                 <span><strong>Orders:</strong> {{ number_format((int) ($summaryMetrics['order_count'] ?? 0)) }}</span>
                 <span><strong>Total Units:</strong> {{ number_format((int) ($summaryMetrics['total_units'] ?? 0)) }}</span>
@@ -318,6 +322,9 @@
                 <span><strong>Shipped Units:</strong> {{ number_format((int) ($summaryMetrics['shipped_units'] ?? 0)) }}</span>
                 <span><strong>Net Value (GBP):</strong> £{{ number_format((float) ($summaryMetrics['net_value_gbp'] ?? 0), 2) }}</span>
                 <span><strong>Amazon Fees (GBP):</strong> £{{ number_format((float) ($summaryMetrics['amazon_fees_gbp'] ?? 0), 2) }}</span>
+                @if($isUnshippedFilter)
+                    <span><strong>Unshipped Cash Value:</strong> £{{ number_format($unshippedCashValueGbp, 2) }}</span>
+                @endif
                 <span><strong>Landed Costs (GBP):</strong> £{{ number_format((float) ($summaryMetrics['landed_costs_gbp'] ?? 0), 2) }}</span>
                 <span><strong>Margin Proxy (GBP):</strong> £{{ number_format((float) ($summaryMetrics['margin_proxy_gbp'] ?? 0), 2) }}</span>
             </div>
