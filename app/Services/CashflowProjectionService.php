@@ -160,6 +160,7 @@ class CashflowProjectionService
         if (!empty($filters['currency'])) {
             $query->where('currency', strtoupper(trim((string) $filters['currency'])));
         }
+        $query->where('transaction_status', 'DEFERRED');
         if ($start) {
             $query->where('maturity_datetime_utc', '>=', $start->toDateTimeString());
         }
