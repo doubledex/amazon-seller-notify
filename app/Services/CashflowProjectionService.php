@@ -85,7 +85,7 @@ class CashflowProjectionService
             }
 
             $transactions[] = [
-                'effective_payment_time_utc' => optional($row->effective_payment_date)->copy()?->utc()->format('Y-m-d H:i:s'),
+                'effective_payment_time_utc' => $this->formatUtcDateTime($row->effective_payment_date ?? null),
                 'marketplace_id' => $marketplaceId,
                 'amazon_order_id' => trim((string) ($row->amazon_order_id ?? '')),
                 'transaction_id' => trim((string) ($row->transaction_id ?? '')),
@@ -187,8 +187,8 @@ class CashflowProjectionService
             }
 
             $transactions[] = [
-                'maturity_datetime_utc' => optional($row->maturity_date)->copy()?->utc()->format('Y-m-d H:i:s'),
-                'effective_payment_datetime_utc' => optional($row->effective_payment_date)->copy()?->utc()->format('Y-m-d H:i:s'),
+                'maturity_datetime_utc' => $this->formatUtcDateTime($row->maturity_date ?? null),
+                'effective_payment_datetime_utc' => $this->formatUtcDateTime($row->effective_payment_date ?? null),
                 'marketplace_id' => $row->marketplace_id,
                 'amazon_order_id' => $row->amazon_order_id,
                 'transaction_id' => $row->transaction_id,
@@ -234,6 +234,23 @@ class CashflowProjectionService
         }
 
         return $this->cashflowDateColumn();
+    }
+
+    private function formatUtcDateTime(mixed $value): ?string
+    {
+        if ($value instanceof Carbon) {
+            return $value->copy()->utc()->format('Y-m-d H:i:s');
+        }
+
+        if (is_string($value) && trim($value) !== '') {
+            try {
+                return Carbon::parse($value)->utc()->format('Y-m-d H:i:s');
+            } catch (\Throwable) {
+                return null;
+            }
+        }
+
+        return null;
     }
 
     private function summarizeBuckets(array $rows): array
