@@ -105,6 +105,7 @@ class OrderFinancialEventsSummaryService
             $postedDate = $this->parseDate($transaction['postedDate'] ?? null);
             $amount = $this->toFloat(data_get($transaction, 'totalAmount.amount'));
             $currency = strtoupper(trim((string) data_get($transaction, 'totalAmount.currencyCode')));
+            $maturityDate = $this->extractMaturityDate($transaction);
 
             $statusCounts[$status] = ($statusCounts[$status] ?? 0) + 1;
             $typeCounts[$type] = ($typeCounts[$type] ?? 0) + 1;
@@ -133,6 +134,7 @@ class OrderFinancialEventsSummaryService
                     ? number_format((float) $amount, 2, '.', '') . ' ' . $currency
                     : null,
                 'posted_date' => $postedDate?->toIso8601String(),
+                'maturity_date' => $maturityDate,
                 'raw' => $transaction,
             ];
         }
@@ -203,5 +205,32 @@ class OrderFinancialEventsSummaryService
         }
 
         return (float) $value;
+    }
+
+    private function extractMaturityDate(array $transaction): ?string
+    {
+        $contexts = $transaction['contexts'] ?? null;
+        if (!is_array($contexts)) {
+            return null;
+        }
+
+        foreach ($contexts as $context) {
+            if (!is_array($context)) {
+                continue;
+            }
+
+            $candidate = data_get($context, 'deferredContext.maturityDate')
+                ?? data_get($context, 'deferred.maturityDate')
+                ?? data_get($context, 'paymentsContext.maturityDate')
+                ?? data_get($context, 'paymentContext.maturityDate')
+                ?? data_get($context, 'maturityDate');
+
+            if (is_string($candidate) && trim($candidate) !== '') {
+                $date = $this->parseDate($candidate);
+                return $date?->toIso8601String() ?? trim($candidate);
+            }
+        }
+
+        return null;
     }
 }

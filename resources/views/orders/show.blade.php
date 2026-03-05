@@ -274,6 +274,7 @@
                                     <th>Status</th>
                                     <th>Type</th>
                                     <th>Description</th>
+                                    <th>Maturity Date</th>
                                     <th>Value</th>
                                     <th>Amount</th>
                                     <th>Transaction ID</th>
@@ -286,6 +287,7 @@
                                         <td>{{ $transaction['status'] ?? 'N/A' }}</td>
                                         <td>{{ $transaction['type'] ?? 'N/A' }}</td>
                                         <td>{{ $transaction['description'] ?? 'N/A' }}</td>
+                                        <td>{{ !empty($transaction['maturity_date']) ? $formatDateTime($transaction['maturity_date']) : 'N/A' }}</td>
                                         <td>{{ $transaction['value'] ?? 'N/A' }}</td>
                                         <td dir="rtl">
                                             @if (isset($transaction['amount']) && is_numeric($transaction['amount']))
@@ -298,7 +300,7 @@
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="7" class="text-sm text-gray-600">No financial events returned for this order.</td>
+                                        <td colspan="8" class="text-sm text-gray-600">No financial events returned for this order.</td>
                                     </tr>
                                 @endforelse
                             </tbody>
