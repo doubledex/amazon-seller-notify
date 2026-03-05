@@ -140,31 +140,41 @@ class CashflowProjectionService
         $start = $fromUtc?->copy()->utc()->startOfDay();
         $end = $toUtc?->copy()->utc()->endOfDay();
         $maturityColumn = $this->maturityDateColumn();
+        $hasTxnTotalAmount = Schema::hasColumn('amazon_order_fee_lines_v2', 'transaction_total_amount');
+        $hasTxnTotalCurrency = Schema::hasColumn('amazon_order_fee_lines_v2', 'transaction_total_currency');
+        $txnAmountExpr = $hasTxnTotalAmount ? 'MAX(amazon_order_fee_lines_v2.transaction_total_amount)' : 'NULL';
+        $txnCurrencyExpr = $hasTxnTotalCurrency
+            ? "NULLIF(MAX(COALESCE(amazon_order_fee_lines_v2.transaction_total_currency, '')), '')"
+            : 'NULL';
 
         $query = $this->baseQuery($filters)
             ->whereNotNull($maturityColumn)
             ->whereIn('transaction_status', ['DEFERRED', 'DEFERRED_RELEASED'])
+            ->leftJoin('orders', 'orders.amazon_order_id', '=', 'amazon_order_fee_lines_v2.amazon_order_id')
             ->selectRaw('
-                marketplace_id,
-                amazon_order_id,
-                transaction_id,
-                transaction_status,
+                amazon_order_fee_lines_v2.marketplace_id,
+                amazon_order_fee_lines_v2.amazon_order_id,
+                amazon_order_fee_lines_v2.transaction_id,
+                amazon_order_fee_lines_v2.transaction_status,
                 ' . $maturityColumn . ' as maturity_date,
-                posted_date,
-                currency,
-                SUM(COALESCE(net_ex_tax_amount, 0)) as outstanding_value
+                amazon_order_fee_lines_v2.posted_date,
+                ' . $txnAmountExpr . ' as txn_total_amount_candidate,
+                ' . $txnCurrencyExpr . ' as txn_total_currency_candidate,
+                MAX(orders.order_total_amount) as order_total_amount_candidate,
+                NULLIF(MAX(COALESCE(orders.order_total_currency, \'\')), \'\') as order_total_currency_candidate,
+                SUM(COALESCE(amazon_order_fee_lines_v2.net_ex_tax_amount, 0)) as fee_sum_amount_candidate,
+                NULLIF(MAX(COALESCE(amazon_order_fee_lines_v2.currency, \'\')), \'\') as fee_sum_currency_candidate
             ')
             ->groupBy([
-                'marketplace_id',
-                'amazon_order_id',
-                'transaction_id',
-                'transaction_status',
+                'amazon_order_fee_lines_v2.marketplace_id',
+                'amazon_order_fee_lines_v2.amazon_order_id',
+                'amazon_order_fee_lines_v2.transaction_id',
+                'amazon_order_fee_lines_v2.transaction_status',
                 $maturityColumn,
-                'posted_date',
-                'currency',
+                'amazon_order_fee_lines_v2.posted_date',
             ])
             ->orderBy($maturityColumn, 'asc')
-            ->orderBy('transaction_id', 'asc');
+            ->orderBy('amazon_order_fee_lines_v2.transaction_id', 'asc');
 
         if ($start && $end) {
             $query->whereBetween($maturityColumn, [$start, $end]);
@@ -178,12 +188,35 @@ class CashflowProjectionService
 
         $transactions = [];
         $totalsByCurrency = [];
+        $valueSourceCounts = [];
         foreach ($rows as $row) {
-            $currency = strtoupper(trim((string) ($row->currency ?? '')));
-            $value = round((float) ($row->outstanding_value ?? 0), 4);
+            $txnTotalAmount = $row->txn_total_amount_candidate !== null ? (float) $row->txn_total_amount_candidate : null;
+            $orderTotalAmount = $row->order_total_amount_candidate !== null ? (float) $row->order_total_amount_candidate : null;
+            $feeSumAmount = (float) ($row->fee_sum_amount_candidate ?? 0.0);
+
+            $txnCurrency = strtoupper(trim((string) ($row->txn_total_currency_candidate ?? '')));
+            $orderCurrency = strtoupper(trim((string) ($row->order_total_currency_candidate ?? '')));
+            $feeCurrency = strtoupper(trim((string) ($row->fee_sum_currency_candidate ?? '')));
+
+            if ($txnTotalAmount !== null) {
+                $value = round($txnTotalAmount, 4);
+                $currency = $txnCurrency !== '' ? $txnCurrency : ($orderCurrency !== '' ? $orderCurrency : $feeCurrency);
+                $valueSource = 'transaction_total';
+            } elseif ($orderTotalAmount !== null) {
+                $value = round($orderTotalAmount, 4);
+                $currency = $orderCurrency !== '' ? $orderCurrency : $feeCurrency;
+                $valueSource = 'order_total_fallback';
+            } else {
+                $value = round($feeSumAmount, 4);
+                $currency = $feeCurrency;
+                $valueSource = 'fee_sum_fallback';
+            }
+
+            $currency = strtoupper(trim((string) $currency));
             if ($currency !== '') {
                 $totalsByCurrency[$currency] = round(($totalsByCurrency[$currency] ?? 0) + $value, 4);
             }
+            $valueSourceCounts[$valueSource] = ($valueSourceCounts[$valueSource] ?? 0) + 1;
 
             $transactions[] = [
                 'maturity_datetime_utc' => $this->formatUtcDateTime($row->maturity_date ?? null),
@@ -194,10 +227,12 @@ class CashflowProjectionService
                 'transaction_status' => $row->transaction_status,
                 'currency' => $currency !== '' ? $currency : null,
                 'outstanding_value' => $value,
+                'value_source' => $valueSource,
             ];
         }
 
         ksort($totalsByCurrency);
+        ksort($valueSourceCounts);
 
         return [
             'view' => 'outstanding',
@@ -205,6 +240,7 @@ class CashflowProjectionService
             'to_utc' => $end?->toIso8601String(),
             'total_transactions' => count($transactions),
             'totals_by_currency' => $totalsByCurrency,
+            'value_source_counts' => $valueSourceCounts,
             'transactions' => $transactions,
         ];
     }

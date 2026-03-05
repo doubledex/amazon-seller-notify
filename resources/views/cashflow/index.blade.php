@@ -149,11 +149,16 @@
 
             function renderOutstanding(data) {
                 const totals = data.totals_by_currency || {};
+                const sourceCounts = data.value_source_counts || {};
                 const totalLines = Object.keys(totals)
                     .sort()
                     .map(code => `${code}: ${Number(totals[code]).toFixed(2)}`)
                     .join(' | ');
-                const summary = `<div class="text-sm mb-3">Outstanding transactions: ${data.total_transactions || 0}${totalLines ? ` | Totals: ${totalLines}` : ''}</div>`;
+                const sourceLines = Object.keys(sourceCounts)
+                    .sort()
+                    .map(source => `${source}: ${sourceCounts[source]}`)
+                    .join(' | ');
+                const summary = `<div class="text-sm mb-3">Outstanding transactions: ${data.total_transactions || 0}${totalLines ? ` | Totals: ${totalLines}` : ''}${sourceLines ? ` | Value source: ${sourceLines}` : ''}</div>`;
                 const table = (data.transactions || []).length
                     ? renderTableHtml(data.transactions, 'Outstanding Transactions by Maturity (UTC, ascending)')
                     : '<div class="text-sm text-gray-500">No outstanding transactions found for selected filters.</div>';
