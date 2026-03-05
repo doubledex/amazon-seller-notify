@@ -2,8 +2,9 @@
 
 namespace App\Services;
 
-use App\Models\AmazonOrderFeeLine;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class CashflowProjectionService
 {
@@ -11,9 +12,10 @@ class CashflowProjectionService
     {
         $start = $dayUtc->copy()->utc()->startOfDay();
         $end = $dayUtc->copy()->utc()->endOfDay();
+        $dateColumn = $this->cashflowDateColumn();
 
         $rows = $this->baseQuery($filters)
-            ->whereBetween('effective_payment_date', [$start, $end])
+            ->whereBetween($dateColumn, [$start, $end])
             ->get([
                 'marketplace_id',
                 'currency',
@@ -33,9 +35,10 @@ class CashflowProjectionService
     {
         $start = $anchorUtc->copy()->utc()->startOfWeek(Carbon::MONDAY);
         $end = $anchorUtc->copy()->utc()->endOfWeek(Carbon::SUNDAY);
+        $dateColumn = $this->cashflowDateColumn();
 
         $rows = $this->baseQuery($filters)
-            ->whereBetween('effective_payment_date', [$start, $end])
+            ->whereBetween($dateColumn, [$start, $end])
             ->get([
                 'marketplace_id',
                 'currency',
@@ -55,13 +58,14 @@ class CashflowProjectionService
     {
         $start = $nowUtc->copy()->utc()->startOfDay();
         $end = $nowUtc->copy()->utc()->endOfDay();
+        $dateColumn = $this->cashflowDateColumn();
 
         $rows = $this->baseQuery($filters)
-            ->whereBetween('effective_payment_date', [$start, $end])
+            ->whereBetween($dateColumn, [$start, $end])
             ->get([
                 'marketplace_id',
                 'currency',
-                'effective_payment_date',
+                "{$dateColumn} as effective_payment_date",
                 'net_ex_tax_amount',
                 'transaction_status',
             ]);
@@ -116,10 +120,19 @@ class CashflowProjectionService
 
     private function baseQuery(array $filters)
     {
-        return AmazonOrderFeeLine::query()
+        return DB::table('amazon_order_fee_lines_v2')
             ->when(!empty($filters['marketplace_id']), fn ($q) => $q->where('marketplace_id', (string) $filters['marketplace_id']))
             ->when(!empty($filters['region']), fn ($q) => $q->where('region', strtoupper((string) $filters['region'])))
             ->when(!empty($filters['currency']), fn ($q) => $q->where('currency', strtoupper((string) $filters['currency'])));
+    }
+
+    private function cashflowDateColumn(): string
+    {
+        if (Schema::hasColumn('amazon_order_fee_lines_v2', 'effective_payment_date')) {
+            return 'effective_payment_date';
+        }
+
+        return 'posted_date';
     }
 
     private function summarizeBuckets(array $rows): array
