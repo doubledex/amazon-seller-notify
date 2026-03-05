@@ -80,6 +80,7 @@
             const meta = document.getElementById('cashflow-meta');
             const projectionUrl = @json(route('cashflow.projection'));
             const orderShowUrlTemplate = @json(route('orders.show', ['order_id' => '__ORDER_ID__']));
+            const marketplacesById = @json(collect($marketplaces ?? [])->keyBy('id')->all());
             const fromInput = form.querySelector('input[name="from"]');
             const toInput = form.querySelector('input[name="to"]');
             const viewInput = form.querySelector('select[name="view"]');
@@ -179,6 +180,16 @@
                     if (orderId !== '') {
                         const href = orderShowUrlTemplate.replace('__ORDER_ID__', encodeURIComponent(orderId));
                         return `<a href="${href}" class="text-indigo-600 hover:underline">${escapeHtml(orderId)}</a>`;
+                    }
+                }
+                if (column === 'marketplace_id') {
+                    const marketplaceId = (value || '').toString().trim();
+                    if (marketplaceId !== '') {
+                        const m = marketplacesById[marketplaceId] || null;
+                        if (m) {
+                            const label = `${(m.flag || '').trim()} ${(m.country_code || '').trim()} - ${(m.name || '').trim()}`.trim();
+                            return `${escapeHtml(label)} <span class="text-gray-500">(${escapeHtml(marketplaceId)})</span>`;
+                        }
                     }
                 }
 

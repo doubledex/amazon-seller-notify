@@ -221,6 +221,7 @@ class CashflowProjectionService
             $transactions[] = [
                 'maturity_datetime_utc' => $this->formatUtcDateTime($row->maturity_date ?? null),
                 'posted_datetime_utc' => $this->formatUtcDateTime($row->posted_date ?? null),
+                'days_posted_to_maturity' => $this->daysBetweenDates($row->posted_date ?? null, $row->maturity_date ?? null),
                 'marketplace_id' => $row->marketplace_id,
                 'amazon_order_id' => $row->amazon_order_id,
                 'transaction_id' => $row->transaction_id,
@@ -280,6 +281,34 @@ class CashflowProjectionService
         if (is_string($value) && trim($value) !== '') {
             try {
                 return Carbon::parse($value)->utc()->format('Y-m-d H:i:s');
+            } catch (\Throwable) {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    private function daysBetweenDates(mixed $from, mixed $to): ?int
+    {
+        $fromDate = $this->parseAnyDate($from);
+        $toDate = $this->parseAnyDate($to);
+        if ($fromDate === null || $toDate === null) {
+            return null;
+        }
+
+        return $fromDate->diffInDays($toDate, false);
+    }
+
+    private function parseAnyDate(mixed $value): ?Carbon
+    {
+        if ($value instanceof Carbon) {
+            return $value->copy()->utc();
+        }
+
+        if (is_string($value) && trim($value) !== '') {
+            try {
+                return Carbon::parse($value)->utc();
             } catch (\Throwable) {
                 return null;
             }
