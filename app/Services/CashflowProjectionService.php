@@ -181,6 +181,7 @@ class CashflowProjectionService
                 'maturity_datetime_utc' => $this->formatUtcDateTime($row->maturity_datetime_utc ?? null),
                 'posted_datetime_utc' => $this->formatUtcDateTime($row->posted_datetime_utc ?? null),
                 'days_posted_to_maturity' => $row->days_posted_to_maturity !== null ? (int) $row->days_posted_to_maturity : null,
+                'deferral_reason' => $row->deferral_reason,
                 'marketplace_id' => $row->marketplace_id,
                 'amazon_order_id' => $row->amazon_order_id,
                 'transaction_id' => $row->transaction_id,
@@ -278,6 +279,7 @@ class CashflowProjectionService
                         $currency = $this->moneyCurrency($totalAmountNode);
                         $postedRaw = $txn['postedDate'] ?? null;
                         $postedDate = $this->formatUtcDateTime($postedRaw);
+                        $deferralReason = $this->extractDeferralReasonFromTransaction($txn);
                         $marketplaceIdTx = strtoupper(trim((string) data_get($txn, 'sellingPartnerMetadata.marketplaceId', $marketplaceId)));
                         $orderId = $this->extractOrderIdFromTransaction($txn);
                         $transactionId = trim((string) ($txn['transactionId'] ?? ''));
@@ -299,6 +301,7 @@ class CashflowProjectionService
                             'posted_datetime_utc' => $postedDate,
                             'maturity_datetime_utc' => $maturityDate->format('Y-m-d H:i:s'),
                             'days_posted_to_maturity' => $this->daysBetweenDates($postedRaw, $maturityRaw),
+                            'deferral_reason' => $deferralReason,
                             'currency' => $currency,
                             'outstanding_value' => $value !== null ? round((float) $value, 4) : null,
                             'missing_total_amount' => $value === null || $currency === null,
@@ -425,6 +428,40 @@ class CashflowProjectionService
             $candidate = data_get($context, 'deferredContext.maturityDate')
                 ?? data_get($context, 'deferred.maturityDate')
                 ?? data_get($context, 'maturityDate');
+            if (is_string($candidate) && trim($candidate) !== '') {
+                return trim($candidate);
+            }
+        }
+
+        return null;
+    }
+
+    private function extractDeferralReasonFromTransaction(array $transaction): ?string
+    {
+        $contexts = [];
+        if (is_array($transaction['contexts'] ?? null)) {
+            $contexts = array_merge($contexts, (array) $transaction['contexts']);
+        }
+
+        $items = $transaction['items'] ?? null;
+        if (is_array($items)) {
+            foreach ($items as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                if (is_array($item['contexts'] ?? null)) {
+                    $contexts = array_merge($contexts, (array) $item['contexts']);
+                }
+            }
+        }
+
+        foreach ($contexts as $context) {
+            if (!is_array($context)) {
+                continue;
+            }
+            $candidate = data_get($context, 'deferredContext.deferralReason')
+                ?? data_get($context, 'deferred.deferralReason')
+                ?? data_get($context, 'deferralReason');
             if (is_string($candidate) && trim($candidate) !== '') {
                 return trim($candidate);
             }
