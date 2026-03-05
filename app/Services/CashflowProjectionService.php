@@ -150,6 +150,21 @@ class CashflowProjectionService
     {
         $start = $fromUtc?->copy()->utc()->startOfDay();
         $end = $toUtc?->copy()->utc()->endOfDay();
+        if (!Schema::hasTable('cashflow_outstanding_transactions')) {
+            return [
+                'view' => 'outstanding',
+                'source' => 'cashflow_outstanding_transactions',
+                'lookback_days' => self::OUTSTANDING_LOOKBACK_DAYS,
+                'from_utc' => $start?->toIso8601String(),
+                'to_utc' => $end?->toIso8601String(),
+                'total_transactions' => 0,
+                'totals_by_currency' => [],
+                'missing_total_amount_rows' => 0,
+                'warning' => 'cashflow_outstanding_transactions table is missing. Run migrations and cashflow snapshot sync.',
+                'transactions' => [],
+            ];
+        }
+
         $query = DB::table('cashflow_outstanding_transactions');
         if (!empty($filters['marketplace_id'])) {
             $query->where('marketplace_id', strtoupper(trim((string) $filters['marketplace_id'])));
@@ -217,6 +232,15 @@ class CashflowProjectionService
 
     public function syncOutstandingSnapshot(): array
     {
+        if (!Schema::hasTable('cashflow_outstanding_transactions')) {
+            return [
+                'rows_written' => 0,
+                'transactions_seen' => 0,
+                'regions' => 0,
+                'warning' => 'cashflow_outstanding_transactions table is missing. Run migrations first.',
+            ];
+        }
+
         $adapter = $this->financesAdapter ?? new FinancesAdapter(new SpApiClientFactory());
         $regionService = $this->regionConfigService ?? new RegionConfigService();
         $regions = $regionService->spApiRegions();

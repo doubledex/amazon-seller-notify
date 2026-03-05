@@ -112,6 +112,9 @@
                     }
 
                     meta.textContent = `Generated: ${json.generated_at_utc} | View: ${json.data.view}`;
+                    if (json.data.warning) {
+                        meta.textContent += ` | Warning: ${json.data.warning}`;
+                    }
 
                     if (json.data.view === 'today_timing') {
                         renderTodayTiming(json.data.timeline || [], json.data.transactions || []);
