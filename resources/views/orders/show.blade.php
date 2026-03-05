@@ -283,12 +283,37 @@
                             </thead>
                             <tbody>
                                 @forelse ($financialSummaryRecent as $transaction)
+                                    @php
+                                        $deferralReasonDisplay = $transaction['deferral_reason'] ?? null;
+                                        if (!$deferralReasonDisplay) {
+                                            $rawContexts = (array) data_get($transaction, 'raw.contexts', []);
+                                            foreach ($rawContexts as $ctx) {
+                                                $candidate = is_array($ctx) ? ($ctx['deferralReason'] ?? null) : null;
+                                                if (is_string($candidate) && trim($candidate) !== '') {
+                                                    $deferralReasonDisplay = trim($candidate);
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        if (!$deferralReasonDisplay) {
+                                            $rawItemContexts = collect((array) data_get($transaction, 'raw.items', []))
+                                                ->flatMap(fn ($item) => (array) data_get($item, 'contexts', []))
+                                                ->all();
+                                            foreach ($rawItemContexts as $ctx) {
+                                                $candidate = is_array($ctx) ? ($ctx['deferralReason'] ?? null) : null;
+                                                if (is_string($candidate) && trim($candidate) !== '') {
+                                                    $deferralReasonDisplay = trim($candidate);
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    @endphp
                                     <tr>
                                         <td>{{ !empty($transaction['posted_date']) ? $formatDateTime($transaction['posted_date']) : 'N/A' }}</td>
                                         <td>{{ $transaction['status'] ?? 'N/A' }}</td>
                                         <td>{{ $transaction['type'] ?? 'N/A' }}</td>
                                         <td>{{ $transaction['description'] ?? 'N/A' }}</td>
-                                        <td>{{ $transaction['deferral_reason'] ?? 'N/A' }}</td>
+                                        <td>{{ $deferralReasonDisplay ?? 'N/A' }}</td>
                                         <td>{{ !empty($transaction['maturity_date']) ? $formatDateTime($transaction['maturity_date']) : 'N/A' }}</td>
                                         <td>{{ $transaction['value'] ?? 'N/A' }}</td>
                                         <td dir="rtl" class="relative group">

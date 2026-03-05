@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Log;
 
 class OrderFinancialEventsSummaryService
 {
-    private const CACHE_KEY_VERSION = 'v3';
+    private const CACHE_KEY_VERSION = 'v4';
     private const CACHE_MINUTES = 10;
     private const MAX_PAGES = 6;
     private const MAX_RECENT_ROWS = 10;
