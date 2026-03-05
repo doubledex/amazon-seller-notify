@@ -364,6 +364,7 @@ A simple rhythm is:
 ## Cashflow projection (Finances timing)
 - Data source: `amazon_order_fee_lines_v2` (populated by `php artisan amazon:sync-order-fees-v2`).
 - New projection fields persisted per fee line: `maturity_date`, `effective_payment_date`, `deferred_amount`, `released_amount`.
+- UI page (auth required): `GET /cashflow`
 - Endpoint (auth required): `GET /cashflow/projection`
   - Query params:
     - `view=day|week|today_timing` (default `day`)

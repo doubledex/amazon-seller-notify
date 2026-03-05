@@ -6,9 +6,16 @@ use App\Services\CashflowProjectionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\View\View;
 
 class CashflowController extends Controller
 {
+
+    public function page(): View
+    {
+        return view('cashflow.index');
+    }
+
     public function index(Request $request, CashflowProjectionService $service): JsonResponse
     {
         $view = strtolower(trim((string) $request->query('view', 'day')));
