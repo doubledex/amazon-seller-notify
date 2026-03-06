@@ -134,7 +134,7 @@
                     return;
                 }
 
-                const columns = Object.keys(rows[0]);
+                const columns = orderedColumns(Object.keys(rows[0]));
                 const thead = `<tr>${columns.map(c => `<th class="px-3 py-2 text-left border-b">${headerLabel(c)}</th>`).join('')}</tr>`;
                 const tbody = rows.map(row => `<tr>${columns.map(c => `<td class="px-3 py-2 border-b text-sm align-top ${cellClass(c)}">${formatCell(c, row[c])}</td>`).join('')}</tr>`).join('');
                 output.innerHTML = `<div class="w-full overflow-x-auto"><table class="w-full border-collapse table-auto">${thead}${tbody}</table></div>`;
@@ -170,11 +170,18 @@
             }
 
             function renderTableHtml(rows, title) {
-                const columns = Object.keys(rows[0]);
+                const columns = orderedColumns(Object.keys(rows[0]));
                 const thead = `<tr>${columns.map(c => `<th class="px-3 py-2 text-left border-b">${headerLabel(c)}</th>`).join('')}</tr>`;
                 const tbody = rows.map(row => `<tr>${columns.map(c => `<td class="px-3 py-2 border-b text-sm align-top ${cellClass(c)}">${formatCell(c, row[c])}</td>`).join('')}</tr>`).join('');
                 const heading = title ? `<div class="text-sm font-semibold mb-2">${title}</div>` : '';
                 return `${heading}<div class="w-full overflow-x-auto"><table class="w-full border-collapse table-auto">${thead}${tbody}</table></div>`;
+            }
+
+            function orderedColumns(columns) {
+                const rightMost = ['transaction_id', 'transaction_status'];
+                const withoutRightMost = columns.filter(c => !rightMost.includes(c));
+                const rightMostPresent = rightMost.filter(c => columns.includes(c));
+                return [...withoutRightMost, ...rightMostPresent];
             }
 
             function formatCell(column, value) {
