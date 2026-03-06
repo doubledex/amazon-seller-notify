@@ -157,6 +157,8 @@ class CashflowProjectionService
                 'lookback_days' => self::OUTSTANDING_LOOKBACK_DAYS,
                 'from_utc' => $start?->toIso8601String(),
                 'to_utc' => $end?->toIso8601String(),
+                'available_maturity_from_utc' => null,
+                'available_maturity_to_utc' => null,
                 'total_transactions' => 0,
                 'totals_by_currency' => [],
                 'missing_total_amount_rows' => 0,
@@ -166,17 +168,31 @@ class CashflowProjectionService
             ];
         }
 
+        $extentQuery = DB::table('cashflow_outstanding_transactions');
         $query = DB::table('cashflow_outstanding_transactions');
         if (!empty($filters['marketplace_id'])) {
-            $query->where('marketplace_id', strtoupper(trim((string) $filters['marketplace_id'])));
+            $marketplaceId = strtoupper(trim((string) $filters['marketplace_id']));
+            $query->where('marketplace_id', $marketplaceId);
+            $extentQuery->where('marketplace_id', $marketplaceId);
         }
         if (!empty($filters['region'])) {
-            $query->where('region', strtoupper(trim((string) $filters['region'])));
+            $region = strtoupper(trim((string) $filters['region']));
+            $query->where('region', $region);
+            $extentQuery->where('region', $region);
         }
         if (!empty($filters['currency'])) {
-            $query->where('currency', strtoupper(trim((string) $filters['currency'])));
+            $currency = strtoupper(trim((string) $filters['currency']));
+            $query->where('currency', $currency);
+            $extentQuery->where('currency', $currency);
         }
         $query->where('transaction_status', 'DEFERRED');
+        $extentQuery->where('transaction_status', 'DEFERRED');
+
+        $extentQueryForMin = clone $extentQuery;
+        $extentQueryForMax = clone $extentQuery;
+        $availableMaturityFrom = $extentQueryForMin->min('maturity_datetime_utc');
+        $availableMaturityTo = $extentQueryForMax->max('maturity_datetime_utc');
+
         if ($start) {
             $query->where('maturity_datetime_utc', '>=', $start->toDateTimeString());
         }
@@ -243,6 +259,8 @@ class CashflowProjectionService
             'lookback_days' => self::OUTSTANDING_LOOKBACK_DAYS,
             'from_utc' => $start?->toIso8601String(),
             'to_utc' => $end?->toIso8601String(),
+            'available_maturity_from_utc' => $this->formatUtcDateTime($availableMaturityFrom),
+            'available_maturity_to_utc' => $this->formatUtcDateTime($availableMaturityTo),
             'total_transactions' => count($transactions),
             'totals_by_currency' => $totalsByCurrency,
             'missing_total_amount_rows' => $missingTotalAmountRows,

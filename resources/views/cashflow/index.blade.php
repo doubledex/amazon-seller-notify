@@ -85,8 +85,10 @@
             const marketplacesById = @json(collect($marketplaces ?? [])->keyBy('id')->all());
             const fromInput = form.querySelector('input[name="from"]');
             const toInput = form.querySelector('input[name="to"]');
+            const dateInput = form.querySelector('input[name="date"]');
             const viewInput = form.querySelector('select[name="view"]');
             const presetButtons = Array.from(document.querySelectorAll('.js-range-preset'));
+            let availableAllRange = { from: '', to: '' };
 
             async function load() {
                 try {
@@ -155,6 +157,11 @@
             }
 
             function renderOutstanding(data) {
+                availableAllRange = {
+                    from: extractYmd(data.available_maturity_from_utc),
+                    to: extractYmd(data.available_maturity_to_utc),
+                };
+
                 const totals = data.totals_by_currency || {};
                 const missingRows = Number(data.missing_total_amount_rows || 0);
                 const diagnostics = data.diagnostics || null;
@@ -259,13 +266,13 @@
             };
 
             function getPresetRange(preset) {
-                if (preset === 'all') {
-                    return { from: '', to: '' };
-                }
-
                 const now = new Date();
                 let from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
                 let to = new Date(from);
+
+                if (preset === 'all') {
+                    return { from: availableAllRange.from, to: availableAllRange.to };
+                }
 
                 if (preset === 'tomorrow') {
                     from.setUTCDate(from.getUTCDate() + 1);
@@ -282,6 +289,40 @@
                 }
 
                 return { from: ymd(from), to: ymd(to) };
+            }
+
+            function extractYmd(value) {
+                const text = (value || '').toString().trim();
+                const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
+                return match ? match[1] : '';
+            }
+
+            async function fetchOutstandingExtentsForCurrentFilters() {
+                const params = new URLSearchParams();
+                const formData = new FormData(form);
+                params.set('view', 'outstanding');
+                for (const [key, value] of formData.entries()) {
+                    if (['from', 'to', 'date', 'view'].includes(key)) {
+                        continue;
+                    }
+                    const text = (value || '').toString().trim();
+                    if (text !== '') {
+                        params.set(key, text);
+                    }
+                }
+
+                const response = await fetch(`${projectionUrl}?${params.toString()}`, {
+                    headers: { 'Accept': 'application/json' }
+                });
+                const json = await response.json().catch(() => null);
+                if (!response.ok || !json || !json.data || json.data.view !== 'outstanding') {
+                    return { from: '', to: '' };
+                }
+
+                return {
+                    from: extractYmd(json.data.available_maturity_from_utc),
+                    to: extractYmd(json.data.available_maturity_to_utc),
+                };
             }
 
             function updatePresetHighlight() {
@@ -308,10 +349,20 @@
             }
 
             presetButtons.forEach(btn => {
-                btn.addEventListener('click', function () {
-                    const range = getPresetRange(this.dataset.preset || '');
+                btn.addEventListener('click', async function () {
+                    const preset = this.dataset.preset || '';
+                    let range = getPresetRange(preset);
+                    if (preset === 'all') {
+                        const fetched = await fetchOutstandingExtentsForCurrentFilters();
+                        availableAllRange = fetched;
+                        range = fetched;
+                    }
+
                     fromInput.value = range.from;
                     toInput.value = range.to;
+                    if (dateInput) {
+                        dateInput.value = range.from || dateInput.value;
+                    }
                     viewInput.value = 'outstanding';
                     updatePresetHighlight();
                     load();
