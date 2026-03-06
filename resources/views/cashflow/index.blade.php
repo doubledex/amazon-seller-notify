@@ -55,14 +55,16 @@
                         <input name="currency" type="text" maxlength="3" class="w-full border-gray-300 rounded-md shadow-sm" placeholder="GBP / USD / EUR">
                     </div>
                     <div>
-                        <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Load projection</button>
+                        <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Apply</button>
                     </div>
                 </form>
-                <div class="mt-3 flex flex-wrap gap-2">
-                    <button type="button" class="px-3 py-1 text-xs border rounded js-range-preset" data-preset="today">Today</button>
-                    <button type="button" class="px-3 py-1 text-xs border rounded js-range-preset" data-preset="tomorrow">Tomorrow</button>
-                    <button type="button" class="px-3 py-1 text-xs border rounded js-range-preset" data-preset="this_week">This Week</button>
-                    <button type="button" class="px-3 py-1 text-xs border rounded js-range-preset" data-preset="next_week">Next Week</button>
+                <div class="mt-3 flex flex-wrap items-center gap-2">
+                    <button type="button" class="px-3 py-1 text-xs border rounded js-range-preset bg-white text-gray-700 hover:bg-gray-50" data-preset="all">All</button>
+                    <button type="button" class="px-3 py-1 text-xs border rounded js-range-preset bg-white text-gray-700 hover:bg-gray-50" data-preset="today">Today</button>
+                    <button type="button" class="px-3 py-1 text-xs border rounded js-range-preset bg-white text-gray-700 hover:bg-gray-50" data-preset="tomorrow">Tomorrow</button>
+                    <button type="button" class="px-3 py-1 text-xs border rounded js-range-preset bg-white text-gray-700 hover:bg-gray-50" data-preset="this_week">This Week</button>
+                    <button type="button" class="px-3 py-1 text-xs border rounded js-range-preset bg-white text-gray-700 hover:bg-gray-50" data-preset="next_week">Next Week</button>
+                    <button type="submit" form="cashflow-filters" class="px-4 py-1 text-xs bg-indigo-600 text-white rounded-md">Apply</button>
                 </div>
             </div>
 
@@ -84,6 +86,7 @@
             const fromInput = form.querySelector('input[name="from"]');
             const toInput = form.querySelector('input[name="to"]');
             const viewInput = form.querySelector('select[name="view"]');
+            const presetButtons = Array.from(document.querySelectorAll('.js-range-preset'));
 
             async function load() {
                 try {
@@ -178,7 +181,7 @@
             }
 
             function orderedColumns(columns) {
-                const rightMost = ['transaction_id', 'transaction_status'];
+                const rightMost = ['transaction_id', 'missing_total_amount'];
                 const withoutRightMost = columns.filter(c => !rightMost.includes(c));
                 const rightMostPresent = rightMost.filter(c => columns.includes(c));
                 return [...withoutRightMost, ...rightMostPresent];
@@ -240,47 +243,84 @@
                 load();
             });
 
-            document.querySelectorAll('.js-range-preset').forEach(btn => {
-                btn.addEventListener('click', function () {
-                    const now = new Date();
-                    const ymd = d => {
-                        const y = d.getUTCFullYear();
-                        const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-                        const day = String(d.getUTCDate()).padStart(2, '0');
-                        return `${y}-${m}-${day}`;
-                    };
-                    const startOfWeekUtc = d => {
-                        const day = d.getUTCDay(); // 0=Sun
-                        const diff = day === 0 ? -6 : 1 - day; // Monday start
-                        const out = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-                        out.setUTCDate(out.getUTCDate() + diff);
-                        return out;
-                    };
+            const ymd = d => {
+                const y = d.getUTCFullYear();
+                const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+                const day = String(d.getUTCDate()).padStart(2, '0');
+                return `${y}-${m}-${day}`;
+            };
 
-                    let from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-                    let to = new Date(from);
-                    const preset = this.dataset.preset;
-                    if (preset === 'tomorrow') {
-                        from.setUTCDate(from.getUTCDate() + 1);
-                        to = new Date(from);
-                    } else if (preset === 'this_week') {
-                        from = startOfWeekUtc(now);
-                        to = new Date(from);
-                        to.setUTCDate(to.getUTCDate() + 6);
-                    } else if (preset === 'next_week') {
-                        from = startOfWeekUtc(now);
-                        from.setUTCDate(from.getUTCDate() + 7);
-                        to = new Date(from);
-                        to.setUTCDate(to.getUTCDate() + 6);
+            const startOfWeekUtc = d => {
+                const day = d.getUTCDay(); // 0=Sun
+                const diff = day === 0 ? -6 : 1 - day; // Monday start
+                const out = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+                out.setUTCDate(out.getUTCDate() + diff);
+                return out;
+            };
+
+            function getPresetRange(preset) {
+                if (preset === 'all') {
+                    return { from: '', to: '' };
+                }
+
+                const now = new Date();
+                let from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+                let to = new Date(from);
+
+                if (preset === 'tomorrow') {
+                    from.setUTCDate(from.getUTCDate() + 1);
+                    to = new Date(from);
+                } else if (preset === 'this_week') {
+                    from = startOfWeekUtc(now);
+                    to = new Date(from);
+                    to.setUTCDate(to.getUTCDate() + 6);
+                } else if (preset === 'next_week') {
+                    from = startOfWeekUtc(now);
+                    from.setUTCDate(from.getUTCDate() + 7);
+                    to = new Date(from);
+                    to.setUTCDate(to.getUTCDate() + 6);
+                }
+
+                return { from: ymd(from), to: ymd(to) };
+            }
+
+            function updatePresetHighlight() {
+                const from = fromInput.value;
+                const to = toInput.value;
+                let matchedPreset = '';
+
+                for (const btn of presetButtons) {
+                    const candidate = getPresetRange(btn.dataset.preset || '');
+                    if (candidate.from === from && candidate.to === to) {
+                        matchedPreset = btn.dataset.preset || '';
+                        break;
                     }
+                }
 
-                    fromInput.value = ymd(from);
-                    toInput.value = ymd(to);
+                presetButtons.forEach(btn => {
+                    const isActive = (btn.dataset.preset || '') === matchedPreset;
+                    btn.classList.toggle('bg-indigo-600', isActive);
+                    btn.classList.toggle('text-white', isActive);
+                    btn.classList.toggle('border-indigo-600', isActive);
+                    btn.classList.toggle('bg-white', !isActive);
+                    btn.classList.toggle('text-gray-700', !isActive);
+                });
+            }
+
+            presetButtons.forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const range = getPresetRange(this.dataset.preset || '');
+                    fromInput.value = range.from;
+                    toInput.value = range.to;
                     viewInput.value = 'outstanding';
+                    updatePresetHighlight();
                     load();
                 });
             });
 
+            fromInput.addEventListener('change', updatePresetHighlight);
+            toInput.addEventListener('change', updatePresetHighlight);
+            updatePresetHighlight();
             load();
         })();
     </script>
