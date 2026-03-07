@@ -34,17 +34,33 @@ class AmazonRequestPolicy
                 throw $e;
             }
 
+            $response = $this->responseFromThrowable($e);
+
             Log::warning('Amazon API request retry after exception', [
                 'operation' => $operation,
                 'attempt' => $attempt,
                 'max_attempts' => $maxAttempts,
                 'exception' => $e::class,
                 'message' => $e->getMessage(),
+                'request_id' => $response ? $this->extractRequestId($response) : null,
+                'rate_limit_limit' => $response?->header('x-amzn-ratelimit-limit') ?? $response?->header('x-amzn-RateLimit-Limit'),
+                'rate_limit_remaining' => $response?->header('x-amzn-ratelimit-remaining') ?? $response?->header('x-amzn-RateLimit-Remaining'),
+                'rate_limit_reset' => $response?->header('x-amzn-ratelimit-reset') ?? $response?->header('x-amzn-RateLimit-Reset'),
             ]);
 
-            usleep($this->delayMicroseconds($attempt));
+            usleep($this->delayMicroseconds($attempt, $response));
             goto beginning;
         }
+    }
+
+    private function responseFromThrowable(\Throwable $throwable): ?Response
+    {
+        if (!method_exists($throwable, 'getResponse')) {
+            return null;
+        }
+
+        $response = $throwable->getResponse();
+        return $response instanceof Response ? $response : null;
     }
 
     private function shouldRetryStatus(int $status): bool
