@@ -7,15 +7,14 @@ use SellingPartnerApi\SellingPartnerApi;
 
 class SpApiClientFactory
 {
-    public function __construct(private readonly ?RegionConfigService $regionConfigService = null)
+    public function __construct(private readonly RegionConfigService $regionConfigService)
     {
     }
 
     public function makeSellerConnector(?string $region = null)
     {
-        $regionService = $this->regionConfigService ?? new RegionConfigService();
-        $config = $regionService->spApiConfig($region);
-        $endpoint = $regionService->spApiEndpointEnum($region);
+        $config = $this->regionConfigService->spApiConfig($region);
+        $endpoint = $this->regionConfigService->spApiEndpointEnum($region);
 
         return SellingPartnerApi::seller(
             clientId: $config['client_id'],
