@@ -341,6 +341,7 @@
                 $isUnshippedFilter = (($selectedUnshipped ?? '') === '1')
                     || strcasecmp((string) ($selectedStatus ?? ''), 'Unshipped') === 0;
                 $unshippedCashValueGbp = ((float) ($summaryMetrics['net_value_gbp'] ?? 0)) - ((float) ($summaryMetrics['amazon_fees_gbp'] ?? 0));
+                $netMarginAfterAdSpendGbp = ((float) ($summaryMetrics['margin_proxy_gbp'] ?? 0)) - ((float) ($summaryMetrics['ad_spend_gbp'] ?? 0));
             @endphp
             <div style="display:flex; gap:18px; flex-wrap:wrap;">
                 <span><strong>Orders:</strong> {{ number_format((int) ($summaryMetrics['order_count'] ?? 0)) }}</span>
@@ -368,6 +369,7 @@
                         £{{ number_format((float) ($summaryMetrics['ad_spend_gbp'] ?? 0), 2) }}
                     </a>
                 </span>
+                <span><strong>Net Margin After Ad Spend (GBP):</strong> £{{ number_format($netMarginAfterAdSpendGbp, 2) }}</span>
             </div>
         </div>
     @endif
