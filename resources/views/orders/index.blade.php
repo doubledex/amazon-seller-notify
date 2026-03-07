@@ -354,6 +354,20 @@
                 @endif
                 <span><strong>Landed Costs (GBP):</strong> £{{ number_format((float) ($summaryMetrics['landed_costs_gbp'] ?? 0), 2) }}</span>
                 <span><strong>Margin Proxy (GBP):</strong> £{{ number_format((float) ($summaryMetrics['margin_proxy_gbp'] ?? 0), 2) }}</span>
+                @php
+                    $metricsFrom = request('created_after', now()->subDays(7)->format('Y-m-d'));
+                    $metricsTo = request('created_before', now()->format('Y-m-d'));
+                @endphp
+                <span>
+                    <strong>Ad Spend (GBP):</strong>
+                    <a
+                        href="{{ route('metrics.index', ['from' => $metricsFrom, 'to' => $metricsTo]) }}"
+                        class="text-blue-600 hover:underline"
+                        title="Open Daily Metrics for this date range"
+                    >
+                        £{{ number_format((float) ($summaryMetrics['ad_spend_gbp'] ?? 0), 2) }}
+                    </a>
+                </span>
             </div>
         </div>
     @endif

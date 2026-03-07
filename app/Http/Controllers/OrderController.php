@@ -112,7 +112,13 @@ class OrderController extends Controller
             $selectedNetwork = $request->input('network');
             $selectedMethod = $request->input('method');
             $selectedB2b = $request->input('b2b');
-            $summaryMetrics = $this->buildFilteredSummaryMetrics($query->clone());
+            $summaryFrom = $this->orderQueryService->normalizeCreatedAfter(
+                (string) ($createdAfterInput ?: now()->subDays(7)->format('Y-m-d'))
+            );
+            $summaryTo = $this->orderQueryService->normalizeCreatedBefore(
+                (string) ($createdBeforeInput ?: now()->format('Y-m-d'))
+            );
+            $summaryMetrics = $this->buildFilteredSummaryMetrics($query->clone(), $summaryFrom, $summaryTo);
 
             $perPage = (int) $request->input('per_page', 25);
             $perPage = max(10, min($perPage, 200));
@@ -1605,7 +1611,7 @@ class OrderController extends Controller
         return $map;
     }
 
-    private function buildFilteredSummaryMetrics($query): array
+    private function buildFilteredSummaryMetrics($query, ?string $summaryFrom = null, ?string $summaryTo = null): array
     {
         $orderCount = 0;
         $shippedUnits = 0;
@@ -1688,6 +1694,22 @@ class OrderController extends Controller
         $amazonFeesGbp = $this->sumBucketsToGbp($feeBuckets);
         $landedCostsGbp = $this->sumBucketsToGbp($landedBuckets);
         $marginProxyGbp = $netValueGbp - $amazonFeesGbp - $landedCostsGbp;
+        $adSpendGbp = 0.0;
+
+        if (
+            Schema::hasTable('daily_region_metrics')
+            && is_string($summaryFrom)
+            && is_string($summaryTo)
+            && $summaryFrom !== ''
+            && $summaryTo !== ''
+        ) {
+            $from = $summaryFrom <= $summaryTo ? $summaryFrom : $summaryTo;
+            $to = $summaryFrom <= $summaryTo ? $summaryTo : $summaryFrom;
+            $adSpendGbp = (float) (DB::table('daily_region_metrics')
+                ->whereDate('metric_date', '>=', $from)
+                ->whereDate('metric_date', '<=', $to)
+                ->sum('ad_spend_gbp') ?? 0.0);
+        }
 
         return [
             'order_count' => $orderCount,
@@ -1698,6 +1720,7 @@ class OrderController extends Controller
             'amazon_fees_gbp' => round($amazonFeesGbp, 2),
             'landed_costs_gbp' => round($landedCostsGbp, 2),
             'margin_proxy_gbp' => round($marginProxyGbp, 2),
+            'ad_spend_gbp' => round($adSpendGbp, 2),
         ];
     }
 
