@@ -13,9 +13,9 @@ class SpApiClientFactory
 
     public function makeSellerConnector(?string $region = null)
     {
-        $regionService = $this->regionConfigService ?? new RegionConfigService();
-        $config = $regionService->spApiConfig($region);
-        $endpoint = $regionService->spApiEndpointEnum($region);
+        $regionConfigService = $this->regionConfigService ?? new RegionConfigService();
+        $config = $regionConfigService->spApiConfig($region);
+        $endpoint = $regionConfigService->spApiEndpointEnum($region);
 
         return SellingPartnerApi::seller(
             clientId: $config['client_id'],
