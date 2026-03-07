@@ -107,6 +107,7 @@ class OrderController extends Controller
             $methodOptions = $query->clone()->select('payment_method')->distinct()->pluck('payment_method')->filter()->sort()->values()->all();
 
             $selectedStatus = $request->input('status');
+            $selectedCancelled = $request->input('cancelled');
             $selectedUnshipped = $request->input('unshipped');
             $selectedNetwork = $request->input('network');
             $selectedMethod = $request->input('method');
@@ -428,6 +429,7 @@ class OrderController extends Controller
                 'countries' => $countries,
                 'selectedCountries' => $selectedCountries,
                 'selectedStatus' => $selectedStatus,
+                'selectedCancelled' => $selectedCancelled,
                 'selectedUnshipped' => $selectedUnshipped,
                 'selectedNetwork' => $selectedNetwork,
                 'selectedMethod' => $selectedMethod,

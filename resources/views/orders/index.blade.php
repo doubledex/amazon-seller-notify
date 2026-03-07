@@ -93,6 +93,19 @@
                 </div>
 
                 <div class="flex items-center gap-3">
+                    <label for="cancelled" class="block"><strong>Cancelled:</strong></label>
+                    <select
+                        id="cancelled"
+                        name="cancelled"
+                        class="border rounded px-2 py-1"
+                        onchange="document.getElementById('filterForm').submit()"
+                    >
+                        <option value="">Show all</option>
+                        <option value="exclude" {{ ($selectedCancelled ?? '') === 'exclude' ? 'selected' : '' }}>Exclude cancelled</option>
+                    </select>
+                </div>
+
+                <div class="flex items-center gap-3">
                     <label for="unshipped" class="block"><strong>Unshipped:</strong></label>
                     <select
                         id="unshipped"
