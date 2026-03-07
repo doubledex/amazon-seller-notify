@@ -65,6 +65,20 @@
                 </tr>
             </thead>
             <tbody>
+                @php
+                    $summaryRows = collect($weeklyRows ?? []);
+                    $totalsOrders = (int) $summaryRows->sum(fn ($row) => (int) ($row['order_count'] ?? 0));
+                    $totalsUnits = (int) $summaryRows->sum(fn ($row) => (int) ($row['units'] ?? 0));
+                    $totalsSalesGbp = (float) $summaryRows->sum(fn ($row) => (float) ($row['sales_gbp'] ?? 0));
+                    $totalsFeesGbp = (float) $summaryRows->sum(fn ($row) => (float) ($row['fees_gbp'] ?? 0));
+                    $totalsLandedGbp = (float) $summaryRows->sum(fn ($row) => (float) ($row['landed_cost_gbp'] ?? 0));
+                    $totalsMarginGbp = (float) $summaryRows->sum(fn ($row) => (float) ($row['margin_gbp'] ?? 0));
+                    $totalsAdGbp = (float) $summaryRows->sum(fn ($row) => (float) ($row['ad_gbp'] ?? 0));
+                    $totalsNetMarginGbp = $totalsMarginGbp - $totalsAdGbp;
+                    $totalsAcos = $totalsSalesGbp > 0 ? ($totalsAdGbp / $totalsSalesGbp) * 100 : null;
+                    $totalsEstimatedSales = $summaryRows->contains(fn ($row) => !empty($row['estimated_sales_data']));
+                    $totalsEstimatedFees = $summaryRows->contains(fn ($row) => !empty($row['estimated_fee_data']));
+                @endphp
                 @forelse(($weeklyRows ?? []) as $week)
                     @php
                         $weekId = 'week-row-' . str_replace('-', '', (string) $week['week_start']);
@@ -298,6 +312,22 @@
                         <td colspan="12">No metrics found for this date range.</td>
                     </tr>
                 @endforelse
+                @if($summaryRows->isNotEmpty())
+                    <tr class="bg-blue-50 dark:bg-gray-700 font-bold">
+                        <td class="text-left w-10"></td>
+                        <td>Totals</td>
+                        <td>{{ $from }} to {{ $to }}</td>
+                        <td class="text-right">{{ number_format($totalsOrders) }}</td>
+                        <td class="text-right">{{ number_format($totalsUnits) }}</td>
+                        <td class="text-right">{{ $totalsEstimatedSales ? '*' : '' }}£{{ number_format($totalsSalesGbp, 2) }}</td>
+                        <td class="text-right">{{ $totalsEstimatedFees ? '*' : '' }}£{{ number_format($totalsFeesGbp, 2) }}</td>
+                        <td class="text-right">£{{ number_format($totalsLandedGbp, 2) }}</td>
+                        <td class="text-right">£{{ number_format($totalsMarginGbp, 2) }}</td>
+                        <td class="text-right">£{{ number_format($totalsAdGbp, 2) }}</td>
+                        <td class="text-right">£{{ number_format($totalsNetMarginGbp, 2) }}</td>
+                        <td class="text-right">{{ $totalsAcos !== null ? number_format((float) $totalsAcos, 2) . '%' : 'N/A' }}</td>
+                    </tr>
+                @endif
             </tbody>
         </table>
     </div>
