@@ -242,6 +242,54 @@
                     >
                         Yesterday
                     </button>
+                    <button
+                        type="button"
+                        class="px-3 py-2 rounded-md border text-sm"
+                        style="{{ $currentAfterDate === now()->startOfWeek(\Carbon\Carbon::MONDAY)->format('Y-m-d') && $currentBeforeDate === $todayDate ? $activePresetStyle : $inactivePresetStyle }}"
+                        onclick="
+                            const form = document.getElementById('dateRangeForm');
+                            const today = new Date();
+                            const dayOfWeek = today.getDay();
+                            const diffToMonday = (dayOfWeek + 6) % 7;
+                            const weekStart = new Date(today);
+                            weekStart.setDate(today.getDate() - diffToMonday);
+                            const toLocalDate = (date) => {
+                                const local = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
+                                return local.toISOString().slice(0, 10);
+                            };
+                            form.created_after.value = toLocalDate(weekStart);
+                            form.created_before.value = toLocalDate(today);
+                            form.submit();
+                        "
+                    >
+                        This Week
+                    </button>
+                    <button
+                        type="button"
+                        class="px-3 py-2 rounded-md border text-sm"
+                        style="{{ $currentAfterDate === now()->subWeek()->startOfWeek(\Carbon\Carbon::MONDAY)->format('Y-m-d') && $currentBeforeDate === now()->subWeek()->endOfWeek(\Carbon\Carbon::SUNDAY)->format('Y-m-d') ? $activePresetStyle : $inactivePresetStyle }}"
+                        onclick="
+                            const form = document.getElementById('dateRangeForm');
+                            const today = new Date();
+                            const dayOfWeek = today.getDay();
+                            const diffToMonday = (dayOfWeek + 6) % 7;
+                            const thisWeekStart = new Date(today);
+                            thisWeekStart.setDate(today.getDate() - diffToMonday);
+                            const lastWeekStart = new Date(thisWeekStart);
+                            lastWeekStart.setDate(thisWeekStart.getDate() - 7);
+                            const lastWeekEnd = new Date(thisWeekStart);
+                            lastWeekEnd.setDate(thisWeekStart.getDate() - 1);
+                            const toLocalDate = (date) => {
+                                const local = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
+                                return local.toISOString().slice(0, 10);
+                            };
+                            form.created_after.value = toLocalDate(lastWeekStart);
+                            form.created_before.value = toLocalDate(lastWeekEnd);
+                            form.submit();
+                        "
+                    >
+                        Last Week
+                    </button>
                     @foreach([7, 14, 30, 60, 90] as $days)
                         <button
                         type="button"
