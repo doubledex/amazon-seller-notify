@@ -201,7 +201,7 @@ class MetricsController extends Controller
                 SUM(
                     CASE
                         WHEN COALESCE(orders.order_net_ex_tax, 0) > 0 THEN orders.order_net_ex_tax
-                        ELSE COALESCE(orders.order_total_amount, 0)
+                        ELSE COALESCE(item_totals.item_total, 0)
                     END
                 ) as sales_amount,
                 SUM({$feeAmountExpr}) as fees_amount,
@@ -351,6 +351,7 @@ class MetricsController extends Controller
                 }
 
                 $countryCount = count($regionCountryRows);
+                $ratios = [];
                 foreach ($regionCountryRows as $regionCountryRow) {
                     if ($regionCountrySalesGbp > 0) {
                         $ratio = ((float) $regionCountryRow['sales_gbp'] / $regionCountrySalesGbp);
@@ -359,12 +360,23 @@ class MetricsController extends Controller
                     } else {
                         $ratio = $countryCount > 0 ? (1 / $countryCount) : 0.0;
                     }
-                    $adLocal = $regionAdLocal * $ratio;
-                    $adGbp = $regionAdGbp * $ratio;
-                    $landedLocal = $regionLandedLocal * $ratio;
-                    $landedGbp = $regionLandedGbp * $ratio;
-                    $marginLocal = $regionMarginLocal * $ratio;
-                    $marginGbp = $regionMarginGbp * $ratio;
+                    $ratios[] = $ratio;
+                }
+
+                $adLocalAllocations = $this->allocateByWeights($regionAdLocal, $ratios);
+                $adGbpAllocations = $this->allocateByWeights($regionAdGbp, $ratios);
+                $landedLocalAllocations = $this->allocateByWeights($regionLandedLocal, $ratios);
+                $landedGbpAllocations = $this->allocateByWeights($regionLandedGbp, $ratios);
+                $marginLocalAllocations = $this->allocateByWeights($regionMarginLocal, $ratios);
+                $marginGbpAllocations = $this->allocateByWeights($regionMarginGbp, $ratios);
+
+                foreach ($regionCountryRows as $index => $regionCountryRow) {
+                    $adLocal = (float) ($adLocalAllocations[$index] ?? 0.0);
+                    $adGbp = (float) ($adGbpAllocations[$index] ?? 0.0);
+                    $landedLocal = (float) ($landedLocalAllocations[$index] ?? 0.0);
+                    $landedGbp = (float) ($landedGbpAllocations[$index] ?? 0.0);
+                    $marginLocal = (float) ($marginLocalAllocations[$index] ?? 0.0);
+                    $marginGbp = (float) ($marginGbpAllocations[$index] ?? 0.0);
                     $currency = strtoupper((string) ($regionCountryRow['currency'] ?? 'GBP'));
                     $salesGbp = (float) ($regionCountryRow['sales_gbp'] ?? 0);
 
@@ -594,5 +606,63 @@ class MetricsController extends Controller
         } catch (\Throwable) {
             return (string) $value;
         }
+    }
+
+    /**
+     * Split a total across weights and preserve exact 2dp reconciliation.
+     *
+     * @param  array<int, float|int>  $weights
+     * @return array<int, float>
+     */
+    private function allocateByWeights(float $total, array $weights): array
+    {
+        $count = count($weights);
+        if ($count === 0) {
+            return [];
+        }
+
+        $allocations = array_fill(0, $count, 0.0);
+        $targetCents = (int) round($total * 100);
+        if ($targetCents === 0) {
+            return $allocations;
+        }
+
+        $normalized = array_map(static fn ($w): float => max(0.0, (float) $w), $weights);
+        $weightSum = array_sum($normalized);
+        if ($weightSum <= 0.0) {
+            $normalized = array_fill(0, $count, 1.0);
+            $weightSum = (float) $count;
+        }
+
+        $sign = $targetCents < 0 ? -1 : 1;
+        $remaining = abs($targetCents);
+        $bases = [];
+        $remainders = [];
+
+        foreach ($normalized as $index => $weight) {
+            $raw = $remaining * ($weight / $weightSum);
+            $base = (int) floor($raw);
+            $bases[$index] = $base;
+            $remainders[$index] = $raw - $base;
+        }
+
+        $baseTotal = array_sum($bases);
+        $toDistribute = $remaining - $baseTotal;
+        if ($toDistribute > 0) {
+            arsort($remainders);
+            foreach (array_keys($remainders) as $index) {
+                if ($toDistribute <= 0) {
+                    break;
+                }
+                $bases[$index]++;
+                $toDistribute--;
+            }
+        }
+
+        foreach ($bases as $index => $cents) {
+            $allocations[$index] = ($cents * $sign) / 100;
+        }
+
+        return $allocations;
     }
 }

@@ -151,7 +151,7 @@ class DailyRegionMetricsService
 
         $financialRows = $this->orderFinancialRows($date, $region);
         $orderIds = $financialRows->pluck('amazon_order_id')->filter()->values()->all();
-        $landedByOrder = $this->landedCostResolver->resolveOrderLandedCosts($orderIds);
+        $landedByOrder = $this->landedCostResolver->resolveOrderLandedCostsForOrderCurrency($orderIds);
         $landedRows = [];
         $marginRows = [];
         foreach ($financialRows as $row) {
@@ -169,10 +169,18 @@ class DailyRegionMetricsService
 
             $landed = $landedByOrder[$orderId] ?? null;
             $landedAmount = 0.0;
+            $landedCurrency = $salesCurrency;
             if (is_array($landed)) {
-                $landedCurrency = strtoupper((string) ($landed['currency'] ?? ''));
-                if ($landedCurrency === $salesCurrency) {
-                    $landedAmount = (float) ($landed['landed_cost_total'] ?? 0.0);
+                $landedAmountRaw = (float) ($landed['landed_cost_total'] ?? 0.0);
+                $landedCurrencyRaw = strtoupper((string) ($landed['currency'] ?? ''));
+                $landedCurrency = $landedCurrencyRaw !== '' ? $landedCurrencyRaw : $salesCurrency;
+                if ($landedAmountRaw != 0.0) {
+                    if ($landedCurrency === $salesCurrency) {
+                        $landedAmount = $landedAmountRaw;
+                    } else {
+                        $convertedLanded = $this->fxRateService->convert($landedAmountRaw, $landedCurrency, $salesCurrency, $date);
+                        $landedAmount = (float) ($convertedLanded ?? 0.0);
+                    }
                 }
             }
 
@@ -182,7 +190,7 @@ class DailyRegionMetricsService
                 $feeInSalesCurrency = abs((float) ($convertedFee ?? 0.0));
             }
 
-            $landedRows[] = (object) ['currency' => $salesCurrency, 'amount' => $landedAmount];
+            $landedRows[] = (object) ['currency' => $landedCurrency, 'amount' => is_array($landed) ? (float) ($landed['landed_cost_total'] ?? 0.0) : 0.0];
             $marginRows[] = (object) ['currency' => $salesCurrency, 'amount' => $netAmount - $feeInSalesCurrency - $landedAmount];
         }
 
