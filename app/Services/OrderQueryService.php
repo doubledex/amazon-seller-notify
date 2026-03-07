@@ -57,7 +57,9 @@ class OrderQueryService
             $query->where('order_status', $selectedStatus);
         }
 
-        $selectedCancelled = $request->input('cancelled');
+        $selectedCancelled = $request->has('cancelled')
+            ? $request->input('cancelled')
+            : 'exclude';
         if ($selectedCancelled === 'exclude') {
             $query->whereRaw("UPPER(COALESCE(order_status, '')) NOT IN ('CANCELED', 'CANCELLED')");
         }

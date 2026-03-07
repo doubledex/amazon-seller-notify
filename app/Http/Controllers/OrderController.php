@@ -107,7 +107,9 @@ class OrderController extends Controller
             $methodOptions = $query->clone()->select('payment_method')->distinct()->pluck('payment_method')->filter()->sort()->values()->all();
 
             $selectedStatus = $request->input('status');
-            $selectedCancelled = $request->input('cancelled');
+            $selectedCancelled = $request->has('cancelled')
+                ? $request->input('cancelled')
+                : 'exclude';
             $selectedUnshipped = $request->input('unshipped');
             $selectedNetwork = $request->input('network');
             $selectedMethod = $request->input('method');
