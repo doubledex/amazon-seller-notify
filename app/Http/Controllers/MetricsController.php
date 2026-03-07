@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\FxRateService;
+use App\Services\LandedCostResolver;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -10,7 +11,7 @@ use Illuminate\Http\Request;
 
 class MetricsController extends Controller
 {
-    public function index(Request $request, FxRateService $fxRateService)
+    public function index(Request $request, FxRateService $fxRateService, LandedCostResolver $landedCostResolver)
     {
         $fromInput = $request->input('from');
         $toInput = $request->input('to');
@@ -248,7 +249,9 @@ class MetricsController extends Controller
                     'sales_gbp' => 0.0,
                     'fees_local' => 0.0,
                     'fees_gbp' => 0.0,
+                    'landed_cost_local' => 0.0,
                     'landed_cost_gbp' => 0.0,
+                    'margin_local' => 0.0,
                     'margin_gbp' => 0.0,
                     'order_count' => 0,
                     'units' => 0,
@@ -263,6 +266,105 @@ class MetricsController extends Controller
             $countryByDateRegion[$key]['order_count'] += (int) ($row->order_count ?? 0);
             $countryByDateRegion[$key]['units'] += (int) ($row->unit_count ?? 0);
             $countryByDateRegion[$key]['estimated_fee_data'] = $countryByDateRegion[$key]['estimated_fee_data'] || ((int) ($row->estimated_fee_count ?? 0) > 0);
+        }
+
+        $orderFinancialRows = DB::table('orders')
+            ->join('marketplaces', 'marketplaces.id', '=', 'orders.marketplace_id')
+            ->leftJoinSub($itemTotals, 'item_totals', function ($join) {
+                $join->on('item_totals.amazon_order_id', '=', 'orders.amazon_order_id');
+            })
+            ->selectRaw("
+                orders.amazon_order_id as amazon_order_id,
+                {$metricDateExpr} as metric_date,
+                UPPER(COALESCE(marketplaces.country_code, '')) as country_code,
+                {$salesCurrencyExpr} as sales_currency,
+                {$feeCurrencyExpr} as fee_currency,
+                CASE
+                    WHEN COALESCE(orders.order_net_ex_tax, 0) > 0 THEN orders.order_net_ex_tax
+                    ELSE COALESCE(item_totals.item_total, 0)
+                END as sales_amount,
+                {$feeAmountExpr} as fees_amount
+            ")
+            ->whereRaw("{$metricDateExpr} >= ?", [$from])
+            ->whereRaw("{$metricDateExpr} <= ?", [$to])
+            ->whereRaw("UPPER(COALESCE(orders.order_status, '')) NOT IN ('CANCELED', 'CANCELLED')")
+            ->get();
+
+        $orderIdsForLanded = $orderFinancialRows
+            ->pluck('amazon_order_id')
+            ->filter()
+            ->map(fn ($v) => trim((string) $v))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+        $landedByOrder = $landedCostResolver->resolveOrderLandedCostsForOrderCurrency($orderIdsForLanded);
+
+        foreach ($orderFinancialRows as $row) {
+            $date = (string) ($row->metric_date ?? '');
+            $country = $this->normalizeMarketplaceCode((string) ($row->country_code ?? ''));
+            $orderId = trim((string) ($row->amazon_order_id ?? ''));
+            if ($date === '' || $country === '' || $orderId === '') {
+                continue;
+            }
+
+            $region = $this->regionForCountry($country);
+            $salesCurrency = strtoupper((string) ($row->sales_currency ?? 'GBP'));
+            $feeCurrency = strtoupper((string) ($row->fee_currency ?? $salesCurrency));
+            if ($salesCurrency === '') {
+                $salesCurrency = 'GBP';
+            }
+            if ($feeCurrency === '') {
+                $feeCurrency = $salesCurrency;
+            }
+
+            $salesLocal = (float) ($row->sales_amount ?? 0.0);
+            $salesGbp = $fxRateService->convert($salesLocal, $salesCurrency, 'GBP', $date) ?? 0.0;
+            $feeRaw = abs((float) ($row->fees_amount ?? 0.0));
+            $feeInSalesCurrency = (float) ($fxRateService->convert($feeRaw, $feeCurrency, $salesCurrency, $date) ?? 0.0);
+            $feeGbp = (float) ($fxRateService->convert($feeRaw, $feeCurrency, 'GBP', $date) ?? 0.0);
+
+            $landed = $landedByOrder[$orderId] ?? null;
+            $landedRaw = is_array($landed) ? (float) ($landed['landed_cost_total'] ?? 0.0) : 0.0;
+            $landedCurrency = is_array($landed) ? strtoupper(trim((string) ($landed['currency'] ?? ''))) : '';
+            if ($landedCurrency === '') {
+                $landedCurrency = $salesCurrency;
+            }
+            $landedInSalesCurrency = $landedCurrency === $salesCurrency
+                ? $landedRaw
+                : (float) ($fxRateService->convert($landedRaw, $landedCurrency, $salesCurrency, $date) ?? 0.0);
+            $landedGbp = $landedCurrency === 'GBP'
+                ? $landedRaw
+                : (float) ($fxRateService->convert($landedRaw, $landedCurrency, 'GBP', $date) ?? 0.0);
+
+            $marginLocal = $salesLocal - $feeInSalesCurrency - $landedInSalesCurrency;
+            $marginGbp = $fxRateService->convert($marginLocal, $salesCurrency, 'GBP', $date) ?? ($salesGbp - $feeGbp - $landedGbp);
+
+            $key = $date . '|' . $region . '|' . $country . '|' . $salesCurrency;
+            if (!isset($countryByDateRegion[$key])) {
+                $countryByDateRegion[$key] = [
+                    'date' => $date,
+                    'region' => $region,
+                    'country' => $country,
+                    'currency' => $salesCurrency,
+                    'sales_local' => 0.0,
+                    'sales_gbp' => 0.0,
+                    'fees_local' => 0.0,
+                    'fees_gbp' => 0.0,
+                    'landed_cost_local' => 0.0,
+                    'landed_cost_gbp' => 0.0,
+                    'margin_local' => 0.0,
+                    'margin_gbp' => 0.0,
+                    'order_count' => 0,
+                    'units' => 0,
+                    'estimated_fee_data' => false,
+                ];
+            }
+
+            $countryByDateRegion[$key]['landed_cost_local'] += $landedInSalesCurrency;
+            $countryByDateRegion[$key]['landed_cost_gbp'] += $landedGbp;
+            $countryByDateRegion[$key]['margin_local'] += $marginLocal;
+            $countryByDateRegion[$key]['margin_gbp'] += $marginGbp;
         }
 
         $dailyRows = [];
@@ -365,18 +467,14 @@ class MetricsController extends Controller
 
                 $adLocalAllocations = $this->allocateByWeights($regionAdLocal, $ratios);
                 $adGbpAllocations = $this->allocateByWeights($regionAdGbp, $ratios);
-                $landedLocalAllocations = $this->allocateByWeights($regionLandedLocal, $ratios);
-                $landedGbpAllocations = $this->allocateByWeights($regionLandedGbp, $ratios);
-                $marginLocalAllocations = $this->allocateByWeights($regionMarginLocal, $ratios);
-                $marginGbpAllocations = $this->allocateByWeights($regionMarginGbp, $ratios);
 
                 foreach ($regionCountryRows as $index => $regionCountryRow) {
                     $adLocal = (float) ($adLocalAllocations[$index] ?? 0.0);
                     $adGbp = (float) ($adGbpAllocations[$index] ?? 0.0);
-                    $landedLocal = (float) ($landedLocalAllocations[$index] ?? 0.0);
-                    $landedGbp = (float) ($landedGbpAllocations[$index] ?? 0.0);
-                    $marginLocal = (float) ($marginLocalAllocations[$index] ?? 0.0);
-                    $marginGbp = (float) ($marginGbpAllocations[$index] ?? 0.0);
+                    $landedLocal = (float) ($regionCountryRow['landed_cost_local'] ?? 0.0);
+                    $landedGbp = (float) ($regionCountryRow['landed_cost_gbp'] ?? 0.0);
+                    $marginLocal = (float) ($regionCountryRow['margin_local'] ?? 0.0);
+                    $marginGbp = (float) ($regionCountryRow['margin_gbp'] ?? 0.0);
                     $currency = strtoupper((string) ($regionCountryRow['currency'] ?? 'GBP'));
                     $salesGbp = (float) ($regionCountryRow['sales_gbp'] ?? 0);
 
