@@ -8,7 +8,7 @@ use Illuminate\Console\Command;
 class SyncCashflowOutstandingSnapshot extends Command
 {
     protected $signature = 'cashflow:sync-outstanding';
-    protected $description = 'Sync outstanding cashflow snapshot from Finances API transactions (rolling 30 days).';
+    protected $description = 'Sync outstanding cashflow snapshot from Finances API transactions (rolling 130 days).';
 
     public function handle(CashflowProjectionService $service): int
     {

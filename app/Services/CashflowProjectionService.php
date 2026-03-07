@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Schema;
 
 class CashflowProjectionService
 {
-    private const OUTSTANDING_LOOKBACK_DAYS = 30;
+    private const OUTSTANDING_LOOKBACK_DAYS = 130;
     private const OUTSTANDING_MAX_PAGES_PER_MARKETPLACE = 10;
 
     public function __construct(
@@ -287,9 +287,13 @@ class CashflowProjectionService
         $postedBefore = now()->utc()->subMinutes(2);
 
         $rowsByHash = [];
+        $rowMatchMetaByHash = [];
+        $releasedDeferredTransactionIds = [];
+        $releasedCanonicalKeys = [];
         $transactionsSeen = 0;
         $excludedByStatus = 0;
         $excludedMissingMaturity = 0;
+        $excludedByReleased = 0;
         $rowsMissingTotalAmount = 0;
         $marketplacesProcessed = 0;
 
@@ -332,6 +336,19 @@ class CashflowProjectionService
                         }
 
                         $status = strtoupper(trim((string) ($txn['transactionStatus'] ?? '')));
+                        if ($status === 'RELEASED') {
+                            foreach ($this->extractRelatedTransactionIdsFromTransaction($txn, ['DEFERRED_TRANSACTION_ID']) as $deferredTransactionId) {
+                                $releasedDeferredTransactionIds[$deferredTransactionId] = true;
+                            }
+
+                            $releasedCanonicalKey = $this->canonicalDeferredReleaseKey($txn);
+                            if ($releasedCanonicalKey !== '') {
+                                $releasedCanonicalKeys[$releasedCanonicalKey] = true;
+                            }
+
+                            continue;
+                        }
+
                         if ($status !== 'DEFERRED') {
                             $excludedByStatus++;
                             continue;
@@ -353,6 +370,7 @@ class CashflowProjectionService
                         $marketplaceIdTx = strtoupper(trim((string) data_get($txn, 'sellingPartnerMetadata.marketplaceId', $marketplaceId)));
                         $orderId = $this->extractOrderIdFromTransaction($txn);
                         $transactionId = trim((string) ($txn['transactionId'] ?? ''));
+                        $deferredCanonicalKey = $this->canonicalDeferredReleaseKey($txn);
 
                         $hash = sha1(implode('|', [
                             strtoupper(trim((string) $region)),
@@ -382,6 +400,10 @@ class CashflowProjectionService
 
                         // API pages can return overlapping transactions; keep one row per hash.
                         $rowsByHash[$hash] = $row;
+                        $rowMatchMetaByHash[$hash] = [
+                            'transaction_id' => $transactionId,
+                            'canonical_key' => $deferredCanonicalKey,
+                        ];
 
                         if ($row['missing_total_amount']) {
                             $rowsMissingTotalAmount++;
@@ -398,12 +420,58 @@ class CashflowProjectionService
             }
         }
 
-        $rows = array_values($rowsByHash);
+        if (!empty($rowsByHash) && (!empty($releasedDeferredTransactionIds) || !empty($releasedCanonicalKeys))) {
+            foreach ($rowsByHash as $hash => $row) {
+                $meta = $rowMatchMetaByHash[$hash] ?? null;
+                $transactionId = trim((string) ($meta['transaction_id'] ?? ''));
+                $canonicalKey = trim((string) ($meta['canonical_key'] ?? ''));
 
-        DB::transaction(function () use ($rows) {
-            DB::table('cashflow_outstanding_transactions')->delete();
+                if ($transactionId !== '' && isset($releasedDeferredTransactionIds[$transactionId])) {
+                    unset($rowsByHash[$hash], $rowMatchMetaByHash[$hash]);
+                    $excludedByReleased++;
+                    continue;
+                }
+
+                if ($canonicalKey !== '' && isset($releasedCanonicalKeys[$canonicalKey])) {
+                    unset($rowsByHash[$hash], $rowMatchMetaByHash[$hash]);
+                    $excludedByReleased++;
+                }
+            }
+        }
+
+        $rows = array_values($rowsByHash);
+        $resolvedDeferredTransactionIds = array_values(array_keys($releasedDeferredTransactionIds));
+
+        DB::transaction(function () use ($rows, $resolvedDeferredTransactionIds) {
             foreach (array_chunk($rows, 500) as $chunk) {
-                DB::table('cashflow_outstanding_transactions')->insert($chunk);
+                DB::table('cashflow_outstanding_transactions')->upsert(
+                    $chunk,
+                    ['row_hash'],
+                    [
+                        'region',
+                        'marketplace_id',
+                        'amazon_order_id',
+                        'transaction_id',
+                        'transaction_status',
+                        'posted_datetime_utc',
+                        'maturity_datetime_utc',
+                        'days_posted_to_maturity',
+                        'deferral_reason',
+                        'currency',
+                        'outstanding_value',
+                        'missing_total_amount',
+                        'raw_transaction',
+                        'updated_at',
+                    ]
+                );
+            }
+
+            if (!empty($resolvedDeferredTransactionIds)) {
+                foreach (array_chunk($resolvedDeferredTransactionIds, 500) as $chunk) {
+                    DB::table('cashflow_outstanding_transactions')
+                        ->whereIn('transaction_id', $chunk)
+                        ->delete();
+                }
             }
         });
 
@@ -430,8 +498,60 @@ class CashflowProjectionService
             'marketplaces_processed' => $marketplacesProcessed,
             'excluded_by_status' => $excludedByStatus,
             'excluded_missing_maturity' => $excludedMissingMaturity,
+            'excluded_by_released' => $excludedByReleased,
             'rows_missing_total_amount' => $rowsMissingTotalAmount,
         ];
+    }
+
+    private function canonicalDeferredReleaseKey(array $transaction): string
+    {
+        $transactionId = trim((string) ($transaction['transactionId'] ?? ''));
+        $linkedIds = $this->extractRelatedTransactionIdsFromTransaction($transaction, [
+            'RELEASE_TRANSACTION_ID',
+            'DEFERRED_TRANSACTION_ID',
+        ]);
+
+        $linkedId = $linkedIds[0] ?? '';
+        if ($transactionId !== '' && $linkedId !== '') {
+            $pair = [$transactionId, $linkedId];
+            sort($pair, SORT_STRING);
+
+            return implode('|', $pair);
+        }
+
+        if ($linkedId !== '') {
+            return $linkedId;
+        }
+
+        return $transactionId;
+    }
+
+    private function extractRelatedTransactionIdsFromTransaction(array $transaction, array $identifierNames): array
+    {
+        $related = $transaction['relatedIdentifiers'] ?? [];
+        if (!is_array($related) || empty($related)) {
+            return [];
+        }
+
+        $names = array_fill_keys(array_map(static fn (string $name) => strtoupper(trim($name)), $identifierNames), true);
+        $ids = [];
+        foreach ($related as $identifier) {
+            if (!is_array($identifier)) {
+                continue;
+            }
+
+            $name = strtoupper(trim((string) ($identifier['relatedIdentifierName'] ?? '')));
+            if (!isset($names[$name])) {
+                continue;
+            }
+
+            $value = trim((string) ($identifier['relatedIdentifierValue'] ?? ''));
+            if ($value !== '') {
+                $ids[$value] = true;
+            }
+        }
+
+        return array_values(array_keys($ids));
     }
 
     private function baseQuery(array $filters)
