@@ -128,6 +128,8 @@
                     } else {
                         renderTable(json.data.buckets || []);
                     }
+
+                    updatePresetHighlight();
                 } catch (error) {
                     output.innerHTML = '<div class="text-red-600 text-sm">Failed to load projection.</div>';
                 }
@@ -382,8 +384,16 @@
 
             fromInput.addEventListener('change', updatePresetHighlight);
             toInput.addEventListener('change', updatePresetHighlight);
-            updatePresetHighlight();
-            load();
+
+            (async function init() {
+                try {
+                    availableAllRange = await fetchOutstandingExtentsForCurrentFilters();
+                } catch (e) {
+                    availableAllRange = { from: '', to: '' };
+                }
+                updatePresetHighlight();
+                load();
+            })();
         })();
     </script>
 </x-app-layout>
