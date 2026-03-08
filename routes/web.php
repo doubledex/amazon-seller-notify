@@ -14,6 +14,7 @@ use App\Http\Controllers\McuController;
 use App\Http\Controllers\ReportJobsController;
 use App\Http\Controllers\ProductPricingController;
 use App\Http\Controllers\CashflowController;
+use App\Http\Controllers\InboundDiscrepancyController;
 
 use Illuminate\Support\Facades\Route;
 
@@ -64,6 +65,10 @@ Route::middleware('auth')->group(function () {
     Route::get('/inventory/fc/locations.csv', [UsFcInventoryController::class, 'downloadLocationsCsv'])->name('inventory.fc.locations.csv');
     Route::post('/inventory/fc/locations.csv', [UsFcInventoryController::class, 'uploadLocationsCsv'])->name('inventory.fc.locations.upload');
     Route::get('/inventory/us-fc', [UsFcInventoryController::class, 'index'])->name('inventory.us_fc');
+    Route::get('/inbound/discrepancies', [InboundDiscrepancyController::class, 'index'])->name('inbound.discrepancies.index');
+    Route::get('/inbound/discrepancies/{id}', [InboundDiscrepancyController::class, 'show'])->name('inbound.discrepancies.show');
+    Route::post('/inbound/discrepancies/evaluate-sla', [InboundDiscrepancyController::class, 'evaluateSla'])->name('inbound.discrepancies.evaluate_sla');
+    Route::post('/inbound/discrepancies/{id}/build-evidence', [InboundDiscrepancyController::class, 'buildEvidence'])->name('inbound.discrepancies.build_evidence');
     Route::get('/products', [ProductController::class, 'index'])->name('products.index');
     Route::post('/families', [ProductController::class, 'storeFamily'])->name('families.store');
     Route::patch('/families/{family}', [ProductController::class, 'updateFamily'])->name('families.update');
