@@ -18,7 +18,13 @@
                         <input name="to" type="date" class="w-full border-gray-300 rounded-md shadow-sm" value="{{ now()->utc()->endOfWeek(\Carbon\Carbon::SUNDAY)->toDateString() }}">
                     </div>
                     <div>
-                        <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Apply</button>
+                        <button
+                            type="submit"
+                            class="px-4 py-2 rounded-md text-sm font-semibold"
+                            style="background:#2563eb;color:#ffffff;border:1px solid #1d4ed8;"
+                        >
+                            Apply
+                        </button>
                     </div>
                     <div class="min-w-[320px]">
                         <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">Marketplace</label>
