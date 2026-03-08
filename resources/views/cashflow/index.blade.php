@@ -165,11 +165,12 @@
                 const totals = data.totals_by_currency || {};
                 const missingRows = Number(data.missing_total_amount_rows || 0);
                 const diagnostics = data.diagnostics || null;
+                const totalGbp = Number(data.total_gbp || 0);
                 const totalLines = Object.keys(totals)
                     .sort()
                     .map(code => `${code}: ${Number(totals[code]).toFixed(2)}`)
                     .join(' | ');
-                const summary = `<div class="text-sm mb-3">Outstanding transactions: ${data.total_transactions || 0}${totalLines ? ` | Totals: ${totalLines}` : ''}${missingRows > 0 ? ` | Missing totalAmount rows: ${missingRows}` : ''}</div>`;
+                const summary = `<div class="text-sm mb-3">Outstanding transactions: ${data.total_transactions || 0} (Total: ${totalGbp.toFixed(2)} GBP)${totalLines ? ` | Totals: ${totalLines}` : ''}${missingRows > 0 ? ` | Missing totalAmount rows: ${missingRows}` : ''}</div>`;
                 const diagnosticsBlock = diagnostics
                     ? `<div class="text-xs text-gray-600 mb-3">Diagnostics: run=${escapeHtml(diagnostics.ran_at_utc || 'N/A')} | lookback_days=${diagnostics.lookback_days ?? 'N/A'} | regions=${diagnostics.regions_processed ?? 0} | marketplaces=${diagnostics.marketplaces_processed ?? 0} | seen=${diagnostics.transactions_seen ?? 0} | written=${diagnostics.rows_written ?? 0} | excluded_status=${diagnostics.excluded_by_status ?? 0} | excluded_missing_maturity=${diagnostics.excluded_missing_maturity ?? 0} | missing_total=${diagnostics.rows_missing_total_amount ?? 0} | outside_lookback_not_scanned=${diagnostics.outside_lookback_not_scanned ? 'yes' : 'no'}</div>`
                     : '';

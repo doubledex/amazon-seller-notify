@@ -16,7 +16,8 @@ class CashflowProjectionService
 
     public function __construct(
         private readonly ?FinancesAdapter $financesAdapter = null,
-        private readonly ?RegionConfigService $regionConfigService = null
+        private readonly ?RegionConfigService $regionConfigService = null,
+        private readonly ?FxRateService $fxRateService = null
     ) {}
 
     public function forDay(Carbon $dayUtc, array $filters = []): array
@@ -208,6 +209,9 @@ class CashflowProjectionService
         $transactions = [];
         $totalsByCurrency = [];
         $missingTotalAmountRows = 0;
+        $totalGbp = 0.0;
+        $missingGbpConversionRows = 0;
+        $fxRateService = $this->fxRateService ?? new FxRateService();
         foreach ($rows as $row) {
             $transactions[] = [
                 'maturity_datetime_utc' => $this->formatUtcDateTime($row->maturity_datetime_utc ?? null),
@@ -230,6 +234,21 @@ class CashflowProjectionService
 
             $currency = strtoupper(trim((string) $row->currency));
             $totalsByCurrency[$currency] = round(($totalsByCurrency[$currency] ?? 0) + (float) $row->outstanding_value, 4);
+
+            $amount = (float) $row->outstanding_value;
+            if ($currency === 'GBP') {
+                $totalGbp += $amount;
+                continue;
+            }
+
+            $maturityDate = $this->parseAnyDate($row->maturity_datetime_utc ?? null);
+            $fxDate = $maturityDate?->toDateString() ?? now()->utc()->toDateString();
+            $converted = $fxRateService->convert($amount, $currency, 'GBP', $fxDate);
+            if ($converted === null) {
+                $missingGbpConversionRows++;
+                continue;
+            }
+            $totalGbp += (float) $converted;
         }
 
         ksort($totalsByCurrency);
@@ -263,7 +282,9 @@ class CashflowProjectionService
             'available_maturity_to_utc' => $this->formatUtcDateTime($availableMaturityTo),
             'total_transactions' => count($transactions),
             'totals_by_currency' => $totalsByCurrency,
+            'total_gbp' => round($totalGbp, 2),
             'missing_total_amount_rows' => $missingTotalAmountRows,
+            'missing_gbp_conversion_rows' => $missingGbpConversionRows,
             'diagnostics' => $diagnostics,
             'transactions' => $transactions,
         ];
