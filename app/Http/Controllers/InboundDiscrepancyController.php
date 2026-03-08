@@ -5,8 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\InboundDiscrepancy;
 use App\Services\Amazon\Inbound\ClaimEvidenceBuilder;
 use App\Services\Amazon\Inbound\InboundClaimSlaService;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 
 class InboundDiscrepancyController extends Controller
 {
@@ -24,6 +27,27 @@ class InboundDiscrepancyController extends Controller
         }
 
         $splitOnly = (string) $request->query('split_only', '0') === '1';
+
+        if (!Schema::hasTable('inbound_discrepancies')) {
+            $rows = new LengthAwarePaginator(
+                new Collection(),
+                0,
+                50,
+                1,
+                [
+                    'path' => $request->url(),
+                    'query' => $request->query(),
+                ]
+            );
+
+            return view('inbound.discrepancies.index', [
+                'rows' => $rows,
+                'status' => $status,
+                'severity' => $severity,
+                'splitOnly' => $splitOnly,
+                'schemaMissing' => true,
+            ]);
+        }
 
         $query = InboundDiscrepancy::query()
             ->with('shipment:id,shipment_id,marketplace_id,region_code')
@@ -50,6 +74,7 @@ class InboundDiscrepancyController extends Controller
             'status' => $status,
             'severity' => $severity,
             'splitOnly' => $splitOnly,
+            'schemaMissing' => false,
         ]);
     }
 

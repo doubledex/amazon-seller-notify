@@ -18,12 +18,12 @@ return new class extends Migration {
             $table->string('artifact_type', 64)->index();
             $table->string('disk', 64)->default('local');
             $table->string('path', 2048);
-            $table->string('checksum', 128);
+            $table->string('checksum', 64);
             $table->dateTime('uploaded_at')->index();
             $table->json('metadata')->nullable();
             $table->timestamps();
 
-            $table->unique(['claim_case_id', 'artifact_type', 'path', 'checksum'], 'inbound_claim_case_evidence_uniq');
+            $table->unique(['claim_case_id', 'artifact_type', 'checksum'], 'inbound_claim_case_evidence_uniq');
         });
     }
 
