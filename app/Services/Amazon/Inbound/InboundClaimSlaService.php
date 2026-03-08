@@ -14,7 +14,7 @@ class InboundClaimSlaService
     public function evaluate(?int $limit = null): array
     {
         $query = InboundDiscrepancy::query()
-            ->with('shipment:id,shipment_id,marketplace_id')
+            ->with('shipment:id,shipment_id,marketplace_id,shipment_closed_at')
             ->where('status', 'open')
             ->orderBy('challenge_deadline_at');
 
@@ -61,6 +61,8 @@ class InboundClaimSlaService
             : now()->diffInHours($deadline, false);
 
         $tier = $this->priorityTierFor($hoursRemaining);
+        $shouldQueueHighPriority = in_array($tier, $this->highPriorityTiers(), true)
+            && $this->isNewTransition($discrepancy->id, $tier);
 
         $dirty = false;
         if ($deadline?->toDateTimeString() !== $discrepancy->challenge_deadline_at?->toDateTimeString()) {
@@ -84,7 +86,7 @@ class InboundClaimSlaService
         }
 
         $queued = false;
-        if (in_array($tier, $this->highPriorityTiers(), true) && $this->isNewTransition($discrepancy->id, $tier)) {
+        if ($shouldQueueHighPriority) {
             ProcessInboundClaimHighPriorityJob::dispatch($discrepancy->id, $tier, $hoursRemaining);
             $queued = true;
         }
