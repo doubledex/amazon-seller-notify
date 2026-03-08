@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class InboundClaimCaseEvidence extends Model
 {
+    protected $table = 'inbound_claim_case_evidences';
+
     protected $fillable = [
         'claim_case_id',
         'discrepancy_id',
