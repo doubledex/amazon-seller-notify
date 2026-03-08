@@ -134,6 +134,65 @@ Check logs:
 - `php artisan inventory:sync-us-fc --region=NA --marketplace=ATVPDKIKX0DER`
   - Why: legacy command alias for compatibility.
 
+## Inbound Receiving Discrepancy Workflow (Owner Playbook)
+
+Use this flow to detect carton-split receiving discrepancies quickly and challenge within Amazon's limited window.
+
+### 1) Daily ingest and reconciliation cadence
+Run these commands in order each morning:
+
+```bash
+php artisan inventory:sync-fc --region=NA --marketplace=ATVPDKIKX0DER
+php artisan listings:poll-reports --limit=200
+php artisan orders:sync --days=30 --max-pages=20 --items-limit=300 --address-limit=300
+```
+
+Why:
+- keeps FC-level stock signals current,
+- closes pending report backlogs,
+- refreshes late-arriving order/reconciliation records.
+
+### 2) Build your discrepancy queue (operational rule)
+For each shipment reference / SKU:
+- compare your **expected units** (full-carton shipment plan) against latest Amazon received quantity,
+- flag as **carton-split anomaly** when `ABS(delta) % units_per_carton != 0`,
+- prioritize by challenge deadline and value at risk.
+
+Recommended triage fields in your internal queue:
+- `shipment_id`, `marketplace_id`, `seller_sku`, `fnsku`
+- `expected_units`, `received_units`, `delta_units`
+- `units_per_carton`, `delta_cartons_exact`, `split_carton_flag`
+- `first_detected_at`, `challenge_deadline_at`, `case_status`
+
+### 3) Evidence packet checklist (before opening a claim)
+Prepare all required artifacts per discrepancy before submission:
+- shipment ID / reference,
+- carton labels and carton count proof,
+- commercial invoice,
+- BOL / POD,
+- SKU-level carton configuration proof (`units_per_carton`),
+- receiving delta summary with shipment + SKU/FNSKU mapping.
+
+Tip: persist immutable file links + checksums so appeals/reopens reuse the same evidence set.
+
+### 4) SLA/alert policy (to avoid missed windows)
+- **T-72h**: open discrepancy and assign owner.
+- **T-48h**: escalate unresolved high-value cases.
+- **T-24h**: block all low-priority work until claim is submitted.
+- **T-0h**: log missed window as incident and capture root cause.
+
+### 5) Weekly metrics to track (for continuous improvement)
+- discrepancy rate per 1,000 units shipped,
+- carton-split anomaly rate,
+- on-time challenge submission rate,
+- claim win rate,
+- recovered value vs disputed value,
+- median days from discrepancy detection to resolution.
+
+### 6) Suggested ownership rhythm
+- **Daily (10-15 min):** run ingest commands, review anomaly queue, submit time-sensitive cases.
+- **Weekly (30-45 min):** review FC/SKU trend report, identify repeat offenders, tune packaging and prep SOPs.
+
 - `php artisan listings:queue-reports [--marketplace=...] [--report-type=...]`
   - Why: queue SP-API listings reports for persistent background processing.
 
