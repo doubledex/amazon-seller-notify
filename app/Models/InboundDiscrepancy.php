@@ -61,4 +61,9 @@ class InboundDiscrepancy extends Model
     {
         return $this->hasMany(InboundClaimCase::class, 'discrepancy_id');
     }
+
+    public function slaTransitions(): HasMany
+    {
+        return $this->hasMany(InboundClaimSlaTransition::class, 'discrepancy_id');
+    }
 }
