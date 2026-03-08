@@ -63,3 +63,5 @@ Schedule::call(function () {
     ]);
 })->everyFifteenMinutes()->name('metrics-refresh-recent-15m')->withoutOverlapping();
 Schedule::command('metrics:refresh')->dailyAt('05:00')->withoutOverlapping();
+
+Schedule::command('claims:inbound-evaluate')->everyFifteenMinutes()->name('claims-inbound-evaluate-15m')->withoutOverlapping();
