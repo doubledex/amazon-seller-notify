@@ -17,15 +17,6 @@
                         <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">To (Maturity UTC)</label>
                         <input name="to" type="date" class="w-full border-gray-300 rounded-md shadow-sm" value="{{ now()->utc()->endOfWeek(\Carbon\Carbon::SUNDAY)->toDateString() }}">
                     </div>
-                    <div>
-                        <button
-                            type="submit"
-                            class="px-4 py-2 rounded-md text-sm font-semibold"
-                            style="background:#2563eb;color:#ffffff;border:1px solid #1d4ed8;"
-                        >
-                            Apply
-                        </button>
-                    </div>
                     <div class="min-w-[320px]">
                         <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">Marketplace</label>
                         <select name="marketplace_id" class="w-full border-gray-300 rounded-md shadow-sm">
@@ -49,6 +40,15 @@
                     <div class="min-w-[130px]">
                         <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">Currency</label>
                         <input name="currency" type="text" maxlength="3" class="w-full border-gray-300 rounded-md shadow-sm" placeholder="GBP / USD / EUR">
+                    </div>
+                    <div>
+                        <button
+                            type="submit"
+                            class="px-4 py-2 rounded-md text-sm font-semibold"
+                            style="background:#2563eb;color:#ffffff;border:1px solid #1d4ed8;"
+                        >
+                            Apply
+                        </button>
                     </div>
                 </form>
                 <div class="mt-3 flex flex-wrap items-center gap-2">
