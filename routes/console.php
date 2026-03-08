@@ -65,6 +65,7 @@ Schedule::call(function () {
 Schedule::command('metrics:refresh')->dailyAt('05:00')->withoutOverlapping();
 
 Schedule::command('claims:inbound-evaluate')->everyFifteenMinutes()->name('claims-inbound-evaluate-15m')->withoutOverlapping();
+Schedule::command('inbound:sync-shipments --days=120')->dailyAt('03:40')->name('inbound-shipments-sync-daily')->withoutOverlapping();
 Schedule::call(function () {
     Artisan::call('metrics:inbound-refresh', [
         '--from' => now()->subDays(2)->toDateString(),

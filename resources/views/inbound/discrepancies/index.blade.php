@@ -36,12 +36,22 @@
             </div>
 
             <div class="bg-white dark:bg-gray-800 shadow-sm sm:rounded-lg p-4">
-                <form method="POST" action="{{ route('inbound.discrepancies.evaluate_sla') }}">
-                    @csrf
-                    <button type="submit" class="px-3 py-2 rounded-md border text-sm border-blue-300 bg-blue-50 text-blue-700">
-                        Evaluate SLA now
-                    </button>
-                </form>
+                <div class="flex flex-wrap items-center gap-3">
+                    <form method="POST" action="{{ route('amazon_api.inbound.sync') }}">
+                        @csrf
+                        <input type="hidden" name="days" value="120">
+                        <input type="hidden" name="run_detection" value="1">
+                        <button type="submit" class="px-3 py-2 rounded-md border text-sm border-green-300 bg-green-50 text-green-700">
+                            Sync inbound now
+                        </button>
+                    </form>
+                    <form method="POST" action="{{ route('inbound.discrepancies.evaluate_sla') }}">
+                        @csrf
+                        <button type="submit" class="px-3 py-2 rounded-md border text-sm border-blue-300 bg-blue-50 text-blue-700">
+                            Evaluate SLA now
+                        </button>
+                    </form>
+                </div>
             </div>
 
             <div class="bg-white dark:bg-gray-800 shadow-sm sm:rounded-lg p-4 overflow-x-auto">

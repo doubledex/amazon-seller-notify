@@ -14,7 +14,9 @@ use App\Http\Controllers\McuController;
 use App\Http\Controllers\ReportJobsController;
 use App\Http\Controllers\ProductPricingController;
 use App\Http\Controllers\CashflowController;
+use App\Http\Controllers\AmazonApiController;
 use App\Http\Controllers\InboundDiscrepancyController;
+use App\Http\Controllers\InboundDiscrepancyMetricsController;
 
 use Illuminate\Support\Facades\Route;
 
@@ -71,6 +73,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/inbound/discrepancies/{id}', [InboundDiscrepancyController::class, 'show'])->name('inbound.discrepancies.show');
     Route::post('/inbound/discrepancies/evaluate-sla', [InboundDiscrepancyController::class, 'evaluateSla'])->name('inbound.discrepancies.evaluate_sla');
     Route::post('/inbound/discrepancies/{id}/build-evidence', [InboundDiscrepancyController::class, 'buildEvidence'])->name('inbound.discrepancies.build_evidence');
+    Route::post('/amazon-api/inbound/sync', [AmazonApiController::class, 'syncInbound'])->name('amazon_api.inbound.sync');
     Route::get('/products', [ProductController::class, 'index'])->name('products.index');
     Route::post('/families', [ProductController::class, 'storeFamily'])->name('families.store');
     Route::patch('/families/{family}', [ProductController::class, 'updateFamily'])->name('families.update');
