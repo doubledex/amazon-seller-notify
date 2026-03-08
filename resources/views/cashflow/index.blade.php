@@ -347,11 +347,14 @@
 
                 presetButtons.forEach(btn => {
                     const isActive = (btn.dataset.preset || '') === matchedPreset;
-                    btn.classList.remove('bg-indigo-600', 'text-white', 'border-indigo-600', 'bg-white', 'text-gray-700');
                     if (isActive) {
-                        btn.classList.add('bg-indigo-600', 'text-white', 'border-indigo-600');
+                        btn.style.backgroundColor = '#4f46e5';
+                        btn.style.color = '#ffffff';
+                        btn.style.borderColor = '#4f46e5';
                     } else {
-                        btn.classList.add('bg-white', 'text-gray-700');
+                        btn.style.backgroundColor = '#ffffff';
+                        btn.style.color = '#374151';
+                        btn.style.borderColor = '#d1d5db';
                     }
                 });
             }
