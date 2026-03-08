@@ -14,8 +14,15 @@ class InboundDiscrepancy extends Model
         'fnsku',
         'expected_units',
         'received_units',
+        'units_per_carton',
+        'carton_count',
         'delta',
         'carton_delta',
+        'carton_equivalent_delta',
+        'split_carton',
+        'value_impact',
+        'challenge_deadline_at',
+        'severity',
         'status',
         'discrepancy_detected_at',
     ];
@@ -23,8 +30,14 @@ class InboundDiscrepancy extends Model
     protected $casts = [
         'expected_units' => 'integer',
         'received_units' => 'integer',
+        'units_per_carton' => 'integer',
+        'carton_count' => 'integer',
         'delta' => 'integer',
         'carton_delta' => 'integer',
+        'carton_equivalent_delta' => 'decimal:4',
+        'split_carton' => 'boolean',
+        'value_impact' => 'decimal:2',
+        'challenge_deadline_at' => 'datetime',
         'discrepancy_detected_at' => 'datetime',
     ];
 
