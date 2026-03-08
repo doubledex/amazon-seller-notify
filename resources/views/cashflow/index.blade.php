@@ -9,19 +9,6 @@
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-4">
             <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg p-4">
                 <form id="cashflow-filters" class="flex flex-wrap items-end gap-3">
-                    <div class="min-w-[140px]">
-                        <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">View</label>
-                        <select name="view" class="w-full border-gray-300 rounded-md shadow-sm">
-                            <option value="outstanding">Outstanding</option>
-                            <option value="day">Day</option>
-                            <option value="week">Week</option>
-                            <option value="today_timing">Today timing</option>
-                        </select>
-                    </div>
-                    <div class="min-w-[150px]">
-                        <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">Date (UTC)</label>
-                        <input name="date" type="date" class="w-full border-gray-300 rounded-md shadow-sm" value="{{ now()->utc()->toDateString() }}">
-                    </div>
                     <div class="min-w-[170px]">
                         <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">From (Maturity UTC)</label>
                         <input name="from" type="date" class="w-full border-gray-300 rounded-md shadow-sm" value="{{ now()->utc()->startOfWeek(\Carbon\Carbon::MONDAY)->toDateString() }}">
@@ -29,6 +16,9 @@
                     <div class="min-w-[170px]">
                         <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">To (Maturity UTC)</label>
                         <input name="to" type="date" class="w-full border-gray-300 rounded-md shadow-sm" value="{{ now()->utc()->endOfWeek(\Carbon\Carbon::SUNDAY)->toDateString() }}">
+                    </div>
+                    <div>
+                        <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Apply</button>
                     </div>
                     <div class="min-w-[320px]">
                         <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">Marketplace</label>
@@ -54,9 +44,6 @@
                         <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">Currency</label>
                         <input name="currency" type="text" maxlength="3" class="w-full border-gray-300 rounded-md shadow-sm" placeholder="GBP / USD / EUR">
                     </div>
-                    <div>
-                        <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Apply</button>
-                    </div>
                 </form>
                 <div class="mt-3 flex flex-wrap items-center gap-2">
                     <button type="button" class="px-3 py-1 text-xs border rounded js-range-preset bg-white text-gray-700 hover:bg-gray-50" data-preset="all">All</button>
@@ -64,7 +51,6 @@
                     <button type="button" class="px-3 py-1 text-xs border rounded js-range-preset bg-white text-gray-700 hover:bg-gray-50" data-preset="tomorrow">Tomorrow</button>
                     <button type="button" class="px-3 py-1 text-xs border rounded js-range-preset bg-white text-gray-700 hover:bg-gray-50" data-preset="this_week">This Week</button>
                     <button type="button" class="px-3 py-1 text-xs border rounded js-range-preset bg-white text-gray-700 hover:bg-gray-50" data-preset="next_week">Next Week</button>
-                    <button type="submit" form="cashflow-filters" class="px-4 py-1 text-xs bg-indigo-600 text-white rounded-md">Apply</button>
                 </div>
             </div>
 
@@ -85,8 +71,6 @@
             const marketplacesById = @json(collect($marketplaces ?? [])->keyBy('id')->all());
             const fromInput = form.querySelector('input[name="from"]');
             const toInput = form.querySelector('input[name="to"]');
-            const dateInput = form.querySelector('input[name="date"]');
-            const viewInput = form.querySelector('select[name="view"]');
             const presetButtons = Array.from(document.querySelectorAll('.js-range-preset'));
             let availableAllRange = { from: '', to: '' };
 
@@ -373,10 +357,6 @@
 
                     fromInput.value = range.from;
                     toInput.value = range.to;
-                    if (dateInput) {
-                        dateInput.value = range.from || dateInput.value;
-                    }
-                    viewInput.value = 'outstanding';
                     updatePresetHighlight();
                     load();
                 });
