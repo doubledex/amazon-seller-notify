@@ -54,6 +54,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/marketplaces', [OrderController::class, 'marketplaces'])->name('marketplaces');
     Route::get('/asins/europe', [AsinController::class, 'index'])->name('asins.europe');
     Route::get('/metrics/daily', [MetricsController::class, 'index'])->name('metrics.index');
+    Route::get('/metrics/inbound-discrepancies', [InboundDiscrepancyMetricsController::class, 'index'])->name('metrics.inbound_discrepancies');
+    Route::get('/metrics/inbound-discrepancies.csv', [InboundDiscrepancyMetricsController::class, 'exportCsv'])->name('metrics.inbound_discrepancies.csv');
     Route::get('/cashflow', [CashflowController::class, 'page'])->name('cashflow.index');
     Route::get('/cashflow/projection', [CashflowController::class, 'index'])->name('cashflow.projection');
     Route::get('/ads/reports', [AdsReportController::class, 'index'])->name('ads.reports');
