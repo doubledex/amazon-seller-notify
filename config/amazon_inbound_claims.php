@@ -33,4 +33,26 @@ return [
         //     'seller_fulfilled' => ['claim_window_days' => 21],
         // ],
     ],
+
+
+    'evidence' => [
+        'checklists' => [
+            'default' => [
+                'required_artifacts' => [
+                    'invoice',
+                    'bill_of_lading',
+                    'proof_of_delivery',
+                    'carton_labels',
+                    'carton_manifest',
+                ],
+                'required_virtual_artifacts' => [
+                    'shipment_ids',
+                    'sku_fnsku_mapping',
+                ],
+            ],
+        ],
+        'checksum_algorithm' => 'sha256',
+        'default_disk' => env('INBOUND_CLAIMS_EVIDENCE_DISK', 'local'),
+    ],
+
 ];
