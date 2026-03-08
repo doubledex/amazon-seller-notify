@@ -119,6 +119,57 @@ class MetricsController extends Controller
             }
         }
 
+        $adSpendByDateRegionCountry = [];
+        if (Schema::hasTable('amazon_ads_report_daily_spends') && Schema::hasTable('amazon_ads_report_requests')) {
+            $countryAdRows = DB::table('amazon_ads_report_daily_spends as ds')
+                ->join('amazon_ads_report_requests as rr', 'rr.id', '=', 'ds.report_request_id')
+                ->selectRaw('ds.metric_date as metric_date, UPPER(COALESCE(rr.country_code, \'\')) as country_code, UPPER(COALESCE(ds.currency, \'\')) as currency, SUM(ds.amount_local) as amount_local')
+                ->whereDate('ds.metric_date', '>=', $from)
+                ->whereDate('ds.metric_date', '<=', $to)
+                ->groupBy('ds.metric_date')
+                ->groupByRaw("UPPER(COALESCE(rr.country_code, ''))")
+                ->groupByRaw("UPPER(COALESCE(ds.currency, ''))")
+                ->get();
+
+            foreach ($countryAdRows as $row) {
+                $date = (string) ($row->metric_date ?? '');
+                $country = $this->normalizeMarketplaceCode((string) ($row->country_code ?? ''));
+                $fromCurrency = strtoupper((string) ($row->currency ?? ''));
+                $amountLocal = (float) ($row->amount_local ?? 0.0);
+                if ($date === '' || $country === '' || $amountLocal == 0.0) {
+                    continue;
+                }
+
+                $region = $this->regionForCountry($country);
+                $targetCurrency = $this->regionLocalCurrency($region);
+                if ($fromCurrency === '') {
+                    $fromCurrency = $targetCurrency;
+                }
+
+                $localConverted = $fromCurrency === $targetCurrency
+                    ? $amountLocal
+                    : ($fxRateService->convert($amountLocal, $fromCurrency, $targetCurrency, $date) ?? 0.0);
+                $gbpConverted = $fromCurrency === 'GBP'
+                    ? $amountLocal
+                    : ($fxRateService->convert($amountLocal, $fromCurrency, 'GBP', $date) ?? 0.0);
+
+                $dateRegionKey = $date . '|' . $region;
+                if (!isset($adSpendByDateRegionCountry[$dateRegionKey])) {
+                    $adSpendByDateRegionCountry[$dateRegionKey] = [];
+                }
+                if (!isset($adSpendByDateRegionCountry[$dateRegionKey][$country])) {
+                    $adSpendByDateRegionCountry[$dateRegionKey][$country] = [
+                        'ad_local' => 0.0,
+                        'ad_gbp' => 0.0,
+                        'currency' => $targetCurrency,
+                    ];
+                }
+
+                $adSpendByDateRegionCountry[$dateRegionKey][$country]['ad_local'] += (float) $localConverted;
+                $adSpendByDateRegionCountry[$dateRegionKey][$country]['ad_gbp'] += (float) $gbpConverted;
+            }
+        }
+
         $metricDateExpr = "COALESCE(orders.purchase_date_local_date, DATE(orders.purchase_date))";
         $hasQuantityShipped = Schema::hasColumn('order_items', 'quantity_shipped');
         $hasEstimatedLineCurrency = Schema::hasColumn('order_items', 'estimated_line_currency');
@@ -414,10 +465,44 @@ class MetricsController extends Controller
                 $regionLandedGbp = (float) ($landedCostByDateRegion[$adKey]['landed_gbp'] ?? 0.0);
                 $regionMarginLocal = (float) ($marginByDateRegion[$adKey]['margin_local'] ?? 0.0);
                 $regionMarginGbp = (float) ($marginByDateRegion[$adKey]['margin_gbp'] ?? 0.0);
-                $regionCountryRows = array_values(array_filter(
+                $regionCountryRowsRaw = array_values(array_filter(
                     $countryByDateRegion,
                     fn (array $r): bool => $r['date'] === $date && $r['region'] === $region
                 ));
+                $countryRowsByCode = [];
+                foreach ($regionCountryRowsRaw as $regionCountryRow) {
+                    $code = strtoupper(trim((string) ($regionCountryRow['country'] ?? '')));
+                    if ($code === '') {
+                        continue;
+                    }
+                    $countryRowsByCode[$code] = $regionCountryRow;
+                }
+
+                $countryAdByCode = $adSpendByDateRegionCountry[$adKey] ?? [];
+                foreach ($countryAdByCode as $countryCode => $countryAd) {
+                    if (!isset($countryRowsByCode[$countryCode])) {
+                        $currency = strtoupper((string) ($countryAd['currency'] ?? $this->regionLocalCurrency($region)));
+                        $countryRowsByCode[$countryCode] = [
+                            'date' => $date,
+                            'region' => $region,
+                            'country' => $countryCode,
+                            'currency' => $currency,
+                            'sales_local' => 0.0,
+                            'sales_gbp' => 0.0,
+                            'fees_local' => 0.0,
+                            'fees_gbp' => 0.0,
+                            'landed_cost_local' => 0.0,
+                            'landed_cost_gbp' => 0.0,
+                            'margin_local' => 0.0,
+                            'margin_gbp' => 0.0,
+                            'order_count' => 0,
+                            'units' => 0,
+                            'estimated_fee_data' => false,
+                        ];
+                    }
+                }
+                $regionCountryRows = array_values($countryRowsByCode);
+
                 $regionCountrySalesGbp = 0.0;
                 $regionCountryOrders = 0;
                 foreach ($regionCountryRows as $regionCountryRow) {
@@ -452,21 +537,31 @@ class MetricsController extends Controller
                     continue;
                 }
 
-                $countryCount = count($regionCountryRows);
-                $ratios = [];
-                foreach ($regionCountryRows as $regionCountryRow) {
-                    if ($regionCountrySalesGbp > 0) {
-                        $ratio = ((float) $regionCountryRow['sales_gbp'] / $regionCountrySalesGbp);
-                    } elseif ($regionCountryOrders > 0) {
-                        $ratio = ((int) ($regionCountryRow['order_count'] ?? 0)) / $regionCountryOrders;
-                    } else {
-                        $ratio = $countryCount > 0 ? (1 / $countryCount) : 0.0;
+                $adLocalAllocations = [];
+                $adGbpAllocations = [];
+                if (!empty($countryAdByCode)) {
+                    foreach ($regionCountryRows as $index => $regionCountryRow) {
+                        $countryCode = strtoupper(trim((string) ($regionCountryRow['country'] ?? '')));
+                        $countryAd = $countryAdByCode[$countryCode] ?? null;
+                        $adLocalAllocations[$index] = (float) ($countryAd['ad_local'] ?? 0.0);
+                        $adGbpAllocations[$index] = (float) ($countryAd['ad_gbp'] ?? 0.0);
                     }
-                    $ratios[] = $ratio;
+                } else {
+                    $countryCount = count($regionCountryRows);
+                    $ratios = [];
+                    foreach ($regionCountryRows as $regionCountryRow) {
+                        if ($regionCountrySalesGbp > 0) {
+                            $ratio = ((float) $regionCountryRow['sales_gbp'] / $regionCountrySalesGbp);
+                        } elseif ($regionCountryOrders > 0) {
+                            $ratio = ((int) ($regionCountryRow['order_count'] ?? 0)) / $regionCountryOrders;
+                        } else {
+                            $ratio = $countryCount > 0 ? (1 / $countryCount) : 0.0;
+                        }
+                        $ratios[] = $ratio;
+                    }
+                    $adLocalAllocations = $this->allocateByWeights($regionAdLocal, $ratios);
+                    $adGbpAllocations = $this->allocateByWeights($regionAdGbp, $ratios);
                 }
-
-                $adLocalAllocations = $this->allocateByWeights($regionAdLocal, $ratios);
-                $adGbpAllocations = $this->allocateByWeights($regionAdGbp, $ratios);
 
                 foreach ($regionCountryRows as $index => $regionCountryRow) {
                     $adLocal = (float) ($adLocalAllocations[$index] ?? 0.0);
