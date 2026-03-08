@@ -65,3 +65,10 @@ Schedule::call(function () {
 Schedule::command('metrics:refresh')->dailyAt('05:00')->withoutOverlapping();
 
 Schedule::command('claims:inbound-evaluate')->everyFifteenMinutes()->name('claims-inbound-evaluate-15m')->withoutOverlapping();
+Schedule::call(function () {
+    Artisan::call('metrics:inbound-refresh', [
+        '--from' => now()->subDays(2)->toDateString(),
+        '--to' => now()->toDateString(),
+    ]);
+})->everyFifteenMinutes()->name('metrics-inbound-refresh-recent-15m')->withoutOverlapping();
+Schedule::command('metrics:inbound-refresh')->dailyAt('05:15')->withoutOverlapping();
