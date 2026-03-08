@@ -8,20 +8,10 @@ use App\Models\InboundShipmentCarton;
 use App\Services\Amazon\Inbound\ClaimEvidenceBuilder;
 use Illuminate\Support\Facades\Storage;
 
-it('builds, validates, and stores immutable evidence dossier for discrepancy claims', function () {
-    Storage::fake('local');
-
-    config()->set('amazon_inbound_claims.evidence.default_disk', 'local');
-    config()->set('amazon_inbound_claims.evidence.checklists.default.required_artifacts', [
-        'invoice',
-        'bill_of_lading',
-        'proof_of_delivery',
-        'carton_labels',
-        'carton_manifest',
-    ]);
-
+function seedClaimDiscrepancy(string $shipmentId = 'SHIP-CLAIM-1'): InboundDiscrepancy
+{
     $shipment = InboundShipment::query()->create([
-        'shipment_id' => 'SHIP-CLAIM-1',
+        'shipment_id' => $shipmentId,
         'region_code' => 'NA',
         'marketplace_id' => 'ATVPDKIKX0DER',
         'carrier_name' => 'UPS',
@@ -38,7 +28,7 @@ it('builds, validates, and stores immutable evidence dossier for discrepancy cla
         'carton_count' => 2,
     ]);
 
-    $discrepancy = InboundDiscrepancy::query()->create([
+    return InboundDiscrepancy::query()->create([
         'shipment_id' => $shipment->shipment_id,
         'sku' => 'SKU-1',
         'fnsku' => 'FNSKU-1',
@@ -49,6 +39,21 @@ it('builds, validates, and stores immutable evidence dossier for discrepancy cla
         'status' => 'open',
         'challenge_deadline_at' => now()->addDays(10),
     ]);
+}
+
+it('builds, validates, and stores immutable evidence dossier for discrepancy claims', function () {
+    Storage::fake('local');
+
+    config()->set('amazon_inbound_claims.evidence.default_disk', 'local');
+    config()->set('amazon_inbound_claims.evidence.checklists.default.required_artifacts', [
+        'invoice',
+        'bill_of_lading',
+        'proof_of_delivery',
+        'carton_labels',
+        'carton_manifest',
+    ]);
+
+    $discrepancy = seedClaimDiscrepancy();
 
     Storage::disk('local')->put('claims/invoice.pdf', 'invoice-content');
     Storage::disk('local')->put('claims/bol.pdf', 'bol-content');
@@ -97,4 +102,41 @@ it('builds, validates, and stores immutable evidence dossier for discrepancy cla
         ->and($claim->submission_references['entries'])->toHaveCount(2);
 
     expect(InboundClaimCaseEvidence::query()->count())->toBe(5);
+});
+
+it('validates completeness against all persisted artifacts on incremental uploads', function () {
+    Storage::fake('local');
+    config()->set('amazon_inbound_claims.evidence.default_disk', 'local');
+    config()->set('amazon_inbound_claims.evidence.checklists.default.required_artifacts', ['invoice', 'carton_manifest']);
+
+    $discrepancy = seedClaimDiscrepancy('SHIP-CLAIM-2');
+
+    Storage::disk('local')->put('claims2/invoice.pdf', 'invoice-content');
+    Storage::disk('local')->put('claims2/manifest.csv', 'manifest-content');
+
+    $builder = app(ClaimEvidenceBuilder::class);
+
+    $first = $builder->build($discrepancy, [
+        ['artifact_type' => 'invoice', 'path' => 'claims2/invoice.pdf'],
+    ]);
+
+    expect($first->evidence_validation['complete'])->toBeFalse()
+        ->and($first->evidence_validation['missing_artifacts'])->toBe(['carton_manifest']);
+
+    $second = $builder->build($discrepancy, [
+        ['artifact_type' => 'carton_manifest', 'path' => 'claims2/manifest.csv'],
+    ]);
+
+    expect($second->evidence_validation['complete'])->toBeTrue()
+        ->and($second->evidence_validation['present_artifacts'])->toContain('invoice', 'carton_manifest')
+        ->and($second->dossier_payload['evidence']['artifacts'])->toHaveCount(2);
+});
+
+it('rejects unknown checklist names', function () {
+    Storage::fake('local');
+
+    $discrepancy = seedClaimDiscrepancy('SHIP-CLAIM-3');
+
+    expect(fn () => app(ClaimEvidenceBuilder::class)->build($discrepancy, [], [], 'typo-checklist'))
+        ->toThrow(\InvalidArgumentException::class, 'Unknown inbound claim evidence checklist [typo-checklist].');
 });

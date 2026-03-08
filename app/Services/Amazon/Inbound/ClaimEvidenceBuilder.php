@@ -8,6 +8,7 @@ use App\Models\InboundDiscrepancy;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
+use InvalidArgumentException;
 
 class ClaimEvidenceBuilder
 {
@@ -24,11 +25,12 @@ class ClaimEvidenceBuilder
             ['challenge_deadline_at' => $discrepancy->challenge_deadline_at]
         );
 
-        $stored = $this->storeEvidenceRecords($claimCase, $discrepancy, $artifacts);
+        $this->storeEvidenceRecords($claimCase, $discrepancy, $artifacts);
+        $allStoredArtifacts = $this->storedArtifactsForClaimCase($claimCase);
         $virtualArtifacts = $this->collectVirtualArtifacts($discrepancy);
-        $validation = $this->validateCompleteness($stored, $virtualArtifacts, $checklist);
+        $validation = $this->validateCompleteness($allStoredArtifacts, $virtualArtifacts, $checklist);
 
-        $dossierPayload = $this->buildDossierPayload($discrepancy, $claimCase, $stored, $virtualArtifacts, $validation);
+        $dossierPayload = $this->buildDossierPayload($discrepancy, $claimCase, $allStoredArtifacts, $virtualArtifacts, $validation);
 
         $references = $this->captureSubmissionReferences($claimCase, $submissionContext);
 
@@ -84,6 +86,25 @@ class ClaimEvidenceBuilder
         return $stored;
     }
 
+
+    private function storedArtifactsForClaimCase(InboundClaimCase $claimCase): array
+    {
+        return InboundClaimCaseEvidence::query()
+            ->where('claim_case_id', $claimCase->id)
+            ->orderBy('id')
+            ->get()
+            ->map(fn (InboundClaimCaseEvidence $record) => [
+                'id' => $record->id,
+                'artifact_type' => $record->artifact_type,
+                'disk' => $record->disk,
+                'path' => $record->path,
+                'checksum' => $record->checksum,
+                'uploaded_at' => $record->uploaded_at?->toIso8601String(),
+                'metadata' => $record->metadata ?? [],
+            ])
+            ->all();
+    }
+
     private function collectVirtualArtifacts(InboundDiscrepancy $discrepancy): array
     {
         $cartons = $discrepancy->shipment?->cartons
@@ -106,7 +127,10 @@ class ClaimEvidenceBuilder
 
     private function validateCompleteness(array $storedArtifacts, array $virtualArtifacts, string $checklist): array
     {
-        $checklistConfig = (array) config("amazon_inbound_claims.evidence.checklists.{$checklist}", []);
+        $checklistConfig = config("amazon_inbound_claims.evidence.checklists.{$checklist}");
+        if (!is_array($checklistConfig) || $checklistConfig === []) {
+            throw new InvalidArgumentException(sprintf('Unknown inbound claim evidence checklist [%s].', $checklist));
+        }
         $requiredArtifacts = (array) Arr::get($checklistConfig, 'required_artifacts', []);
         $requiredVirtual = (array) Arr::get($checklistConfig, 'required_virtual_artifacts', []);
 
