@@ -170,7 +170,13 @@
                     .sort()
                     .map(code => `${code}: ${Number(totals[code]).toFixed(2)}`)
                     .join(' | ');
-                const summary = `<div class="text-sm mb-3">Outstanding transactions: ${data.total_transactions || 0} (Total: ${totalGbp.toFixed(2)} GBP)${totalLines ? ` | Totals: ${totalLines}` : ''}${missingRows > 0 ? ` | Missing totalAmount rows: ${missingRows}` : ''}</div>`;
+                const leftSummary = `Outstanding transactions: ${data.total_transactions || 0}${totalLines ? ` | Totals: ${totalLines}` : ''}${missingRows > 0 ? ` | Missing totalAmount rows: ${missingRows}` : ''}`;
+                const summary = `
+                    <div class="text-sm mb-3 flex items-center justify-between gap-8">
+                        <span>${leftSummary}</span>
+                        <span class="whitespace-nowrap pl-8">(Total: ${totalGbp.toFixed(2)} GBP)</span>
+                    </div>
+                `;
                 const diagnosticsBlock = diagnostics
                     ? `<div class="text-xs text-gray-600 mb-3">Diagnostics: run=${escapeHtml(diagnostics.ran_at_utc || 'N/A')} | lookback_days=${diagnostics.lookback_days ?? 'N/A'} | regions=${diagnostics.regions_processed ?? 0} | marketplaces=${diagnostics.marketplaces_processed ?? 0} | seen=${diagnostics.transactions_seen ?? 0} | written=${diagnostics.rows_written ?? 0} | excluded_status=${diagnostics.excluded_by_status ?? 0} | excluded_missing_maturity=${diagnostics.excluded_missing_maturity ?? 0} | missing_total=${diagnostics.rows_missing_total_amount ?? 0} | outside_lookback_not_scanned=${diagnostics.outside_lookback_not_scanned ? 'yes' : 'no'}</div>`
                     : '';
@@ -341,11 +347,12 @@
 
                 presetButtons.forEach(btn => {
                     const isActive = (btn.dataset.preset || '') === matchedPreset;
-                    btn.classList.toggle('bg-indigo-600', isActive);
-                    btn.classList.toggle('text-white', isActive);
-                    btn.classList.toggle('border-indigo-600', isActive);
-                    btn.classList.toggle('bg-white', !isActive);
-                    btn.classList.toggle('text-gray-700', !isActive);
+                    btn.classList.remove('bg-indigo-600', 'text-white', 'border-indigo-600', 'bg-white', 'text-gray-700');
+                    if (isActive) {
+                        btn.classList.add('bg-indigo-600', 'text-white', 'border-indigo-600');
+                    } else {
+                        btn.classList.add('bg-white', 'text-gray-700');
+                    }
                 });
             }
 
