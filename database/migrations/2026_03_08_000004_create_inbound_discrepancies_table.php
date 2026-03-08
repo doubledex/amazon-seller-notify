@@ -10,8 +10,8 @@ return new class extends Migration {
         Schema::create('inbound_discrepancies', function (Blueprint $table) {
             $table->id();
             $table->string('shipment_id', 64)->index();
-            $table->string('sku', 128)->nullable();
-            $table->string('fnsku', 128)->nullable();
+            $table->string('sku', 128)->default('');
+            $table->string('fnsku', 128)->default('');
             $table->unsignedInteger('expected_units')->default(0);
             $table->unsignedInteger('received_units')->default(0);
             $table->integer('delta')->default(0);

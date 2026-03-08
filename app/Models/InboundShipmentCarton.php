@@ -23,6 +23,17 @@ class InboundShipmentCarton extends Model
         'carton_count' => 'integer',
     ];
 
+
+    public function setSkuAttribute($value): void
+    {
+        $this->attributes['sku'] = $value ?? '';
+    }
+
+    public function setFnskuAttribute($value): void
+    {
+        $this->attributes['fnsku'] = $value ?? '';
+    }
+
     public function shipment(): BelongsTo
     {
         return $this->belongsTo(InboundShipment::class, 'shipment_id', 'shipment_id');

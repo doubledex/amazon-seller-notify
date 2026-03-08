@@ -11,8 +11,8 @@ return new class extends Migration {
             $table->id();
             $table->string('shipment_id', 64)->index();
             $table->string('carton_id', 128);
-            $table->string('sku', 128)->nullable();
-            $table->string('fnsku', 128)->nullable();
+            $table->string('sku', 128)->default('');
+            $table->string('fnsku', 128)->default('');
             $table->unsignedInteger('expected_units')->default(0);
             $table->unsignedInteger('units_per_carton')->default(0);
             $table->unsignedInteger('carton_count')->default(0);
