@@ -24,11 +24,11 @@
                     </div>
                     <div class="min-w-[170px]">
                         <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">From (Maturity UTC)</label>
-                        <input name="from" type="date" class="w-full border-gray-300 rounded-md shadow-sm" value="{{ now()->utc()->toDateString() }}">
+                        <input name="from" type="date" class="w-full border-gray-300 rounded-md shadow-sm" value="{{ now()->utc()->startOfWeek(\Carbon\Carbon::MONDAY)->toDateString() }}">
                     </div>
                     <div class="min-w-[170px]">
                         <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">To (Maturity UTC)</label>
-                        <input name="to" type="date" class="w-full border-gray-300 rounded-md shadow-sm" value="{{ now()->utc()->addWeek()->toDateString() }}">
+                        <input name="to" type="date" class="w-full border-gray-300 rounded-md shadow-sm" value="{{ now()->utc()->endOfWeek(\Carbon\Carbon::SUNDAY)->toDateString() }}">
                     </div>
                     <div class="min-w-[320px]">
                         <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">Marketplace</label>
