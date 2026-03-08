@@ -21,6 +21,9 @@
                     <x-nav-link :href="route('cashflow.index')" :active="request()->routeIs('cashflow.*')">
                         {{ __('Cashflow') }}
                     </x-nav-link>
+                    <x-nav-link :href="route('metrics.inbound_discrepancies')" :active="request()->routeIs('metrics.inbound_discrepancies*')">
+                        {{ __('Inbound KPIs') }}
+                    </x-nav-link>
                 </div>
             </div>
 
@@ -81,6 +84,9 @@
             </x-responsive-nav-link>
             <x-responsive-nav-link :href="route('cashflow.index')" :active="request()->routeIs('cashflow.*')">
                 {{ __('Cashflow') }}
+            </x-responsive-nav-link>
+            <x-responsive-nav-link :href="route('metrics.inbound_discrepancies')" :active="request()->routeIs('metrics.inbound_discrepancies*')">
+                {{ __('Inbound KPIs') }}
             </x-responsive-nav-link>
         </div>
 
