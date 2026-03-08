@@ -37,14 +37,11 @@ class InboundDiscrepancyDetectionService
                 continue;
             }
 
-            $receivedUnits = (int) data_get(
+            $receivedUnits = $this->receivedUnitsForLine(
                 $receivedByMarketplace,
-                implode('.', [
-                    $shipment->marketplace_id,
-                    $this->keyPart($line['sku']),
-                    $this->keyPart($line['fnsku']),
-                ]),
-                0
+                (string) $shipment->marketplace_id,
+                $line['sku'],
+                $line['fnsku']
             );
 
             $delta = $receivedUnits - $line['expected_units'];
@@ -141,6 +138,22 @@ class InboundDiscrepancyDetectionService
         }
 
         return $result;
+    }
+
+    private function receivedUnitsForLine(array $receivedByMarketplace, string $marketplaceId, string $sku, string $fnsku): int
+    {
+        $skuKey = $this->keyPart($sku);
+        $fnskuKey = $this->keyPart($fnsku);
+
+        if (!isset($receivedByMarketplace[$marketplaceId])) {
+            return 0;
+        }
+
+        if (!isset($receivedByMarketplace[$marketplaceId][$skuKey])) {
+            return 0;
+        }
+
+        return (int) ($receivedByMarketplace[$marketplaceId][$skuKey][$fnskuKey] ?? 0);
     }
 
     private function challengeDeadlineForShipment(mixed $shipmentClosedAt): ?Carbon

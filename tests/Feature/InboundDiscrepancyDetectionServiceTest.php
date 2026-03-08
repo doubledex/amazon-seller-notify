@@ -82,3 +82,47 @@ it('computes and upserts discrepancies by shipment sku and fnsku', function () {
 
     Carbon::setTestNow();
 });
+
+it('matches received units when sku and fnsku contain dots', function () {
+    config()->set('inbound_discrepancy.default_unit_value', 10);
+
+    InboundShipment::query()->create([
+        'shipment_id' => 'SHIP-DOT-1',
+        'region_code' => 'NA',
+        'marketplace_id' => 'ATVPDKIKX0DER',
+    ]);
+
+    InboundShipmentCarton::query()->create([
+        'shipment_id' => 'SHIP-DOT-1',
+        'carton_id' => 'C-DOT-1',
+        'sku' => 'ABC.123',
+        'fnsku' => 'X0.9Z',
+        'units_per_carton' => 4,
+        'carton_count' => 3,
+        'expected_units' => 12,
+    ]);
+
+    UsFcInventory::query()->create([
+        'marketplace_id' => 'ATVPDKIKX0DER',
+        'fulfillment_center_id' => 'DFW1',
+        'seller_sku' => 'ABC.123',
+        'fnsku' => 'X0.9Z',
+        'quantity_available' => 12,
+        'last_seen_at' => now(),
+    ]);
+
+    $result = app(InboundDiscrepancyDetectionService::class)->detect('SHIP-DOT-1');
+
+    expect($result['shipments_scanned'])->toBe(1)
+        ->and($result['discrepancies_upserted'])->toBe(1);
+
+    $record = InboundDiscrepancy::query()
+        ->where('shipment_id', 'SHIP-DOT-1')
+        ->where('sku', 'ABC.123')
+        ->where('fnsku', 'X0.9Z')
+        ->firstOrFail();
+
+    expect($record->received_units)->toBe(12)
+        ->and($record->delta)->toBe(0)
+        ->and($record->status)->toBe('resolved');
+});
