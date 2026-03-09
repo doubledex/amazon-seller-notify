@@ -92,7 +92,7 @@ class InboundDiscrepancyDetectionService
     {
         return InboundShipmentCarton::query()
             ->selectRaw('shipment_id, COALESCE(sku, "") as sku, COALESCE(fnsku, "") as fnsku')
-            ->selectRaw('SUM(COALESCE(expected_units, units_per_carton * carton_count, 0)) as expected_units')
+            ->selectRaw('SUM(COALESCE(NULLIF(expected_units, 0), units_per_carton * carton_count, 0)) as expected_units')
             ->selectRaw('MAX(COALESCE(units_per_carton, 0)) as units_per_carton')
             ->selectRaw('SUM(COALESCE(carton_count, 0)) as carton_count')
             ->whereIn('shipment_id', $shipmentIds)
@@ -198,4 +198,3 @@ class InboundDiscrepancyDetectionService
         return trim((string) $value);
     }
 }
-

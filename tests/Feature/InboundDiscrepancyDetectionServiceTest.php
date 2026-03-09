@@ -126,3 +126,48 @@ it('matches received units when sku and fnsku contain dots', function () {
         ->and($record->delta)->toBe(0)
         ->and($record->status)->toBe('resolved');
 });
+
+it('falls back to carton math when expected units remain at default zero', function () {
+    config()->set('inbound_discrepancy.default_unit_value', 10);
+
+    InboundShipment::query()->create([
+        'shipment_id' => 'SHIP-FALLBACK-1',
+        'region_code' => 'NA',
+        'marketplace_id' => 'ATVPDKIKX0DER',
+    ]);
+
+    InboundShipmentCarton::query()->create([
+        'shipment_id' => 'SHIP-FALLBACK-1',
+        'carton_id' => 'C-FALLBACK-1',
+        'sku' => 'SKU-FALLBACK-1',
+        'fnsku' => 'FNSKU-FALLBACK-1',
+        'units_per_carton' => 5,
+        'carton_count' => 2,
+        'expected_units' => 0,
+    ]);
+
+    UsFcInventory::query()->create([
+        'marketplace_id' => 'ATVPDKIKX0DER',
+        'fulfillment_center_id' => 'DFW1',
+        'seller_sku' => 'SKU-FALLBACK-1',
+        'fnsku' => 'FNSKU-FALLBACK-1',
+        'quantity_available' => 10,
+        'last_seen_at' => now(),
+    ]);
+
+    $result = app(InboundDiscrepancyDetectionService::class)->detect('SHIP-FALLBACK-1');
+
+    expect($result['shipments_scanned'])->toBe(1)
+        ->and($result['discrepancies_upserted'])->toBe(1);
+
+    $record = InboundDiscrepancy::query()
+        ->where('shipment_id', 'SHIP-FALLBACK-1')
+        ->where('sku', 'SKU-FALLBACK-1')
+        ->where('fnsku', 'FNSKU-FALLBACK-1')
+        ->firstOrFail();
+
+    expect($record->expected_units)->toBe(10)
+        ->and($record->received_units)->toBe(10)
+        ->and($record->delta)->toBe(0)
+        ->and($record->status)->toBe('resolved');
+});
