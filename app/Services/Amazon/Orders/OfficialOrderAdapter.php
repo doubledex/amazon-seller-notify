@@ -183,11 +183,13 @@ class OfficialOrderAdapter implements AmazonOrderApi
     {
         $order = (array) ($body['order'] ?? []);
         $items = (array) ($order['orderItems'] ?? []);
+        $summary = $this->normalizeOrderSummary($order);
 
         return [
             'payload' => [
                 'AmazonOrderId' => (string) ($order['orderId'] ?? $amazonOrderId),
                 'OrderItems' => array_values(array_map(fn ($item) => $this->normalizeOrderItem((array) $item), $items)),
+                'OrderSummary' => $summary,
             ],
         ];
     }
@@ -197,6 +199,7 @@ class OfficialOrderAdapter implements AmazonOrderApi
         $order = (array) ($body['order'] ?? []);
         $recipient = (array) ($order['recipient'] ?? []);
         $address = (array) ($recipient['deliveryAddress'] ?? []);
+        $summary = $this->normalizeOrderSummary($order);
 
         return [
             'payload' => [
@@ -216,6 +219,7 @@ class OfficialOrderAdapter implements AmazonOrderApi
                     'Phone' => $address['phone'] ?? null,
                     'AddressType' => $address['addressType'] ?? null,
                 ],
+                'OrderSummary' => $summary,
             ],
         ];
     }

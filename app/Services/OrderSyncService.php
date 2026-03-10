@@ -244,7 +244,9 @@ class OrderSyncService
                     }
 
                     $status = $order['OrderStatus'] ?? null;
-                    $needsDetails = !$status || !in_array($status, self::FINAL_STATUSES, true);
+                    $needsDetails = $this->summaryMissingCriticalFields((array) $order)
+                        || !$status
+                        || !in_array($status, self::FINAL_STATUSES, true);
                     $itemsMissing = OrderItem::query()->where('amazon_order_id', $orderId)->count() === 0;
                     $orderItemsShipped = (int) ($order['NumberOfItemsShipped'] ?? 0);
                     $storedItemsShipped = (int) OrderItem::query()->where('amazon_order_id', $orderId)->sum('quantity_shipped');
@@ -256,6 +258,10 @@ class OrderSyncService
 
                         if ($itemsResponse && ($itemsResponse['status'] ?? 500) < 400) {
                             $itemsData = (array) ($itemsResponse['body'] ?? []);
+                            $summary = (array) ($itemsData['payload']['OrderSummary'] ?? []);
+                            if (!empty($summary)) {
+                                $this->hydrateOrderFromSummary($orderId, $summary);
+                            }
                             $items = $itemsData['payload']['OrderItems'] ?? [];
                             $isMarketplaceFacilitator = false;
                             foreach ($items as $item) {
@@ -309,6 +315,10 @@ class OrderSyncService
 
                         if ($addrResponse && ($addrResponse['status'] ?? 500) < 400) {
                             $addrData = (array) ($addrResponse['body'] ?? []);
+                            $summary = (array) ($addrData['payload']['OrderSummary'] ?? []);
+                            if (!empty($summary)) {
+                                $this->hydrateOrderFromSummary($orderId, $summary);
+                            }
                             $addr = $addrData['payload']['ShippingAddress'] ?? [];
                             OrderShipAddress::updateOrCreate(
                                 ['order_id' => $orderId],
@@ -364,6 +374,102 @@ class OrderSyncService
         ];
         $this->finishSyncRun($run, $result['ok'], $result['message'], $totalOrders, $itemsFetched, $addressesFetched, $geocoded);
         return $result;
+    }
+
+    private function summaryMissingCriticalFields(array $order): bool
+    {
+        $status = trim((string) ($order['OrderStatus'] ?? ''));
+        $network = trim((string) ($order['FulfillmentChannel'] ?? ''));
+        $method = trim((string) ($order['PaymentMethodDetails'][0] ?? ($order['PaymentMethod'] ?? '')));
+        $ship = is_array($order['ShippingAddress'] ?? null) ? $order['ShippingAddress'] : [];
+        $city = trim((string) ($ship['City'] ?? ''));
+        $country = trim((string) ($ship['CountryCode'] ?? ''));
+        $hasCounts = array_key_exists('NumberOfItemsShipped', $order) || array_key_exists('NumberOfItemsUnshipped', $order);
+
+        return $status === ''
+            || $network === ''
+            || $method === ''
+            || !$hasCounts
+            || $city === ''
+            || $country === '';
+    }
+
+    private function hydrateOrderFromSummary(string $orderId, array $summary): void
+    {
+        $order = Order::query()->where('amazon_order_id', $orderId)->first();
+        if ($order === null) {
+            return;
+        }
+
+        $raw = $order->raw_order;
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+            $raw = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($raw)) {
+            $raw = [];
+        }
+
+        $ship = is_array($summary['ShippingAddress'] ?? null) ? $summary['ShippingAddress'] : [];
+        $paymentMethod = trim((string) ($summary['PaymentMethodDetails'][0] ?? ($summary['PaymentMethod'] ?? '')));
+
+        $status = trim((string) ($summary['OrderStatus'] ?? ''));
+        $network = trim((string) ($summary['FulfillmentChannel'] ?? ''));
+        $city = trim((string) ($ship['City'] ?? ''));
+        $country = trim((string) ($ship['CountryCode'] ?? ''));
+        $postal = trim((string) ($ship['PostalCode'] ?? ''));
+        $company = trim((string) ($ship['CompanyName'] ?? ''));
+        $region = trim((string) ($ship['StateOrRegion'] ?? ''));
+
+        $updates = [];
+        if ($status !== '') {
+            $updates['order_status'] = $status;
+            $raw['OrderStatus'] = $status;
+        }
+        if ($network !== '') {
+            $updates['fulfillment_channel'] = $network;
+            $raw['FulfillmentChannel'] = $network;
+        }
+        if ($paymentMethod !== '') {
+            $updates['payment_method'] = $paymentMethod;
+            $raw['PaymentMethod'] = $paymentMethod;
+            $raw['PaymentMethodDetails'] = [$paymentMethod];
+        }
+
+        if (array_key_exists('NumberOfItemsShipped', $summary) && is_numeric($summary['NumberOfItemsShipped'])) {
+            $raw['NumberOfItemsShipped'] = (int) $summary['NumberOfItemsShipped'];
+        }
+        if (array_key_exists('NumberOfItemsUnshipped', $summary) && is_numeric($summary['NumberOfItemsUnshipped'])) {
+            $raw['NumberOfItemsUnshipped'] = (int) $summary['NumberOfItemsUnshipped'];
+        }
+
+        $currentShip = is_array($raw['ShippingAddress'] ?? null) ? $raw['ShippingAddress'] : [];
+        if ($city !== '') {
+            $updates['shipping_city'] = $city;
+            $currentShip['City'] = $city;
+        }
+        if ($country !== '') {
+            $updates['shipping_country_code'] = $country;
+            $currentShip['CountryCode'] = $country;
+        }
+        if ($postal !== '') {
+            $updates['shipping_postal_code'] = $postal;
+            $currentShip['PostalCode'] = $postal;
+        }
+        if ($company !== '') {
+            $updates['shipping_company'] = $company;
+            $currentShip['CompanyName'] = $company;
+        }
+        if ($region !== '') {
+            $updates['shipping_region'] = $region;
+            $currentShip['StateOrRegion'] = $region;
+        }
+        $raw['ShippingAddress'] = $currentShip;
+
+        $updates['raw_order'] = json_encode($raw);
+        $updates['last_synced_at'] = now();
+
+        Order::query()->where('amazon_order_id', $orderId)->update($updates);
     }
 
     private function normalizeEndBefore($value): string
