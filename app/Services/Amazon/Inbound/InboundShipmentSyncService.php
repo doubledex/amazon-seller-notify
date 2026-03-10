@@ -255,7 +255,7 @@ class InboundShipmentSyncService
         do {
             $response = $this->callWithRetries(
                 fn () => $api->listInboundPlans(
-                    page_size: 50,
+                    page_size: 30,
                     pagination_token: $nextToken,
                     status: null
                 ),
