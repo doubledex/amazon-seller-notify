@@ -245,10 +245,20 @@ class InboundShipmentSyncService
                 'updated_at' => $syncedAt,
             ];
 
-            $items = $this->collectShipmentItems($api2024, $ref['inbound_plan_id'], $shipmentId);
-            $shipmentRows[array_key_last($shipmentRows)]['api_items_payload'] = $this->itemsPayloadV2024($items);
-            $shipmentItemsScanned += count($items);
-            $cartonRowsByShipment[$shipmentId] = $this->buildCartonRowsFromV2024($shipmentId, $items, $syncedAt);
+            $itemResult = $this->collectShipmentItems($api2024, $ref['inbound_plan_id'], $shipmentId);
+            $boxResult = $this->collectShipmentBoxes($api2024, $ref['inbound_plan_id'], $shipmentId);
+            $palletResult = $this->collectShipmentPallets($api2024, $ref['inbound_plan_id'], $shipmentId);
+
+            $shipmentRows[array_key_last($shipmentRows)]['api_items_payload'] = $this->itemsPayloadV2024(
+                $itemResult['items'],
+                $boxResult['boxes'],
+                $palletResult['pallets'],
+                $itemResult['pages'],
+                $boxResult['pages'],
+                $palletResult['pages']
+            );
+            $shipmentItemsScanned += count($itemResult['items']);
+            $cartonRowsByShipment[$shipmentId] = $this->buildCartonRowsFromV2024($shipmentId, $itemResult['items'], $syncedAt);
         }
 
         $cartonRowsUpserted = $this->persistShipmentRows($shipmentRows, $cartonRowsByShipment);
@@ -471,10 +481,14 @@ class InboundShipmentSyncService
         return array_values($refs);
     }
 
+    /**
+     * @return array{items: array<int, mixed>, pages: array<int, array<string, mixed>>}
+     */
     private function collectShipmentItems(FbaInboundV20240320Api $api, string $inboundPlanId, string $shipmentId): array
     {
         $nextToken = null;
         $items = [];
+        $pages = [];
 
         do {
             $response = $this->callWithRetries(
@@ -487,6 +501,7 @@ class InboundShipmentSyncService
                 'fbaInbound.listShipmentItems'
             );
 
+            $pages[] = $this->normalizePayload($response);
             foreach ((array) ($response->getItems() ?? []) as $item) {
                 $items[] = $item;
             }
@@ -497,7 +512,84 @@ class InboundShipmentSyncService
             }
         } while ($nextToken !== null);
 
-        return $items;
+        return [
+            'items' => $items,
+            'pages' => is_array($pages) ? $pages : [],
+        ];
+    }
+
+    /**
+     * @return array{boxes: array<int, mixed>, pages: array<int, array<string, mixed>>}
+     */
+    private function collectShipmentBoxes(FbaInboundV20240320Api $api, string $inboundPlanId, string $shipmentId): array
+    {
+        $nextToken = null;
+        $boxes = [];
+        $pages = [];
+
+        do {
+            $response = $this->callWithRetries(
+                fn () => $api->listShipmentBoxes(
+                    inbound_plan_id: $inboundPlanId,
+                    shipment_id: $shipmentId,
+                    page_size: 50,
+                    pagination_token: $nextToken
+                ),
+                'fbaInbound.listShipmentBoxes'
+            );
+
+            $pages[] = $this->normalizePayload($response);
+            foreach ((array) ($response->getBoxes() ?? []) as $box) {
+                $boxes[] = $box;
+            }
+
+            $nextToken = trim((string) ($response->getPagination()?->getNextToken() ?? ''));
+            if ($nextToken === '') {
+                $nextToken = null;
+            }
+        } while ($nextToken !== null);
+
+        return [
+            'boxes' => $boxes,
+            'pages' => is_array($pages) ? $pages : [],
+        ];
+    }
+
+    /**
+     * @return array{pallets: array<int, mixed>, pages: array<int, array<string, mixed>>}
+     */
+    private function collectShipmentPallets(FbaInboundV20240320Api $api, string $inboundPlanId, string $shipmentId): array
+    {
+        $nextToken = null;
+        $pallets = [];
+        $pages = [];
+
+        do {
+            $response = $this->callWithRetries(
+                fn () => $api->listShipmentPallets(
+                    inbound_plan_id: $inboundPlanId,
+                    shipment_id: $shipmentId,
+                    page_size: 50,
+                    pagination_token: $nextToken
+                ),
+                'fbaInbound.listShipmentPallets'
+            );
+
+            $pages[] = $this->normalizePayload($response);
+            foreach ((array) ($response->getPallets() ?? []) as $pallet) {
+                $pallets[] = $pallet;
+            }
+
+            $nextToken = trim((string) ($response->getPagination()?->getNextToken() ?? ''));
+            if ($nextToken === '') {
+                $nextToken = null;
+            }
+        } while ($nextToken !== null);
+
+        return [
+            'pallets' => $pallets,
+            'pages' => is_array($pages) ? $pages : [],
+        ];
     }
 
     private function buildCartonRowsFromV2024(string $shipmentId, array $items, Carbon $syncedAt): array
@@ -749,11 +841,29 @@ class InboundShipmentSyncService
         return is_array($payload) ? $payload : ['value' => $payload];
     }
 
-    private function itemsPayloadV2024(array $items): array
+    private function itemsPayloadV2024(
+        array $items,
+        array $boxes = [],
+        array $pallets = [],
+        array $itemPages = [],
+        array $boxPages = [],
+        array $palletPages = []
+    ): array
     {
-        $payload = $this->normalizePayload($items);
-
-        return is_array($payload) ? $payload : ['value' => $payload];
+        return [
+            'list_shipment_items' => [
+                'pages' => $this->normalizePayload($itemPages),
+                'aggregated' => $this->normalizePayload($items),
+            ],
+            'list_shipment_boxes' => [
+                'pages' => $this->normalizePayload($boxPages),
+                'aggregated' => $this->normalizePayload($boxes),
+            ],
+            'list_shipment_pallets' => [
+                'pages' => $this->normalizePayload($palletPages),
+                'aggregated' => $this->normalizePayload($pallets),
+            ],
+        ];
     }
 
     private function normalizePayload(mixed $value): mixed

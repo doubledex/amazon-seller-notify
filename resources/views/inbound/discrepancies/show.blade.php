@@ -42,6 +42,7 @@
 
             <div class="bg-white dark:bg-gray-800 shadow-sm sm:rounded-lg p-4 overflow-x-auto">
                 <h3 class="font-semibold mb-2">Raw API Payload</h3>
+                @php($itemsPayload = $discrepancy->shipment?->api_items_payload ?? [])
                 <div class="text-sm mb-2">
                     <strong>Source API:</strong>
                     {{ $discrepancy->shipment?->api_source_version ?: 'n/a' }}
@@ -54,6 +55,18 @@
                     <details>
                         <summary class="cursor-pointer text-sm font-medium">Items payload JSON</summary>
                         <pre class="text-xs whitespace-pre-wrap mt-2">{{ json_encode($discrepancy->shipment?->api_items_payload ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                    </details>
+                    <details>
+                        <summary class="cursor-pointer text-sm font-medium">listShipmentItems response JSON</summary>
+                        <pre class="text-xs whitespace-pre-wrap mt-2">{{ json_encode(data_get($itemsPayload, 'list_shipment_items.pages', []), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                    </details>
+                    <details>
+                        <summary class="cursor-pointer text-sm font-medium">listShipmentBoxes response JSON</summary>
+                        <pre class="text-xs whitespace-pre-wrap mt-2">{{ json_encode(data_get($itemsPayload, 'list_shipment_boxes.pages', []), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                    </details>
+                    <details>
+                        <summary class="cursor-pointer text-sm font-medium">listShipmentPallets response JSON</summary>
+                        <pre class="text-xs whitespace-pre-wrap mt-2">{{ json_encode(data_get($itemsPayload, 'list_shipment_pallets.pages', []), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
                     </details>
                 </div>
             </div>
