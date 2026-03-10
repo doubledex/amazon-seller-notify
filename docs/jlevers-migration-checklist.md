@@ -33,8 +33,8 @@ It is a living checklist and must be updated whenever legacy usage is discovered
 |--------------|-------|
 | discovered   | 0     |
 | planned      | 0     |
-| in_progress  | 1     |
-| migrated     | 9     |
+| in_progress  | 0     |
+| migrated     | 10    |
 | blocked      | 1     |
 | deferred     | 0     |
 
@@ -77,13 +77,13 @@ It is a living checklist and must be updated whenever legacy usage is discovered
 - Notes: removed jlevers enum imports from this service and replaced enum return with app-owned string endpoint resolution (`spApiEndpoint()`); legacy enum conversion now occurs in `App\Support\Amazon\LegacySpApiEndpointResolver` at jlevers callsites.
 
 ### ITEM-005
-- Status: in_progress
-- File path: `app/Services/OrderSyncService.php`, `app/Services/MarketplaceService.php`, `app/Http/Controllers/OrderController.php`, `app/Console/Commands/SyncMarketplaces.php`
+- Status: migrated
+- File path: `app/Services/OrderSyncService.php`, `app/Services/MarketplaceService.php`, `app/Http/Controllers/OrderController.php`, `app/Console/Commands/SyncMarketplaces.php`, `app/Services/Amazon/Orders/LegacyOrderAdapter.php`, `app/Integrations/Amazon/SpApi/OrdersAdapter.php`, `app/Providers/AmazonServiceProvider.php`, `app/Contracts/Amazon/AmazonOrderApi.php`
 - Class/module: order and marketplace sync flow
 - Legacy usage type: direct static connector construction and legacy type-hinted connectors in service APIs
 - Purpose: order ingestion, marketplace sync, and related UI/controller orchestration
 - Official SDK replacement target: injected official SDK order/seller clients via shared factory + service interfaces without jlevers types
-- Notes: `OrderSyncService` now executes orders/items/address calls via official `OrdersV0Api` (`getOrdersWithHttpInfo`, `getOrderItemsWithHttpInfo`, `getOrderAddressWithHttpInfo`) and retry handling based on official status/headers. `MarketplaceService` + `SyncMarketplaces` use official sellers API via `OfficialSpApiService::makeSellersV1Api()` (`syncFromOfficialApi` path), and `OrderController` no longer depends on `LegacySpApiClientFactory`. Remaining legacy coupling in this unit is the `SellingPartnerApi`-typed connector path still kept for `MarketplaceService::getMarketplaceIds()/getMarketplacesForUi()` compatibility with legacy order adapters.
+- Notes: migrated to official SDK throughout this unit: order sync and order detail fetch now use official `OrdersV0Api` (`WithHttpInfo` methods), marketplace sync uses official sellers API, marketplace service methods are connector-free, and `AmazonOrderApi` is bound to `OfficialOrderAdapter`. `LegacyOrderAdapter` remains only as a compatibility alias class name but executes official adapter logic.
 
 ### ITEM-006
 - Status: migrated

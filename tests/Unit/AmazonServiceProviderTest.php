@@ -3,16 +3,16 @@
 use App\Contracts\Amazon\AmazonOrderApi;
 use App\Integrations\Amazon\SpApi\LegacySpApiClientFactory;
 use App\Integrations\Amazon\SpApi\SpApiClientFactory;
-use App\Services\Amazon\Orders\LegacyOrderAdapter;
+use App\Services\Amazon\Orders\OfficialOrderAdapter;
 use App\Services\Amazon\Support\AmazonRequestPolicy;
 use Tests\TestCase;
 
 uses(TestCase::class);
 
-it('binds amazon order api contract to legacy adapter', function () {
+it('binds amazon order api contract to official adapter', function () {
     $instance = app(AmazonOrderApi::class);
 
-    expect($instance)->toBeInstanceOf(LegacyOrderAdapter::class);
+    expect($instance)->toBeInstanceOf(OfficialOrderAdapter::class);
 });
 
 it('registers amazon request policy as singleton', function () {

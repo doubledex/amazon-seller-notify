@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers;
 
-use App\Integrations\Amazon\SpApi\LegacySpApiClientFactory;
 use Illuminate\Http\Request;
 use DateTime;
 use Illuminate\Support\Facades\Log;
+use App\Services\Amazon\OfficialSpApiService;
 use App\Services\MarketplaceService;
 use App\Services\OrderNetValueService;
 use App\Services\MarketplaceTimezoneService;
@@ -26,6 +26,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Carbon;
 use App\Jobs\SyncOrdersJob;
+use SpApi\ApiException;
 
 class OrderController extends Controller
 {
@@ -466,125 +467,137 @@ class OrderController extends Controller
                 ->value('country_code');
         }
 
-        $ordersApi = (new LegacySpApiClientFactory(new RegionConfigService()))
-            ->makeSellerConnector()
-            ->ordersV0();
+        $regionService = new RegionConfigService();
+        $ordersApi = (new OfficialSpApiService($regionService))
+            ->makeOrdersV0Api($regionService->defaultSpApiRegion());
         $needsOrder = !$orderRecord;
         $needsItems = $items->isEmpty() || $this->needsItemShipmentRefresh($orderRecord, $items);
         $needsAddress = !$address;
 
-        if ($needsOrder || $needsItems || $needsAddress) {
+        if (($needsOrder || $needsItems || $needsAddress) && $ordersApi !== null) {
             if ($needsOrder) {
-                $response = $ordersApi->getOrder($order_id);
-                $orderData = $response->json();
-                if ($response->status() < 400) {
-                    $order = $orderData['payload'] ?? [];
-                    if (!empty($order)) {
-                        $ship = $order['ShippingAddress'] ?? [];
-                        $marketplaceId = $order['MarketplaceId'] ?? null;
-                        $localized = $this->marketplaceTimezoneService->localizeFromUtc(
-                            $order['PurchaseDate'] ?? null,
-                            $marketplaceId,
-                            null
-                        );
-                        Order::updateOrCreate(
-                            ['amazon_order_id' => $order_id],
-                            [
-                                'purchase_date' => $this->normalizePurchaseDate($order['PurchaseDate'] ?? null),
-                                'purchase_date_local' => $localized['purchase_date_local'],
-                                'purchase_date_local_date' => $localized['purchase_date_local_date'],
-                                'order_status' => $order['OrderStatus'] ?? null,
-                                'fulfillment_channel' => $order['FulfillmentChannel'] ?? null,
-                                'payment_method' => $order['PaymentMethodDetails'][0] ?? ($order['PaymentMethod'] ?? null),
-                                'sales_channel' => $order['SalesChannel'] ?? null,
-                                'marketplace_id' => $marketplaceId,
-                                'marketplace_timezone' => $localized['marketplace_timezone'],
-                                'is_business_order' => !empty($order['IsBusinessOrder']),
-                                'order_total_amount' => $order['OrderTotal']['Amount'] ?? null,
-                                'order_total_currency' => $order['OrderTotal']['CurrencyCode'] ?? null,
-                                'shipping_city' => $ship['City'] ?? null,
-                                'shipping_country_code' => $ship['CountryCode'] ?? null,
-                                'shipping_postal_code' => $ship['PostalCode'] ?? null,
-                                'shipping_company' => $ship['CompanyName'] ?? null,
-                                'shipping_region' => $ship['StateOrRegion'] ?? null,
-                                'raw_order' => json_encode($order),
-                                'last_synced_at' => now(),
-                            ]
-                        );
-                        if (!empty($marketplaceId) && empty($marketplaceCountryCode)) {
-                            $marketplaceCountryCode = DB::table('marketplaces')
-                                ->where('id', (string) $marketplaceId)
-                                ->value('country_code');
+                try {
+                    [$orderModel, $statusCode] = $ordersApi->getOrderWithHttpInfo($order_id);
+                    if ($statusCode < 400) {
+                        $orderData = $this->modelToArray($orderModel);
+                        $order = $orderData['payload'] ?? [];
+                        if (!empty($order)) {
+                            $ship = $order['ShippingAddress'] ?? [];
+                            $marketplaceId = $order['MarketplaceId'] ?? null;
+                            $localized = $this->marketplaceTimezoneService->localizeFromUtc(
+                                $order['PurchaseDate'] ?? null,
+                                $marketplaceId,
+                                null
+                            );
+                            Order::updateOrCreate(
+                                ['amazon_order_id' => $order_id],
+                                [
+                                    'purchase_date' => $this->normalizePurchaseDate($order['PurchaseDate'] ?? null),
+                                    'purchase_date_local' => $localized['purchase_date_local'],
+                                    'purchase_date_local_date' => $localized['purchase_date_local_date'],
+                                    'order_status' => $order['OrderStatus'] ?? null,
+                                    'fulfillment_channel' => $order['FulfillmentChannel'] ?? null,
+                                    'payment_method' => $order['PaymentMethodDetails'][0] ?? ($order['PaymentMethod'] ?? null),
+                                    'sales_channel' => $order['SalesChannel'] ?? null,
+                                    'marketplace_id' => $marketplaceId,
+                                    'marketplace_timezone' => $localized['marketplace_timezone'],
+                                    'is_business_order' => !empty($order['IsBusinessOrder']),
+                                    'order_total_amount' => $order['OrderTotal']['Amount'] ?? null,
+                                    'order_total_currency' => $order['OrderTotal']['CurrencyCode'] ?? null,
+                                    'shipping_city' => $ship['City'] ?? null,
+                                    'shipping_country_code' => $ship['CountryCode'] ?? null,
+                                    'shipping_postal_code' => $ship['PostalCode'] ?? null,
+                                    'shipping_company' => $ship['CompanyName'] ?? null,
+                                    'shipping_region' => $ship['StateOrRegion'] ?? null,
+                                    'raw_order' => json_encode($order),
+                                    'last_synced_at' => now(),
+                                ]
+                            );
+                            if (!empty($marketplaceId) && empty($marketplaceCountryCode)) {
+                                $marketplaceCountryCode = DB::table('marketplaces')
+                                    ->where('id', (string) $marketplaceId)
+                                    ->value('country_code');
+                            }
                         }
                     }
+                } catch (ApiException $e) {
+                    Log::warning('Order fetch failed', ['order_id' => $order_id, 'error' => $e->getMessage()]);
                 }
             }
 
             if ($needsItems) {
-                $responseItems = $ordersApi->getOrderItems($order_id);
-                if ($responseItems->status() < 400) {
-                    $itemsData = $responseItems->json();
-                    $itemsPayload = $itemsData['payload']['OrderItems'] ?? [];
-                    $isMarketplaceFacilitator = false;
-                    foreach ($itemsPayload as $item) {
-                        $itemId = $item['OrderItemId'] ?? null;
-                        if (!$itemId) {
-                            continue;
-                        }
-                        $lineNet = $this->orderNetValueService->valuesFromApiItem($item, $marketplaceCountryCode);
-                        $orderedQty = isset($item['QuantityOrdered']) ? (int) $item['QuantityOrdered'] : null;
-                        $shippedQty = isset($item['QuantityShipped']) ? (int) $item['QuantityShipped'] : null;
-                        $unshippedQty = null;
-                        if (isset($item['QuantityUnshipped'])) {
-                            $unshippedQty = (int) $item['QuantityUnshipped'];
-                        } elseif ($orderedQty !== null && $shippedQty !== null) {
-                            $unshippedQty = max(0, $orderedQty - $shippedQty);
-                        }
-                        OrderItem::updateOrCreate(
-                            ['order_item_id' => $itemId],
-                            [
-                                'amazon_order_id' => $order_id,
-                                'asin' => $item['ASIN'] ?? null,
-                                'seller_sku' => $item['SellerSKU'] ?? null,
-                                'title' => $item['Title'] ?? null,
-                                'quantity_ordered' => $orderedQty,
-                                'quantity_shipped' => $shippedQty,
-                                'quantity_unshipped' => $unshippedQty,
-                                'item_price_amount' => $item['ItemPrice']['Amount'] ?? null,
-                                'line_net_ex_tax' => $lineNet['line_net_ex_tax'],
-                                'item_price_currency' => $item['ItemPrice']['CurrencyCode'] ?? null,
-                                'line_net_currency' => $lineNet['line_net_currency'],
-                                'raw_item' => $item,
-                            ]
-                        );
+                try {
+                    [$itemsModel, $statusCode] = $ordersApi->getOrderItemsWithHttpInfo($order_id);
+                    if ($statusCode < 400) {
+                        $itemsData = $this->modelToArray($itemsModel);
+                        $itemsPayload = $itemsData['payload']['OrderItems'] ?? [];
+                        $isMarketplaceFacilitator = false;
+                        foreach ($itemsPayload as $item) {
+                            $itemId = $item['OrderItemId'] ?? null;
+                            if (!$itemId) {
+                                continue;
+                            }
+                            $lineNet = $this->orderNetValueService->valuesFromApiItem($item, $marketplaceCountryCode);
+                            $orderedQty = isset($item['QuantityOrdered']) ? (int) $item['QuantityOrdered'] : null;
+                            $shippedQty = isset($item['QuantityShipped']) ? (int) $item['QuantityShipped'] : null;
+                            $unshippedQty = null;
+                            if (isset($item['QuantityUnshipped'])) {
+                                $unshippedQty = (int) $item['QuantityUnshipped'];
+                            } elseif ($orderedQty !== null && $shippedQty !== null) {
+                                $unshippedQty = max(0, $orderedQty - $shippedQty);
+                            }
+                            OrderItem::updateOrCreate(
+                                ['order_item_id' => $itemId],
+                                [
+                                    'amazon_order_id' => $order_id,
+                                    'asin' => $item['ASIN'] ?? null,
+                                    'seller_sku' => $item['SellerSKU'] ?? null,
+                                    'title' => $item['Title'] ?? null,
+                                    'quantity_ordered' => $orderedQty,
+                                    'quantity_shipped' => $shippedQty,
+                                    'quantity_unshipped' => $unshippedQty,
+                                    'item_price_amount' => $item['ItemPrice']['Amount'] ?? null,
+                                    'line_net_ex_tax' => $lineNet['line_net_ex_tax'],
+                                    'item_price_currency' => $item['ItemPrice']['CurrencyCode'] ?? null,
+                                    'line_net_currency' => $lineNet['line_net_currency'],
+                                    'raw_item' => $item,
+                                ]
+                            );
 
-                        if (!$isMarketplaceFacilitator && $this->isMarketplaceFacilitatorItem($item)) {
-                            $isMarketplaceFacilitator = true;
+                            if (!$isMarketplaceFacilitator && $this->isMarketplaceFacilitatorItem($item)) {
+                                $isMarketplaceFacilitator = true;
+                            }
                         }
+
+                        Order::query()
+                            ->where('amazon_order_id', $order_id)
+                            ->update(['is_marketplace_facilitator' => $isMarketplaceFacilitator]);
+                        $this->orderNetValueService->refreshOrderNet($order_id);
                     }
-
-                    Order::query()
-                        ->where('amazon_order_id', $order_id)
-                        ->update(['is_marketplace_facilitator' => $isMarketplaceFacilitator]);
-                    $this->orderNetValueService->refreshOrderNet($order_id);
+                } catch (ApiException $e) {
+                    Log::warning('Order items fetch failed', ['order_id' => $order_id, 'error' => $e->getMessage()]);
                 }
             }
 
             if ($needsAddress) {
-                $responseAddress = $ordersApi->getOrderAddress($order_id);
-                if ($responseAddress->status() < 400) {
-                    $addrData = $responseAddress->json();
-                    $addr = $addrData['payload']['ShippingAddress'] ?? [];
-                    OrderShipAddress::updateOrCreate(
-                        ['order_id' => $order_id],
-                        [
-                            'country_code' => $addr['CountryCode'] ?? null,
-                            'postal_code' => $addr['PostalCode'] ?? null,
-                            'city' => $addr['City'] ?? null,
-                            'region' => $addr['StateOrRegion'] ?? null,
-                            'raw_address' => $addr,
-                        ]
-                    );
+                try {
+                    [$addressModel, $statusCode] = $ordersApi->getOrderAddressWithHttpInfo($order_id);
+                    if ($statusCode < 400) {
+                        $addrData = $this->modelToArray($addressModel);
+                        $addr = $addrData['payload']['ShippingAddress'] ?? [];
+                        OrderShipAddress::updateOrCreate(
+                            ['order_id' => $order_id],
+                            [
+                                'country_code' => $addr['CountryCode'] ?? null,
+                                'postal_code' => $addr['PostalCode'] ?? null,
+                                'city' => $addr['City'] ?? null,
+                                'region' => $addr['StateOrRegion'] ?? null,
+                                'raw_address' => $addr,
+                            ]
+                        );
+                    }
+                } catch (ApiException $e) {
+                    Log::warning('Order address fetch failed', ['order_id' => $order_id, 'error' => $e->getMessage()]);
                 }
             }
 
@@ -1427,6 +1440,22 @@ class OrderController extends Controller
         } catch (\Exception $e) {
             return null;
         }
+    }
+
+    private function modelToArray(mixed $value): array
+    {
+        if ($value === null) {
+            return [];
+        }
+
+        $json = json_encode($value);
+        if ($json === false) {
+            return [];
+        }
+
+        $decoded = json_decode($json, true);
+
+        return is_array($decoded) ? $decoded : [];
     }
 
     private function needsItemShipmentRefresh(?Order $orderRecord, $items): bool

@@ -6,7 +6,7 @@ use App\Contracts\Amazon\AmazonOrderApi;
 use App\Integrations\Amazon\SpApi\LegacySpApiClientFactory;
 use App\Integrations\Amazon\SpApi\SpApiClientFactory;
 use App\Services\Amazon\OfficialSpApiService;
-use App\Services\Amazon\Orders\LegacyOrderAdapter;
+use App\Services\Amazon\Orders\OfficialOrderAdapter;
 use App\Services\Amazon\Support\AmazonRequestPolicy;
 use App\Services\MarketplaceService;
 use App\Services\RegionConfigService;
@@ -30,10 +30,10 @@ class AmazonServiceProvider extends ServiceProvider
         });
 
         $this->app->bind(AmazonOrderApi::class, function ($app) {
-            return new LegacyOrderAdapter(
-                $app->make(LegacySpApiClientFactory::class),
+            return new OfficialOrderAdapter(
+                $app->make(OfficialSpApiService::class),
                 $app->make(MarketplaceService::class),
-                $app->make(AmazonRequestPolicy::class)
+                $app->make(RegionConfigService::class)
             );
         });
     }
