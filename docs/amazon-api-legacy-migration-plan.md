@@ -15,7 +15,7 @@ Reviewed:
 
 SP-API usage in code:
 - Orders API `v2026-01-01` (current migration target adopted)
-- Fulfillment Inbound API `v2024-03-20` (current migration target adopted for runtime sync)
+- Fulfillment Inbound API `v2024-03-20` primary path with official SDK `v0` fallback for shipment ingestion
 - Product Pricing API `v2022-05-01` (current migration target adopted)
 - Product Fees API `v0` (still current)
 - Reports API `v2021-06-30` (current)
@@ -44,7 +44,10 @@ Completed:
 - Inbound runtime migration completed (`getShipments/getShipmentItemsByShipmentId` replaced with `listInboundPlans/getInboundPlan/getShipment/listShipmentItems` on `v2024-03-20`).
 
 Remaining Phase: Fulfillment Inbound API
-- Remaining cleanup completed: `makeInboundV0Api` methods removed from shared factory surfaces.
+- Explanation (official SDK only): production diagnostics on 2026-03-10 show `listInboundPlans` returns plans and marketplace/date matches, but `getInboundPlan(...)->getShipments()` is empty for active plans in this seller workflow. As a result, ingestion from `v2024-03-20` alone can produce zero shipments.
+- Current mitigation: keep an official SDK fallback to inbound `v0` (`getShipments`, `getShipmentItemsByShipmentId`) when `v2024-03-20` discovery yields zero shipment references for a marketplace.
+- Constraint: this fallback still uses the official Amazon SDK (`amzn-spapi/sdk`) and does not use `jlevers/selling-partner-api`.
+- Future target: remove `v0` fallback once Amazon workflow parity is confirmed for shipment ID/item retrieval in `v2024-03-20` for this account context.
 
 ## Risk Controls
 
@@ -55,7 +58,7 @@ Remaining Phase: Fulfillment Inbound API
 
 ## Priority Order
 
-1. No remaining legacy API-version migration units in current audit scope.
+1. Validate inbound `v2024-03-20` shipment-ID availability for this seller workflow and remove `v0` fallback when parity is achieved.
 
 ## Reference Sources
 

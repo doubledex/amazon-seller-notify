@@ -9,9 +9,11 @@ use App\Services\RegionConfigService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use SpApi\Api\fulfillment\inbound\v2024_03_20\FbaInboundApi;
+use SpApi\Api\fulfillment\inbound\v0\FbaInboundApi as FbaInboundV0Api;
+use SpApi\Api\fulfillment\inbound\v2024_03_20\FbaInboundApi as FbaInboundV20240320Api;
 use SpApi\ApiException;
 use SpApi\Model\fulfillment\inbound\v2024_03_20\InboundPlanSummary;
+use SpApi\Model\fulfillment\inbound\v0\ShipmentStatus;
 
 class InboundShipmentSyncService
 {
@@ -92,8 +94,9 @@ class InboundShipmentSyncService
     private function syncRegion(string $regionCode, int $days, ?string $singleMarketplaceId = null, bool $debug = false): array
     {
         $config = $this->regionConfigService->spApiConfig($regionCode);
-        $api = $this->officialSpApiService->makeInboundV20240320Api($regionCode);
-        if ($api === null) {
+        $api2024 = $this->officialSpApiService->makeInboundV20240320Api($regionCode);
+        $apiV0 = $this->officialSpApiService->makeInboundV0Api($regionCode);
+        if ($api2024 === null && $apiV0 === null) {
             return [
                 'ok' => false,
                 'message' => "[{$regionCode}] Unable to initialize official SP-API client.",
@@ -133,7 +136,7 @@ class InboundShipmentSyncService
 
         foreach ($marketplaceIds as $marketplaceId) {
             try {
-                $result = $this->syncMarketplace($api, $regionCode, $marketplaceId, $days, $debug);
+                $result = $this->syncMarketplace($api2024, $apiV0, $regionCode, $marketplaceId, $days, $debug);
                 $shipmentsUpserted += $result['shipments_upserted'];
                 $shipmentsScanned += $result['shipments_scanned'];
                 $shipmentItemsScanned += $result['shipment_items_scanned'];
@@ -173,17 +176,39 @@ class InboundShipmentSyncService
     }
 
     private function syncMarketplace(
-        FbaInboundApi $api,
+        ?FbaInboundV20240320Api $api2024,
+        ?FbaInboundV0Api $apiV0,
         string $regionCode,
         string $marketplaceId,
         int $days,
         bool $debug = false
     ): array
     {
+        if ($api2024 === null) {
+            return $apiV0 === null
+                ? [
+                    'shipments_upserted' => 0,
+                    'shipments_scanned' => 0,
+                    'shipment_items_scanned' => 0,
+                    'carton_rows_upserted' => 0,
+                ]
+                : $this->syncMarketplaceViaV0($apiV0, $regionCode, $marketplaceId, $days, $debug);
+        }
+
         $updatedAfter = Carbon::now('UTC')->subDays($days);
-        $shipmentRefs = $this->collectShipmentReferences($api, $regionCode, $marketplaceId, $updatedAfter, $debug);
+        $shipmentRefs = $this->collectShipmentReferences($api2024, $regionCode, $marketplaceId, $updatedAfter, $debug);
 
         if (empty($shipmentRefs)) {
+            if ($apiV0 !== null) {
+                Log::info('Inbound sync using v0 fallback because v2024 discovered no shipment refs', [
+                    'region' => $regionCode,
+                    'marketplace_id' => $marketplaceId,
+                    'days' => $days,
+                ]);
+
+                return $this->syncMarketplaceViaV0($apiV0, $regionCode, $marketplaceId, $days, $debug);
+            }
+
             return [
                 'shipments_upserted' => 0,
                 'shipments_scanned' => 0,
@@ -217,36 +242,114 @@ class InboundShipmentSyncService
                 'updated_at' => $syncedAt,
             ];
 
-            $items = $this->collectShipmentItems($api, $ref['inbound_plan_id'], $shipmentId);
+            $items = $this->collectShipmentItems($api2024, $ref['inbound_plan_id'], $shipmentId);
             $shipmentItemsScanned += count($items);
-            $cartonRowsByShipment[$shipmentId] = $this->buildCartonRows($shipmentId, $items, $syncedAt);
+            $cartonRowsByShipment[$shipmentId] = $this->buildCartonRowsFromV2024($shipmentId, $items, $syncedAt);
         }
 
-        DB::transaction(function () use ($shipmentRows, $cartonRowsByShipment, &$cartonRowsUpserted) {
-            InboundShipment::upsert(
-                $shipmentRows,
-                ['shipment_id'],
-                [
-                    'region_code',
-                    'marketplace_id',
-                    'carrier_name',
-                    'pro_tracking_number',
-                    'shipment_created_at',
-                    'shipment_closed_at',
-                    'updated_at',
-                ]
+        $cartonRowsUpserted = $this->persistShipmentRows($shipmentRows, $cartonRowsByShipment);
+
+        return [
+            'shipments_upserted' => count($shipmentRows),
+            'shipments_scanned' => count($shipmentRows),
+            'shipment_items_scanned' => $shipmentItemsScanned,
+            'carton_rows_upserted' => $cartonRowsUpserted,
+        ];
+    }
+
+    private function syncMarketplaceViaV0(
+        FbaInboundV0Api $api,
+        string $regionCode,
+        string $marketplaceId,
+        int $days,
+        bool $debug = false
+    ): array {
+        $nowUtc = Carbon::now('UTC');
+        $updatedAfter = $nowUtc->copy()->subDays($days);
+        $nextToken = null;
+        $shipmentData = [];
+
+        do {
+            $queryType = $nextToken ? 'NEXT_TOKEN' : 'DATE_RANGE';
+
+            $response = $this->callWithRetries(
+                fn () => $api->getShipments(
+                    query_type: $queryType,
+                    marketplace_id: $marketplaceId,
+                    shipment_status_list: $nextToken ? null : $this->shipmentStatusFilter(),
+                    shipment_id_list: null,
+                    last_updated_after: $nextToken ? null : $updatedAfter->toDateTime(),
+                    last_updated_before: $nextToken ? null : $nowUtc->toDateTime(),
+                    next_token: $nextToken,
+                ),
+                'fbaInbound.v0.getShipments'
             );
 
-            $cartonRowsUpserted = 0;
-            foreach ($cartonRowsByShipment as $shipmentId => $cartonRows) {
-                InboundShipmentCarton::query()->where('shipment_id', $shipmentId)->delete();
-                if (empty($cartonRows)) {
+            $payload = $response->getPayload();
+            foreach ((array) ($payload?->getShipmentData() ?? []) as $shipment) {
+                $shipmentId = trim((string) $shipment->getShipmentId());
+                if ($shipmentId === '') {
                     continue;
                 }
-                InboundShipmentCarton::insert($cartonRows);
-                $cartonRowsUpserted += count($cartonRows);
+                $shipmentData[$shipmentId] = $shipment;
             }
-        });
+
+            $nextToken = trim((string) ($payload?->getNextToken() ?? ''));
+            if ($nextToken === '') {
+                $nextToken = null;
+            }
+        } while ($nextToken !== null);
+
+        if ($debug) {
+            Log::info('Inbound v0 fallback diagnostics', [
+                'region' => $regionCode,
+                'marketplace_id' => $marketplaceId,
+                'updated_after' => $updatedAfter->toIso8601String(),
+                'shipments_discovered' => count($shipmentData),
+            ]);
+        }
+
+        if (empty($shipmentData)) {
+            return [
+                'shipments_upserted' => 0,
+                'shipments_scanned' => 0,
+                'shipment_items_scanned' => 0,
+                'carton_rows_upserted' => 0,
+            ];
+        }
+
+        $syncedAt = now();
+        $shipmentRows = [];
+        $cartonRowsByShipment = [];
+        $shipmentItemsScanned = 0;
+
+        foreach ($shipmentData as $shipmentId => $shipment) {
+            $status = strtoupper(trim((string) $shipment->getShipmentStatus()));
+            $shipmentRows[] = [
+                'shipment_id' => $shipmentId,
+                'region_code' => $regionCode,
+                'marketplace_id' => $marketplaceId,
+                'carrier_name' => null,
+                'pro_tracking_number' => null,
+                'shipment_created_at' => null,
+                'shipment_closed_at' => $this->shipmentClosedAtFromStatus($status, $syncedAt),
+                'created_at' => $syncedAt,
+                'updated_at' => $syncedAt,
+            ];
+
+            $itemsResponse = $this->callWithRetries(
+                fn () => $api->getShipmentItemsByShipmentId(
+                    shipment_id: $shipmentId,
+                    marketplace_id: $marketplaceId
+                ),
+                'fbaInbound.v0.getShipmentItemsByShipmentId'
+            );
+            $items = (array) ($itemsResponse->getPayload()?->getItemData() ?? []);
+            $shipmentItemsScanned += count($items);
+            $cartonRowsByShipment[$shipmentId] = $this->buildCartonRowsFromV0($shipmentId, $items, $syncedAt);
+        }
+
+        $cartonRowsUpserted = $this->persistShipmentRows($shipmentRows, $cartonRowsByShipment);
 
         return [
             'shipments_upserted' => count($shipmentRows),
@@ -260,7 +363,7 @@ class InboundShipmentSyncService
      * @return array<int, array{inbound_plan_id: string, shipment_id: string}>
      */
     private function collectShipmentReferences(
-        FbaInboundApi $api,
+        FbaInboundV20240320Api $api,
         string $regionCode,
         string $marketplaceId,
         Carbon $updatedAfter,
@@ -360,7 +463,7 @@ class InboundShipmentSyncService
         return array_values($refs);
     }
 
-    private function collectShipmentItems(FbaInboundApi $api, string $inboundPlanId, string $shipmentId): array
+    private function collectShipmentItems(FbaInboundV20240320Api $api, string $inboundPlanId, string $shipmentId): array
     {
         $nextToken = null;
         $items = [];
@@ -389,7 +492,7 @@ class InboundShipmentSyncService
         return $items;
     }
 
-    private function buildCartonRows(string $shipmentId, array $items, Carbon $syncedAt): array
+    private function buildCartonRowsFromV2024(string $shipmentId, array $items, Carbon $syncedAt): array
     {
         $lineMap = [];
 
@@ -440,6 +543,90 @@ class InboundShipmentSyncService
         }
 
         return $rows;
+    }
+
+    private function buildCartonRowsFromV0(string $shipmentId, array $items, Carbon $syncedAt): array
+    {
+        $lineMap = [];
+
+        foreach ($items as $item) {
+            $sku = trim((string) $item->getSellerSku());
+            $fnsku = trim((string) $item->getFulfillmentNetworkSku());
+            $quantityShipped = max(0, (int) $item->getQuantityShipped());
+            if ($quantityShipped <= 0) {
+                continue;
+            }
+
+            $quantityInCase = max(0, (int) ($item->getQuantityInCase() ?? 0));
+            $key = $sku . '|' . $fnsku;
+
+            if (!isset($lineMap[$key])) {
+                $lineMap[$key] = [
+                    'sku' => $sku,
+                    'fnsku' => $fnsku,
+                    'expected_units' => 0,
+                    'units_per_carton' => 0,
+                ];
+            }
+
+            $lineMap[$key]['expected_units'] += $quantityShipped;
+            if ($quantityInCase > 0) {
+                $lineMap[$key]['units_per_carton'] = max($lineMap[$key]['units_per_carton'], $quantityInCase);
+            }
+        }
+
+        $rows = [];
+        foreach ($lineMap as $line) {
+            $expectedUnits = (int) $line['expected_units'];
+            $unitsPerCarton = (int) $line['units_per_carton'];
+            $cartonCount = $unitsPerCarton > 0 ? (int) ceil($expectedUnits / $unitsPerCarton) : 0;
+            $cartonId = 'ITEM-' . substr(sha1($shipmentId . '|' . $line['sku'] . '|' . $line['fnsku']), 0, 40);
+
+            $rows[] = [
+                'shipment_id' => $shipmentId,
+                'carton_id' => $cartonId,
+                'sku' => $line['sku'],
+                'fnsku' => $line['fnsku'],
+                'expected_units' => $expectedUnits,
+                'units_per_carton' => $unitsPerCarton,
+                'carton_count' => $cartonCount,
+                'created_at' => $syncedAt,
+                'updated_at' => $syncedAt,
+            ];
+        }
+
+        return $rows;
+    }
+
+    private function persistShipmentRows(array $shipmentRows, array $cartonRowsByShipment): int
+    {
+        DB::transaction(function () use ($shipmentRows, $cartonRowsByShipment, &$cartonRowsUpserted) {
+            InboundShipment::upsert(
+                $shipmentRows,
+                ['shipment_id'],
+                [
+                    'region_code',
+                    'marketplace_id',
+                    'carrier_name',
+                    'pro_tracking_number',
+                    'shipment_created_at',
+                    'shipment_closed_at',
+                    'updated_at',
+                ]
+            );
+
+            $cartonRowsUpserted = 0;
+            foreach ($cartonRowsByShipment as $shipmentId => $cartonRows) {
+                InboundShipmentCarton::query()->where('shipment_id', $shipmentId)->delete();
+                if (empty($cartonRows)) {
+                    continue;
+                }
+                InboundShipmentCarton::insert($cartonRows);
+                $cartonRowsUpserted += count($cartonRows);
+            }
+        });
+
+        return $cartonRowsUpserted;
     }
 
     private function callWithRetries(callable $callback, string $operation)
@@ -493,6 +680,22 @@ class InboundShipmentSyncService
         }
 
         return null;
+    }
+
+    private function shipmentStatusFilter(): array
+    {
+        return [
+            ShipmentStatus::WORKING,
+            ShipmentStatus::SHIPPED,
+            ShipmentStatus::RECEIVING,
+            ShipmentStatus::CANCELLED,
+            ShipmentStatus::DELETED,
+            ShipmentStatus::CLOSED,
+            ShipmentStatus::ERROR,
+            ShipmentStatus::IN_TRANSIT,
+            ShipmentStatus::DELIVERED,
+            ShipmentStatus::CHECKED_IN,
+        ];
     }
 
 }
