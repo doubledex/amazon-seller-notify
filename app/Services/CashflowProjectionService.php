@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Integrations\Amazon\SpApi\FinancesAdapter;
-use App\Integrations\Amazon\SpApi\LegacySpApiClientFactory;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -301,7 +300,7 @@ class CashflowProjectionService
             ];
         }
 
-        $adapter = $this->financesAdapter ?? new FinancesAdapter(new LegacySpApiClientFactory());
+        $adapter = $this->financesAdapter ?? new FinancesAdapter();
         $regionService = $this->regionConfigService ?? new RegionConfigService();
         $regions = $regionService->spApiRegions();
         $postedAfter = now()->utc()->subDays(self::OUTSTANDING_LOOKBACK_DAYS)->startOfDay();
@@ -339,16 +338,16 @@ class CashflowProjectionService
                         nextToken: $nextToken,
                         region: $region
                     );
-                    if ($response->status() >= 400) {
+                    if ((int) ($response['status'] ?? 500) >= 400) {
                         Log::warning('cashflow snapshot API call failed', [
                             'region' => $region,
                             'marketplace_id' => $marketplaceId,
-                            'status' => $response->status(),
+                            'status' => (int) ($response['status'] ?? 500),
                         ]);
                         break;
                     }
 
-                    $payload = (array) (($response->json('payload') ?? null) ?: []);
+                    $payload = (array) ((((array) ($response['body'] ?? []))['payload'] ?? null) ?: []);
                     $txns = (array) ($payload['transactions'] ?? []);
                     $transactionsSeen += count($txns);
                     foreach ($txns as $txn) {

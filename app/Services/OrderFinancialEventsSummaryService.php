@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Integrations\Amazon\SpApi\FinancesAdapter;
-use App\Integrations\Amazon\SpApi\LegacySpApiClientFactory;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -37,7 +36,7 @@ class OrderFinancialEventsSummaryService
 
     private function fetchAndSummarize(string $orderId, ?string $marketplaceId): array
     {
-        $adapter = $this->financesAdapter ?? new FinancesAdapter(new LegacySpApiClientFactory());
+        $adapter = $this->financesAdapter ?? new FinancesAdapter();
         $region = $this->resolveRegionForMarketplace($marketplaceId);
 
         try {
@@ -53,18 +52,18 @@ class OrderFinancialEventsSummaryService
                     $nextToken,
                     $region
                 );
-                if ($response->status() >= 400) {
+                if ((int) ($response['status'] ?? 500) >= 400) {
                     return $this->emptySummary(
                         'Could not load financial events from Amazon SP-API.',
                         [
-                            'http_status' => $response->status(),
+                            'http_status' => (int) ($response['status'] ?? 500),
                             'marketplace_id' => $marketplaceId,
                             'region' => $region,
                         ]
                     );
                 }
 
-                $payload = (array) (($response->json('payload') ?? null) ?: []);
+                $payload = (array) ((((array) ($response['body'] ?? []))['payload'] ?? null) ?: []);
                 $pageTransactions = (array) ($payload['transactions'] ?? []);
                 foreach ($pageTransactions as $transaction) {
                     if (is_array($transaction)) {

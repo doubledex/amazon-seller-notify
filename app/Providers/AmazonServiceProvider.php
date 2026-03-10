@@ -3,7 +3,6 @@
 namespace App\Providers;
 
 use App\Contracts\Amazon\AmazonOrderApi;
-use App\Integrations\Amazon\SpApi\LegacySpApiClientFactory;
 use App\Integrations\Amazon\SpApi\SpApiClientFactory;
 use App\Services\Amazon\OfficialSpApiService;
 use App\Services\Amazon\Orders\OfficialOrderAdapter;
@@ -23,10 +22,6 @@ class AmazonServiceProvider extends ServiceProvider
                 $app->make(RegionConfigService::class),
                 $app->make(OfficialSpApiService::class)
             );
-        });
-
-        $this->app->singleton(LegacySpApiClientFactory::class, function ($app) {
-            return new LegacySpApiClientFactory($app->make(RegionConfigService::class));
         });
 
         $this->app->bind(AmazonOrderApi::class, function ($app) {

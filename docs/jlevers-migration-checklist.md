@@ -34,20 +34,20 @@ It is a living checklist and must be updated whenever legacy usage is discovered
 | discovered   | 0     |
 | planned      | 0     |
 | in_progress  | 0     |
-| migrated     | 10    |
-| blocked      | 1     |
+| migrated     | 12    |
+| blocked      | 0     |
 | deferred     | 0     |
 
 ---
 
 ### ITEM-001
-- Status: blocked
+- Status: migrated
 - File path: `composer.json`, `composer.lock`
 - Class/module: Composer dependency graph (`jlevers/selling-partner-api`, `highsidelabs/laravel-spapi`)
 - Legacy usage type: package reference and transitive dependency lock-in
 - Purpose: installs the legacy SP-API package directly and via the Laravel wrapper package
 - Official SDK replacement target: `amzn-spapi/sdk` plus first-party app factories/adapters (remove legacy packages after callsites are migrated)
-- Notes: `composer.json` still requires both `jlevers/selling-partner-api` and `highsidelabs/laravel-spapi`; `composer.lock` confirms wrapper depends on jlevers. Removal is blocked until remaining runtime usages below are migrated.
+- Notes: removed `highsidelabs/laravel-spapi` and `jlevers/selling-partner-api` from `composer.json`; refreshed `composer.lock` and vendor install, removing transitive legacy packages from the dependency graph.
 
 ### ITEM-002
 - Status: migrated
@@ -65,7 +65,7 @@ It is a living checklist and must be updated whenever legacy usage is discovered
 - Legacy usage type: centralized wrapper around legacy static connector builder
 - Purpose: constructs seller connector used by integration adapters
 - Official SDK replacement target: official SP-API client factory that returns operation clients (or typed API clients) from `amzn-spapi/sdk`
-- Notes: migrated to an official SDK client factory (orders, finances, notifications, wallet, inbound APIs). Legacy connector creation was split into `App\Integrations\Amazon\SpApi\LegacySpApiClientFactory` for remaining legacy adapters.
+- Notes: migrated to an official SDK client factory (orders, finances, notifications, wallet, inbound, reports, catalog APIs). Legacy connector factory split was temporary during migration and has now been removed.
 
 ### ITEM-004
 - Status: migrated
@@ -74,7 +74,7 @@ It is a living checklist and must be updated whenever legacy usage is discovered
 - Legacy usage type: legacy enum coupling (`SellingPartnerApi\Enums\Endpoint`, `Region`)
 - Purpose: resolves region/endpoint and config for SP-API requests
 - Official SDK replacement target: app-owned region/endpoint resolver decoupled from jlevers enums, mapped to official SDK endpoint config
-- Notes: removed jlevers enum imports from this service and replaced enum return with app-owned string endpoint resolution (`spApiEndpoint()`); legacy enum conversion now occurs in `App\Support\Amazon\LegacySpApiEndpointResolver` at jlevers callsites.
+- Notes: removed jlevers enum imports from this service and replaced enum return with app-owned string endpoint resolution (`spApiEndpoint()`). Temporary legacy enum resolver bridge was removed after final jlevers callsites were eliminated.
 
 ### ITEM-005
 - Status: migrated
@@ -138,3 +138,12 @@ It is a living checklist and must be updated whenever legacy usage is discovered
 - Purpose: migration guidance for landed-cost/reporting refactor scope
 - Official SDK replacement target: docs updated to reference official SDK client factory and typed service boundaries only
 - Notes: removed explicit `SellingPartnerApi::seller(...)` reference and now documents legacy connector usage generically with official SDK client-factory direction.
+
+### ITEM-012
+- Status: migrated
+- File path: `app/Integrations/Amazon/SpApi/FinancesAdapter.php`, `app/Services/OrderFinancialEventsSummaryService.php`, `app/Services/CashflowProjectionService.php`
+- Class/module: finances transaction adapter and downstream financial summaries
+- Legacy usage type: jlevers finances connector/response coupling
+- Purpose: list SP-API financial transactions for order-level summaries and outstanding cashflow snapshots
+- Official SDK replacement target: official finances v2024-06-19 client (`OfficialSpApiService::makeFinancesV20240619Api()`) with `WithHttpInfo` response handling
+- Notes: migrated `FinancesAdapter` to official SDK `listTransactionsWithHttpInfo` and removed `LegacySpApiClientFactory` construction from summary/snapshot services.
