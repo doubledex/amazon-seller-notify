@@ -121,6 +121,8 @@ class OrderSyncService
         $totalOrders = 0;
         $itemsFetched = 0;
         $addressesFetched = 0;
+        $itemsFailed = 0;
+        $addressesFailed = 0;
         $geocoded = 0;
 
         if (empty($marketplaceIds)) {
@@ -328,6 +330,8 @@ class OrderSyncService
                                 ->update(['is_marketplace_facilitator' => $isMarketplaceFacilitator]);
                             $orderNetValueService->refreshOrderNet($orderId);
                             $itemsFetched++;
+                        } else {
+                            $itemsFailed++;
                         }
                     }
 
@@ -352,6 +356,8 @@ class OrderSyncService
                                 ]
                             );
                             $addressesFetched++;
+                        } else {
+                            $addressesFailed++;
                         }
                     }
 
@@ -391,7 +397,7 @@ class OrderSyncService
 
         $result = [
             'ok' => true,
-            'message' => "[{$region}] Synced orders: {$totalOrders}, items fetched: {$itemsFetched}, addresses fetched: {$addressesFetched}, geocoded: {$geocoded}",
+            'message' => "[{$region}] Synced orders: {$totalOrders}, items fetched: {$itemsFetched}, addresses fetched: {$addressesFetched}, item detail failures: {$itemsFailed}, address detail failures: {$addressesFailed}, geocoded: {$geocoded}",
         ];
         $this->finishSyncRun($run, $result['ok'], $result['message'], $totalOrders, $itemsFetched, $addressesFetched, $geocoded);
         return $result;

@@ -50,7 +50,7 @@ class OfficialOrderAdapter implements AmazonOrderApi
         }
 
         return $this->callWithRetries(
-            fn () => $getOrderApi->getOrderWithHttpInfo($amazonOrderId, ['orderItems']),
+            fn () => $getOrderApi->getOrderWithHttpInfo($amazonOrderId, ['FULFILLMENT', 'PACKAGES', 'PROCEEDS', 'BUYER']),
             fn (array $body) => $this->normalizeGetOrderItemsBody($body, $amazonOrderId)
         );
     }
@@ -64,7 +64,7 @@ class OfficialOrderAdapter implements AmazonOrderApi
         }
 
         return $this->callWithRetries(
-            fn () => $getOrderApi->getOrderWithHttpInfo($amazonOrderId, ['recipient']),
+            fn () => $getOrderApi->getOrderWithHttpInfo($amazonOrderId, ['RECIPIENT']),
             fn (array $body) => $this->normalizeGetOrderAddressBody($body, $amazonOrderId)
         );
     }
