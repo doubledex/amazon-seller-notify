@@ -86,6 +86,11 @@
                         <th class="text-left">From</th>
                         <th class="text-left">To</th>
                         <th class="text-left">When</th>
+                        <th class="text-left">Hours Remaining</th>
+                        <th class="text-left">Deadline (Transition)</th>
+                        <th class="text-left">Marketplace</th>
+                        <th class="text-left">Program</th>
+                        <th class="text-left">Metadata</th>
                     </tr>
                     </thead>
                     <tbody>
@@ -94,9 +99,16 @@
                             <td>{{ $transition->from_state ?: 'n/a' }}</td>
                             <td>{{ $transition->to_state }}</td>
                             <td>{{ optional($transition->transitioned_at)->format('Y-m-d H:i:s') ?? 'n/a' }}</td>
+                            <td>{{ data_get($transition->metadata, 'hours_remaining', 'n/a') }}</td>
+                            <td>{{ data_get($transition->metadata, 'deadline_at', 'n/a') }}</td>
+                            <td>{{ data_get($transition->metadata, 'marketplace_id', 'n/a') }}</td>
+                            <td>{{ data_get($transition->metadata, 'program', 'n/a') }}</td>
+                            <td>
+                                <pre class="text-xs whitespace-pre-wrap">{{ json_encode($transition->metadata ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                            </td>
                         </tr>
                     @empty
-                        <tr><td colspan="3">No SLA transitions recorded yet.</td></tr>
+                        <tr><td colspan="8">No SLA transitions recorded yet.</td></tr>
                     @endforelse
                     </tbody>
                 </table>
