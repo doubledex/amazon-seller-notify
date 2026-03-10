@@ -6,6 +6,7 @@ use App\Contracts\Amazon\AmazonOrderApi;
 use App\Services\Amazon\OfficialSpApiService;
 use App\Services\MarketplaceService;
 use App\Services\RegionConfigService;
+use DateTime;
 use SpApi\ApiException;
 
 class OfficialOrderAdapter implements AmazonOrderApi
@@ -22,46 +23,50 @@ class OfficialOrderAdapter implements AmazonOrderApi
     public function getOrders(string $createdAfter, string $createdBefore, ?string $nextToken = null, ?string $region = null): array
     {
         $resolvedRegion = $this->resolveRegion($region);
-        $ordersApi = $this->officialSpApiService->makeOrdersV0Api($resolvedRegion);
-        if ($ordersApi === null) {
+        $searchOrdersApi = $this->officialSpApiService->makeSearchOrdersV20260101Api($resolvedRegion);
+        if ($searchOrdersApi === null) {
             return ['status' => 500, 'headers' => [], 'body' => [], 'error' => 'Unable to construct official Orders API client.'];
         }
 
         $marketplaceIds = $this->marketplaceService->getMarketplaceIdsForRegion($resolvedRegion);
 
-        return $this->callWithRetries(function () use ($ordersApi, $nextToken, $marketplaceIds, $createdAfter, $createdBefore) {
-            if ($nextToken !== null && trim($nextToken) !== '') {
-                return $ordersApi->getOrdersWithHttpInfo(marketplace_ids: $marketplaceIds, next_token: $nextToken);
-            }
-
-            return $ordersApi->getOrdersWithHttpInfo(
+        return $this->callWithRetries(function () use ($searchOrdersApi, $nextToken, $marketplaceIds, $createdAfter, $createdBefore) {
+            $paginationToken = trim((string) $nextToken);
+            return $searchOrdersApi->searchOrdersWithHttpInfo(
                 marketplace_ids: $marketplaceIds,
-                created_after: $createdAfter,
-                created_before: $createdBefore
+                created_after: new DateTime($createdAfter),
+                created_before: new DateTime($createdBefore),
+                pagination_token: $paginationToken !== '' ? $paginationToken : null
             );
-        });
+        }, fn (array $body) => $this->normalizeSearchOrdersBody($body));
     }
 
     public function getOrderItems(string $amazonOrderId, ?string $region = null): array
     {
         $resolvedRegion = $this->resolveRegion($region);
-        $ordersApi = $this->officialSpApiService->makeOrdersV0Api($resolvedRegion);
-        if ($ordersApi === null) {
+        $getOrderApi = $this->officialSpApiService->makeGetOrderV20260101Api($resolvedRegion);
+        if ($getOrderApi === null) {
             return ['status' => 500, 'headers' => [], 'body' => [], 'error' => 'Unable to construct official Orders API client.'];
         }
 
-        return $this->callWithRetries(fn () => $ordersApi->getOrderItemsWithHttpInfo($amazonOrderId));
+        return $this->callWithRetries(
+            fn () => $getOrderApi->getOrderWithHttpInfo($amazonOrderId, ['orderItems']),
+            fn (array $body) => $this->normalizeGetOrderItemsBody($body, $amazonOrderId)
+        );
     }
 
     public function getOrderAddress(string $amazonOrderId, ?string $region = null): array
     {
         $resolvedRegion = $this->resolveRegion($region);
-        $ordersApi = $this->officialSpApiService->makeOrdersV0Api($resolvedRegion);
-        if ($ordersApi === null) {
+        $getOrderApi = $this->officialSpApiService->makeGetOrderV20260101Api($resolvedRegion);
+        if ($getOrderApi === null) {
             return ['status' => 500, 'headers' => [], 'body' => [], 'error' => 'Unable to construct official Orders API client.'];
         }
 
-        return $this->callWithRetries(fn () => $ordersApi->getOrderAddressWithHttpInfo($amazonOrderId));
+        return $this->callWithRetries(
+            fn () => $getOrderApi->getOrderWithHttpInfo($amazonOrderId, ['recipient']),
+            fn (array $body) => $this->normalizeGetOrderAddressBody($body, $amazonOrderId)
+        );
     }
 
     private function resolveRegion(?string $region): string
@@ -71,17 +76,21 @@ class OfficialOrderAdapter implements AmazonOrderApi
         return in_array($resolved, ['EU', 'NA', 'FE'], true) ? $resolved : $this->regionConfigService->defaultSpApiRegion();
     }
 
-    private function callWithRetries(callable $callback): array
+    private function callWithRetries(callable $callback, ?callable $normalizeBody = null): array
     {
         $last = ['status' => 500, 'headers' => [], 'body' => [], 'error' => null];
 
         for ($attempt = 0; $attempt < self::MAX_ATTEMPTS; $attempt++) {
             try {
                 [$model, $status, $headers] = $callback();
+                $body = $this->modelToArray($model);
+                if ($normalizeBody !== null) {
+                    $body = $normalizeBody($body);
+                }
                 $response = [
                     'status' => (int) $status,
                     'headers' => (array) $headers,
-                    'body' => $this->modelToArray($model),
+                    'body' => $body,
                 ];
                 $last = $response;
 
@@ -154,5 +163,114 @@ class OfficialOrderAdapter implements AmazonOrderApi
         $decoded = json_decode($json, true);
 
         return is_array($decoded) ? $decoded : [];
+    }
+
+    private function normalizeSearchOrdersBody(array $body): array
+    {
+        $orders = (array) ($body['orders'] ?? []);
+        $pagination = (array) ($body['pagination'] ?? []);
+        $normalizedOrders = array_map(fn ($order) => $this->normalizeOrderSummary((array) $order), $orders);
+
+        return [
+            'payload' => [
+                'Orders' => array_values($normalizedOrders),
+                'NextToken' => (string) ($pagination['nextToken'] ?? ''),
+            ],
+        ];
+    }
+
+    private function normalizeGetOrderItemsBody(array $body, string $amazonOrderId): array
+    {
+        $order = (array) ($body['order'] ?? []);
+        $items = (array) ($order['orderItems'] ?? []);
+
+        return [
+            'payload' => [
+                'AmazonOrderId' => (string) ($order['orderId'] ?? $amazonOrderId),
+                'OrderItems' => array_values(array_map(fn ($item) => $this->normalizeOrderItem((array) $item), $items)),
+            ],
+        ];
+    }
+
+    private function normalizeGetOrderAddressBody(array $body, string $amazonOrderId): array
+    {
+        $order = (array) ($body['order'] ?? []);
+        $recipient = (array) ($order['recipient'] ?? []);
+        $address = (array) ($recipient['deliveryAddress'] ?? []);
+
+        return [
+            'payload' => [
+                'AmazonOrderId' => (string) ($order['orderId'] ?? $amazonOrderId),
+                'ShippingAddress' => [
+                    'Name' => $address['name'] ?? null,
+                    'AddressLine1' => $address['addressLine1'] ?? null,
+                    'AddressLine2' => $address['addressLine2'] ?? null,
+                    'AddressLine3' => $address['addressLine3'] ?? null,
+                    'City' => $address['city'] ?? null,
+                    'County' => $address['districtOrCounty'] ?? null,
+                    'District' => $address['districtOrCounty'] ?? null,
+                    'StateOrRegion' => $address['stateOrRegion'] ?? null,
+                    'Municipality' => $address['municipality'] ?? null,
+                    'PostalCode' => $address['postalCode'] ?? null,
+                    'CountryCode' => $address['countryCode'] ?? null,
+                    'Phone' => $address['phone'] ?? null,
+                    'AddressType' => $address['addressType'] ?? null,
+                ],
+            ],
+        ];
+    }
+
+    private function normalizeOrderSummary(array $order): array
+    {
+        $recipient = (array) ($order['recipient'] ?? []);
+        $address = (array) ($recipient['deliveryAddress'] ?? []);
+        $salesChannel = (array) ($order['salesChannel'] ?? []);
+        $fulfillment = (array) ($order['fulfillment'] ?? []);
+        $proceeds = (array) ($order['proceeds'] ?? []);
+        $grandTotal = (array) ($proceeds['grandTotal'] ?? []);
+        $buyer = (array) ($order['buyer'] ?? []);
+
+        return [
+            'AmazonOrderId' => $order['orderId'] ?? null,
+            'PurchaseDate' => $order['createdTime'] ?? null,
+            'LastUpdateDate' => $order['lastUpdatedTime'] ?? null,
+            'OrderStatus' => $fulfillment['fulfillmentStatus'] ?? null,
+            'FulfillmentChannel' => $fulfillment['fulfilledBy'] ?? null,
+            'SalesChannel' => $salesChannel['channelName'] ?? null,
+            'MarketplaceId' => $salesChannel['marketplaceId'] ?? null,
+            'IsBusinessOrder' => !empty($buyer['buyerCompanyName']),
+            'OrderTotal' => [
+                'Amount' => $grandTotal['amount'] ?? null,
+                'CurrencyCode' => $grandTotal['currencyCode'] ?? null,
+            ],
+            'ShippingAddress' => [
+                'City' => $address['city'] ?? null,
+                'CountryCode' => $address['countryCode'] ?? null,
+                'PostalCode' => $address['postalCode'] ?? null,
+                'CompanyName' => $address['companyName'] ?? null,
+                'StateOrRegion' => $address['stateOrRegion'] ?? null,
+            ],
+        ];
+    }
+
+    private function normalizeOrderItem(array $item): array
+    {
+        $product = (array) ($item['product'] ?? []);
+        $price = (array) ($product['price'] ?? []);
+        $fulfillment = (array) ($item['fulfillment'] ?? []);
+
+        return [
+            'OrderItemId' => $item['orderItemId'] ?? null,
+            'ASIN' => $product['asin'] ?? null,
+            'SellerSKU' => $product['sellerSku'] ?? null,
+            'Title' => $product['title'] ?? null,
+            'QuantityOrdered' => $item['quantityOrdered'] ?? null,
+            'QuantityShipped' => $fulfillment['quantityFulfilled'] ?? null,
+            'QuantityUnshipped' => $fulfillment['quantityUnfulfilled'] ?? null,
+            'ItemPrice' => [
+                'Amount' => $price['amount'] ?? null,
+                'CurrencyCode' => $price['currencyCode'] ?? null,
+            ],
+        ];
     }
 }

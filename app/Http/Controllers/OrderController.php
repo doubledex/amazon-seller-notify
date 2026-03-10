@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use DateTime;
 use Illuminate\Support\Facades\Log;
+use App\Services\Amazon\Orders\OfficialOrderAdapter;
 use App\Services\Amazon\OfficialSpApiService;
 use App\Services\MarketplaceService;
 use App\Services\OrderNetValueService;
@@ -26,7 +27,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Carbon;
 use App\Jobs\SyncOrdersJob;
-use SpApi\ApiException;
 
 class OrderController extends Controller
 {
@@ -468,19 +468,20 @@ class OrderController extends Controller
         }
 
         $regionService = new RegionConfigService();
-        $ordersApi = (new OfficialSpApiService($regionService))
-            ->makeOrdersV0Api($regionService->defaultSpApiRegion());
+        $officialSpApiService = new OfficialSpApiService($regionService);
+        $ordersAdapter = new OfficialOrderAdapter($officialSpApiService, $this->marketplaceService, $regionService);
+        $ordersGetApi = $officialSpApiService->makeGetOrderV20260101Api($regionService->defaultSpApiRegion());
         $needsOrder = !$orderRecord;
         $needsItems = $items->isEmpty() || $this->needsItemShipmentRefresh($orderRecord, $items);
         $needsAddress = !$address;
 
-        if (($needsOrder || $needsItems || $needsAddress) && $ordersApi !== null) {
+        if (($needsOrder || $needsItems || $needsAddress) && $ordersGetApi !== null) {
             if ($needsOrder) {
                 try {
-                    [$orderModel, $statusCode] = $ordersApi->getOrderWithHttpInfo($order_id);
+                    [$orderModel, $statusCode] = $ordersGetApi->getOrderWithHttpInfo($order_id);
                     if ($statusCode < 400) {
                         $orderData = $this->modelToArray($orderModel);
-                        $order = $orderData['payload'] ?? [];
+                        $order = $this->normalizeV20260101OrderToV0Payload((array) ($orderData['order'] ?? []));
                         if (!empty($order)) {
                             $ship = $order['ShippingAddress'] ?? [];
                             $marketplaceId = $order['MarketplaceId'] ?? null;
@@ -520,16 +521,16 @@ class OrderController extends Controller
                             }
                         }
                     }
-                } catch (ApiException $e) {
+                } catch (\Throwable $e) {
                     Log::warning('Order fetch failed', ['order_id' => $order_id, 'error' => $e->getMessage()]);
                 }
             }
 
             if ($needsItems) {
                 try {
-                    [$itemsModel, $statusCode] = $ordersApi->getOrderItemsWithHttpInfo($order_id);
-                    if ($statusCode < 400) {
-                        $itemsData = $this->modelToArray($itemsModel);
+                    $itemsResponse = $ordersAdapter->getOrderItems($order_id, $regionService->defaultSpApiRegion());
+                    if (($itemsResponse['status'] ?? 500) < 400) {
+                        $itemsData = (array) ($itemsResponse['body'] ?? []);
                         $itemsPayload = $itemsData['payload']['OrderItems'] ?? [];
                         $isMarketplaceFacilitator = false;
                         foreach ($itemsPayload as $item) {
@@ -574,16 +575,16 @@ class OrderController extends Controller
                             ->update(['is_marketplace_facilitator' => $isMarketplaceFacilitator]);
                         $this->orderNetValueService->refreshOrderNet($order_id);
                     }
-                } catch (ApiException $e) {
+                } catch (\Throwable $e) {
                     Log::warning('Order items fetch failed', ['order_id' => $order_id, 'error' => $e->getMessage()]);
                 }
             }
 
             if ($needsAddress) {
                 try {
-                    [$addressModel, $statusCode] = $ordersApi->getOrderAddressWithHttpInfo($order_id);
-                    if ($statusCode < 400) {
-                        $addrData = $this->modelToArray($addressModel);
+                    $addressResponse = $ordersAdapter->getOrderAddress($order_id, $regionService->defaultSpApiRegion());
+                    if (($addressResponse['status'] ?? 500) < 400) {
+                        $addrData = (array) ($addressResponse['body'] ?? []);
                         $addr = $addrData['payload']['ShippingAddress'] ?? [];
                         OrderShipAddress::updateOrCreate(
                             ['order_id' => $order_id],
@@ -596,7 +597,7 @@ class OrderController extends Controller
                             ]
                         );
                     }
-                } catch (ApiException $e) {
+                } catch (\Throwable $e) {
                     Log::warning('Order address fetch failed', ['order_id' => $order_id, 'error' => $e->getMessage()]);
                 }
             }
@@ -1456,6 +1457,48 @@ class OrderController extends Controller
         $decoded = json_decode($json, true);
 
         return is_array($decoded) ? $decoded : [];
+    }
+
+    private function normalizeV20260101OrderToV0Payload(array $order): array
+    {
+        $recipient = (array) ($order['recipient'] ?? []);
+        $address = (array) ($recipient['deliveryAddress'] ?? []);
+        $salesChannel = (array) ($order['salesChannel'] ?? []);
+        $fulfillment = (array) ($order['fulfillment'] ?? []);
+        $proceeds = (array) ($order['proceeds'] ?? []);
+        $grandTotal = (array) ($proceeds['grandTotal'] ?? []);
+        $buyer = (array) ($order['buyer'] ?? []);
+
+        return [
+            'AmazonOrderId' => $order['orderId'] ?? null,
+            'PurchaseDate' => $order['createdTime'] ?? null,
+            'LastUpdateDate' => $order['lastUpdatedTime'] ?? null,
+            'OrderStatus' => $fulfillment['fulfillmentStatus'] ?? null,
+            'FulfillmentChannel' => $fulfillment['fulfilledBy'] ?? null,
+            'SalesChannel' => $salesChannel['channelName'] ?? null,
+            'MarketplaceId' => $salesChannel['marketplaceId'] ?? null,
+            'IsBusinessOrder' => !empty($buyer['buyerCompanyName']),
+            'OrderTotal' => [
+                'Amount' => $grandTotal['amount'] ?? null,
+                'CurrencyCode' => $grandTotal['currencyCode'] ?? null,
+            ],
+            'ShippingAddress' => [
+                'Name' => $address['name'] ?? null,
+                'AddressLine1' => $address['addressLine1'] ?? null,
+                'AddressLine2' => $address['addressLine2'] ?? null,
+                'AddressLine3' => $address['addressLine3'] ?? null,
+                'City' => $address['city'] ?? null,
+                'County' => $address['districtOrCounty'] ?? null,
+                'District' => $address['districtOrCounty'] ?? null,
+                'StateOrRegion' => $address['stateOrRegion'] ?? null,
+                'Municipality' => $address['municipality'] ?? null,
+                'PostalCode' => $address['postalCode'] ?? null,
+                'CountryCode' => $address['countryCode'] ?? null,
+                'Phone' => $address['phone'] ?? null,
+                'AddressType' => $address['addressType'] ?? null,
+                'CompanyName' => $address['companyName'] ?? null,
+            ],
+        ];
     }
 
     private function needsItemShipmentRefresh(?Order $orderRecord, $items): bool
