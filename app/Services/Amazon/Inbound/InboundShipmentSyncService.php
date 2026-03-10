@@ -13,6 +13,7 @@ use SpApi\Api\fulfillment\inbound\v0\FbaInboundApi as FbaInboundV0Api;
 use SpApi\Api\fulfillment\inbound\v2024_03_20\FbaInboundApi as FbaInboundV20240320Api;
 use SpApi\ApiException;
 use SpApi\Model\fulfillment\inbound\v2024_03_20\InboundPlanSummary;
+use SpApi\Model\fulfillment\inbound\v0\ShipmentStatus;
 
 class InboundShipmentSyncService
 {
@@ -275,7 +276,7 @@ class InboundShipmentSyncService
                 fn () => $api->getShipments(
                     query_type: $queryType,
                     marketplace_id: $marketplaceId,
-                    shipment_status_list: null,
+                    shipment_status_list: $nextToken ? null : $this->shipmentStatusFilter(),
                     shipment_id_list: null,
                     last_updated_after: $nextToken ? null : $updatedAfter->toDateTime(),
                     last_updated_before: $nextToken ? null : $nowUtc->toDateTime(),
@@ -679,6 +680,11 @@ class InboundShipmentSyncService
         }
 
         return null;
+    }
+
+    private function shipmentStatusFilter(): array
+    {
+        return ShipmentStatus::getAllowableEnumValues();
     }
 
 }
