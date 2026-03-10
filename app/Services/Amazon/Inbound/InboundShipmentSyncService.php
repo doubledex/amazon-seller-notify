@@ -239,14 +239,14 @@ class InboundShipmentSyncService
                 'shipment_created_at' => null,
                 'shipment_closed_at' => $this->shipmentClosedAtFromStatus($status, $syncedAt),
                 'api_source_version' => 'fulfillment/inbound/v2024-03-20',
-                'api_shipment_payload' => $this->serializeApiPayload($shipment),
+                'api_shipment_payload' => $this->shipmentPayloadV2024($shipment),
                 'api_items_payload' => null,
                 'created_at' => $syncedAt,
                 'updated_at' => $syncedAt,
             ];
 
             $items = $this->collectShipmentItems($api2024, $ref['inbound_plan_id'], $shipmentId);
-            $shipmentRows[array_key_last($shipmentRows)]['api_items_payload'] = $this->serializeApiPayload($items);
+            $shipmentRows[array_key_last($shipmentRows)]['api_items_payload'] = $this->itemsPayloadV2024($items);
             $shipmentItemsScanned += count($items);
             $cartonRowsByShipment[$shipmentId] = $this->buildCartonRowsFromV2024($shipmentId, $items, $syncedAt);
         }
@@ -338,7 +338,7 @@ class InboundShipmentSyncService
                 'shipment_created_at' => null,
                 'shipment_closed_at' => $this->shipmentClosedAtFromStatus($status, $syncedAt),
                 'api_source_version' => 'fulfillment/inbound/v0',
-                'api_shipment_payload' => $this->serializeApiPayload($shipment),
+                'api_shipment_payload' => $this->shipmentPayloadV0($shipment),
                 'api_items_payload' => null,
                 'created_at' => $syncedAt,
                 'updated_at' => $syncedAt,
@@ -352,7 +352,7 @@ class InboundShipmentSyncService
                 'fbaInbound.v0.getShipmentItemsByShipmentId'
             );
             $items = (array) ($itemsResponse->getPayload()?->getItemData() ?? []);
-            $shipmentRows[array_key_last($shipmentRows)]['api_items_payload'] = $this->serializeApiPayload($items);
+            $shipmentRows[array_key_last($shipmentRows)]['api_items_payload'] = $this->itemsPayloadV0($items);
             $shipmentItemsScanned += count($items);
             $cartonRowsByShipment[$shipmentId] = $this->buildCartonRowsFromV0($shipmentId, $items, $syncedAt);
         }
@@ -704,16 +704,60 @@ class InboundShipmentSyncService
         return ShipmentStatus::getAllowableEnumValues();
     }
 
-    private function serializeApiPayload(mixed $payload): ?array
+    private function shipmentPayloadV0(object $shipment): array
     {
-        $json = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        return [
+            'shipment_id' => (string) ($shipment->getShipmentId() ?? ''),
+            'shipment_status' => (string) ($shipment->getShipmentStatus() ?? ''),
+            'shipment_name' => (string) ($shipment->getShipmentName() ?? ''),
+            'destination_fulfillment_center_id' => (string) ($shipment->getDestinationFulfillmentCenterId() ?? ''),
+            'label_prep_type' => (string) ($shipment->getLabelPrepType() ?? ''),
+        ];
+    }
+
+    private function itemsPayloadV0(array $items): array
+    {
+        return array_map(static function ($item): array {
+            return [
+                'seller_sku' => (string) ($item->getSellerSku() ?? ''),
+                'fnsku' => (string) ($item->getFulfillmentNetworkSku() ?? ''),
+                'quantity_shipped' => (int) ($item->getQuantityShipped() ?? 0),
+                'quantity_received' => (int) ($item->getQuantityReceived() ?? 0),
+                'quantity_in_case' => (int) ($item->getQuantityInCase() ?? 0),
+            ];
+        }, $items);
+    }
+
+    private function shipmentPayloadV2024(object $shipment): array
+    {
+        return [
+            'shipment_id' => (string) ($shipment->getShipmentId() ?? ''),
+            'status' => (string) ($shipment->getStatus() ?? ''),
+            'name' => (string) ($shipment->getName() ?? ''),
+            'destination' => $this->safeJson($shipment->getDestination()),
+        ];
+    }
+
+    private function itemsPayloadV2024(array $items): array
+    {
+        return array_map(static function ($item): array {
+            return [
+                'msku' => (string) ($item->getMsku() ?? ''),
+                'quantity' => (int) ($item->getQuantity() ?? 0),
+            ];
+        }, $items);
+    }
+
+    private function safeJson(mixed $value): ?array
+    {
+        $json = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if ($json === false) {
-            return null;
+            return ['_serialization_error' => 'json_encode_failed'];
         }
 
         $decoded = json_decode($json, true);
 
-        return is_array($decoded) ? $decoded : null;
+        return is_array($decoded) ? $decoded : ['_serialization_error' => 'json_decode_not_array'];
     }
 
 }
