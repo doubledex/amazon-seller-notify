@@ -4,14 +4,14 @@ namespace App\Services;
 
 use App\Models\Marketplace;
 use App\Models\ReportJob;
-use App\Support\Amazon\LegacySpApiEndpointResolver;
+use App\Services\Amazon\OfficialSpApiService;
 use App\Services\ReportJobs\MarketplaceListingsReportJobProcessor;
 use App\Services\ReportJobs\ReportJobProcessor;
 use App\Services\ReportJobs\UsFcInventoryReportJobProcessor;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
-use SellingPartnerApi\Seller\ReportsV20210630\Dto\CreateReportSpecification;
-use SellingPartnerApi\SellingPartnerApi;
+use SpApi\Api\reports\v2021_06_30\ReportsApi;
+use SpApi\Model\reports\v2021_06_30\CreateReportSpecification;
 
 class ReportJobOrchestrator
 {
@@ -26,7 +26,8 @@ class ReportJobOrchestrator
 
     public function __construct(
         private readonly SpApiReportLifecycleService $lifecycle,
-        private readonly RegionConfigService $regionConfig
+        private readonly RegionConfigService $regionConfig,
+        private readonly ?OfficialSpApiService $officialSpApiService = null
     ) {
     }
 
@@ -122,19 +123,26 @@ class ReportJobOrchestrator
             $job->attempt_count = (int) $job->attempt_count + 1;
             $job->last_polled_at = now();
 
-            $connector = $this->makeConnector($this->normalizeRegion($job->region, $job->processor));
-            $reportsApi = $connector->reportsV20210630();
+            $reportsApi = $this->makeReportsApi($this->normalizeRegion($job->region, $job->processor));
+            if ($reportsApi === null) {
+                $job->status = 'failed';
+                $job->last_error = 'Unable to construct official reports API client.';
+                $job->completed_at = now();
+                $failed++;
+                $job->save();
+                continue;
+            }
 
             if (trim((string) $job->external_report_id) === '') {
                 $createResult = $this->lifecycle->createReportWithRetry(
                     $reportsApi,
-                    new CreateReportSpecification(
-                        reportType: $job->report_type,
-                        marketplaceIds: [(string) $job->marketplace_id],
-                        reportOptions: is_array($job->report_options) ? $job->report_options : null,
-                        dataStartTime: $job->data_start_time,
-                        dataEndTime: $job->data_end_time,
-                    ),
+                    new CreateReportSpecification([
+                        'report_type' => (string) $job->report_type,
+                        'marketplace_ids' => [(string) $job->marketplace_id],
+                        'report_options' => is_array($job->report_options) ? $job->report_options : null,
+                        'data_start_time' => $job->data_start_time,
+                        'data_end_time' => $job->data_end_time,
+                    ]),
                     [
                         'report_job_id' => $job->id,
                         'report_type' => $job->report_type,
@@ -295,18 +303,11 @@ class ReportJobOrchestrator
         return [];
     }
 
-    private function makeConnector(string $region): SellingPartnerApi
+    private function makeReportsApi(string $region): ?ReportsApi
     {
-        $config = $this->regionConfig->spApiConfig($region);
+        $officialSpApiService = $this->officialSpApiService ?? new OfficialSpApiService($this->regionConfig);
 
-        return SellingPartnerApi::seller(
-            clientId: (string) $config['client_id'],
-            clientSecret: (string) $config['client_secret'],
-            refreshToken: (string) $config['refresh_token'],
-            endpoint: LegacySpApiEndpointResolver::fromEndpointOrRegion(
-                $this->regionConfig->spApiEndpoint($region)
-            ),
-        );
+        return $officialSpApiService->makeReportsV20210630Api($region);
     }
 
     private function normalizeRegion(?string $region, ?string $processor): string

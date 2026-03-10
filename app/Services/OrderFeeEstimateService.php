@@ -2,16 +2,15 @@
 
 namespace App\Services;
 
+use App\Services\Amazon\OfficialSpApiService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use App\Support\Amazon\LegacySpApiEndpointResolver;
-use SellingPartnerApi\SellingPartnerApi;
-use SellingPartnerApi\Seller\ProductFeesV0\Dto\FeesEstimateRequest;
-use SellingPartnerApi\Seller\ProductFeesV0\Dto\GetMyFeesEstimateRequest;
-use SellingPartnerApi\Seller\ProductFeesV0\Dto\MoneyType;
-use SellingPartnerApi\Seller\ProductFeesV0\Dto\PriceToEstimateFees;
+use SpApi\Model\productFees\v0\FeesEstimateRequest;
+use SpApi\Model\productFees\v0\GetMyFeesEstimateRequest;
+use SpApi\Model\productFees\v0\MoneyType;
+use SpApi\Model\productFees\v0\PriceToEstimateFees;
 
 class OrderFeeEstimateService
 {
@@ -49,7 +48,8 @@ class OrderFeeEstimateService
         $stats['considered'] = $rows->count();
 
         $regionService = new RegionConfigService();
-        $connectors = [];
+        $feesApisByRegion = [];
+        $officialSpApiService = new OfficialSpApiService($regionService);
         $lookups = [];
         $itemBasis = [];
 
@@ -110,7 +110,7 @@ class OrderFeeEstimateService
 
         foreach ($lookups as $lookupKey => $lookup) {
             $regionCode = $lookup['region'];
-            if (!isset($connectors[$regionCode])) {
+            if (!isset($feesApisByRegion[$regionCode])) {
                 $spConfig = $regionService->spApiConfig($regionCode);
                 if (
                     trim((string) ($spConfig['client_id'] ?? '')) === ''
@@ -120,14 +120,11 @@ class OrderFeeEstimateService
                     continue;
                 }
 
-                $connectors[$regionCode] = SellingPartnerApi::seller(
-                    clientId: (string) $spConfig['client_id'],
-                    clientSecret: (string) $spConfig['client_secret'],
-                    refreshToken: (string) $spConfig['refresh_token'],
-                    endpoint: LegacySpApiEndpointResolver::fromEndpointOrRegion(
-                        $regionService->spApiEndpoint($regionCode)
-                    )
-                );
+                $api = $officialSpApiService->makeProductFeesV0Api($regionCode);
+                if ($api === null) {
+                    continue;
+                }
+                $feesApisByRegion[$regionCode] = $api;
             }
 
             $cacheKey = 'pending_est_fee:' . sha1($lookupKey);
@@ -136,7 +133,7 @@ class OrderFeeEstimateService
                 $stats['cache_hits']++;
             } else {
                 $stats['cache_misses']++;
-                $fee = $this->fetchFeeEstimate($connectors[$regionCode], $lookup, $stats);
+                $fee = $this->fetchFeeEstimate($feesApisByRegion[$regionCode], $lookup, $stats);
                 if (is_array($fee)) {
                     Cache::put($cacheKey, $fee, now()->addMinutes(30));
                 }
@@ -386,33 +383,31 @@ class OrderFeeEstimateService
         return null;
     }
 
-    private function fetchFeeEstimate(SellingPartnerApi $connector, array $lookup, array &$stats): ?array
+    private function fetchFeeEstimate(object $feesApi, array $lookup, array &$stats): ?array
     {
-        $api = $connector->productFeesV0();
         $maxAttempts = 4;
 
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             try {
                 $stats['api_calls']++;
-                $request = new GetMyFeesEstimateRequest(
-                    new FeesEstimateRequest(
-                        marketplaceId: (string) $lookup['marketplace_id'],
-                        priceToEstimateFees: new PriceToEstimateFees(
-                            listingPrice: new MoneyType(
-                                currencyCode: (string) $lookup['currency'],
-                                amount: (float) $lookup['unit_amount']
-                            )
-                        ),
-                        identifier: 'fee-est-' . substr(sha1(json_encode($lookup)), 0, 12),
-                        isAmazonFulfilled: (bool) $lookup['is_amazon_fulfilled'],
-                    )
-                );
+                $request = new GetMyFeesEstimateRequest([
+                    'fees_estimate_request' => new FeesEstimateRequest([
+                        'marketplace_id' => (string) $lookup['marketplace_id'],
+                        'price_to_estimate_fees' => new PriceToEstimateFees([
+                            'listing_price' => new MoneyType([
+                                'currency_code' => (string) $lookup['currency'],
+                                'amount' => (float) $lookup['unit_amount'],
+                            ]),
+                        ]),
+                        'identifier' => 'fee-est-' . substr(sha1(json_encode($lookup)), 0, 12),
+                        'is_amazon_fulfilled' => (bool) $lookup['is_amazon_fulfilled'],
+                    ]),
+                ]);
 
-                $response = $api->getMyFeesEstimateForAsin((string) $lookup['asin'], $request);
-                $status = $response->status();
+                [$response, $status, $headers] = $feesApi->getMyFeesEstimateForASINWithHttpInfo((string) $lookup['asin'], $request);
                 if ($status === 429 && $attempt < $maxAttempts) {
                     $stats['throttle_retries']++;
-                    sleep(min(10, 1 + ($attempt * 2)));
+                    sleep($this->resolveRetryDelaySecondsFromHeaders($headers, $attempt));
                     continue;
                 }
 
@@ -426,8 +421,7 @@ class OrderFeeEstimateService
                     return null;
                 }
 
-                $json = $response->json();
-                $jsonPayload = is_array($json) ? $json : [];
+                $jsonPayload = $this->modelToArray($response);
                 $parsed = $this->extractEstimatedFeeFromPayload($jsonPayload);
                 if ($parsed !== null) {
                     $stats['api_success']++;
@@ -437,7 +431,7 @@ class OrderFeeEstimateService
                 $stats['payload_missing']++;
                 return null;
             } catch (\Throwable $e) {
-                if (str_contains($e->getMessage(), '429') && $attempt < $maxAttempts) {
+                if ((int) $e->getCode() === 429 && $attempt < $maxAttempts) {
                     $stats['throttle_retries']++;
                     sleep(min(10, 1 + ($attempt * 2)));
                     continue;
@@ -453,6 +447,31 @@ class OrderFeeEstimateService
         }
 
         return null;
+    }
+
+    private function resolveRetryDelaySecondsFromHeaders(array $headers, int $attempt): int
+    {
+        $retryAfter = $headers['Retry-After'][0] ?? $headers['retry-after'][0] ?? null;
+        if (is_numeric($retryAfter)) {
+            return max(1, min(30, (int) $retryAfter));
+        }
+
+        return min(10, 1 + ($attempt * 2));
+    }
+
+    private function modelToArray(mixed $value): array
+    {
+        if ($value === null) {
+            return [];
+        }
+
+        $json = json_encode($value);
+        if ($json === false) {
+            return [];
+        }
+
+        $decoded = json_decode($json, true);
+        return is_array($decoded) ? $decoded : [];
     }
 
     private function extractEstimatedFeeFromPayload(array $json): ?array

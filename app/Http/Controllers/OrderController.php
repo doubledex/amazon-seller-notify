@@ -3,14 +3,12 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use SellingPartnerApi\SellingPartnerApi;
 use DateTime;
 use Illuminate\Support\Facades\Log;
 use App\Services\MarketplaceService;
 use App\Services\OrderNetValueService;
 use App\Services\MarketplaceTimezoneService;
 use App\Services\RegionConfigService;
-use App\Support\Amazon\LegacySpApiEndpointResolver;
 use App\Services\OrderFinancialEventsSummaryService;
 use App\Models\CityGeo;
 use App\Models\PostalCodeGeo;
@@ -30,7 +28,6 @@ use App\Jobs\SyncOrdersJob;
 
 class OrderController extends Controller
 {
-    private $connector;
     private $marketplaceService;
     private $orderQueryService;
     private $marketplaceTimezoneService;
@@ -42,18 +39,6 @@ class OrderController extends Controller
 
     public function __construct()
     {
-        $regionService = new RegionConfigService();
-        $regionConfig = $regionService->spApiConfig();
-        $endpoint = LegacySpApiEndpointResolver::fromEndpointOrRegion(
-            $regionService->spApiEndpoint()
-        );
-
-        $this->connector = SellingPartnerApi::seller(
-            clientId: (string) $regionConfig['client_id'],
-            clientSecret: (string) $regionConfig['client_secret'],
-            refreshToken: (string) $regionConfig['refresh_token'],
-            endpoint: $endpoint
-        );
         $this->marketplaceService = new MarketplaceService();
         $this->orderQueryService = new OrderQueryService();
         $this->marketplaceTimezoneService = new MarketplaceTimezoneService();
@@ -78,7 +63,7 @@ class OrderController extends Controller
                 ? $this->orderQueryService->normalizeCreatedBefore($createdBeforeInput)
                 : now()->subMinutes(2)->format('Y-m-d\TH:i:s\Z');
             
-            $marketplacesUi = $this->marketplaceService->getMarketplacesForUi($this->connector);
+            $marketplacesUi = $this->marketplaceService->getMarketplacesForUi();
             $countries = [];
             foreach ($marketplacesUi as $marketplaceId => $marketplace) {
                 $countryCode = $marketplace['countryCode'] ?? $marketplace['country'] ?? '';
@@ -636,7 +621,7 @@ class OrderController extends Controller
             }
         }
 
-        $marketplacesUi = $this->marketplaceService->getMarketplacesForUi($this->connector);
+        $marketplacesUi = $this->marketplaceService->getMarketplacesForUi();
         $financialEventsSummary = $this->orderFinancialEventsSummaryService->summarizeOrder(
             $order_id,
             $orderRecord?->marketplace_id
@@ -840,7 +825,7 @@ class OrderController extends Controller
     public function marketplaces(Request $request)
     {
         try {
-            $marketplaces = $this->marketplaceService->getMarketplacesForUi($this->connector);
+            $marketplaces = $this->marketplaceService->getMarketplacesForUi();
             $marketplaces = $this->mergeConfiguredMarketplaces($marketplaces);
             $marketplacesByRegion = $this->groupMarketplacesByRegion($marketplaces);
 
@@ -862,7 +847,7 @@ class OrderController extends Controller
     {
         $runLiveGeocoding = false;
 
-        $marketplacesUi = $this->marketplaceService->getMarketplacesForUi($this->connector);
+        $marketplacesUi = $this->marketplaceService->getMarketplacesForUi();
         $countries = [];
         foreach ($marketplacesUi as $marketplaceId => $marketplace) {
             $countryCode = $marketplace['countryCode'] ?? $marketplace['country'] ?? '';

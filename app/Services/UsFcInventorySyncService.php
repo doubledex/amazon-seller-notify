@@ -2,13 +2,13 @@
 
 namespace App\Services;
 
+use App\Services\Amazon\OfficialSpApiService;
 use App\Models\UsFcInventory;
-use App\Support\Amazon\LegacySpApiEndpointResolver;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use SellingPartnerApi\Seller\ReportsV20210630\Dto\CreateReportSpecification;
-use SellingPartnerApi\SellingPartnerApi;
+use SpApi\Api\reports\v2021_06_30\ReportsApi;
+use SpApi\Model\reports\v2021_06_30\CreateReportSpecification;
 
 class UsFcInventorySyncService
 {
@@ -16,7 +16,8 @@ class UsFcInventorySyncService
     public const DEFAULT_US_MARKETPLACE_ID = 'ATVPDKIKX0DER';
     public function __construct(
         private readonly SpApiReportLifecycleService $reportLifecycle,
-        private readonly FcLocationRegistryService $fcLocationRegistry
+        private readonly FcLocationRegistryService $fcLocationRegistry,
+        private readonly ?OfficialSpApiService $officialSpApiService = null
     ) {
     }
 
@@ -41,8 +42,15 @@ class UsFcInventorySyncService
         $sleepSeconds = max(1, min($sleepSeconds, 20));
         [$dataStartTime, $dataEndTime] = $this->resolveReportWindow($startDate, $endDate);
 
-        $connector = $this->makeConnector($region);
-        $reportsApi = $connector->reportsV20210630();
+        $reportsApi = $this->makeReportsApi($region);
+        if ($reportsApi === null) {
+            return [
+                'ok' => false,
+                'message' => 'Unable to construct official reports API client.',
+                'rows' => 0,
+                'report_type' => $reportType,
+            ];
+        }
         $result = $this->syncSingleReportType(
             $reportsApi,
             $marketplaceId,
@@ -65,7 +73,7 @@ class UsFcInventorySyncService
     }
 
     private function syncSingleReportType(
-        object $reportsApi,
+        ReportsApi $reportsApi,
         string $marketplaceId,
         string $reportType,
         int $maxAttempts,
@@ -84,13 +92,13 @@ class UsFcInventorySyncService
         ];
         $createResult = $this->reportLifecycle->createReportWithRetry(
             $reportsApi,
-            new CreateReportSpecification(
-                reportType: $reportType,
-                marketplaceIds: [$marketplaceId],
-                reportOptions: $this->reportOptionsForType($reportType),
-                dataStartTime: $dataStartTime,
-                dataEndTime: $dataEndTime,
-            ),
+            new CreateReportSpecification([
+                'report_type' => (string) $reportType,
+                'marketplace_ids' => [(string) $marketplaceId],
+                'report_options' => $this->reportOptionsForType($reportType),
+                'data_start_time' => $dataStartTime,
+                'data_end_time' => $dataEndTime,
+            ]),
             [
                 'report_type' => $reportType,
                 'marketplace_id' => $marketplaceId,
@@ -362,19 +370,17 @@ class UsFcInventorySyncService
         }
     }
 
-    private function makeConnector(string $region): SellingPartnerApi
+    private function makeReportsApi(string $region): ?ReportsApi
     {
         $regionService = new RegionConfigService();
-        $config = $regionService->spApiConfig($region);
+        $resolvedRegion = strtoupper(trim($region));
+        if (!in_array($resolvedRegion, ['EU', 'NA', 'FE'], true)) {
+            $resolvedRegion = $regionService->defaultSpApiRegion();
+        }
 
-        return SellingPartnerApi::seller(
-            clientId: (string) $config['client_id'],
-            clientSecret: (string) $config['client_secret'],
-            refreshToken: (string) $config['refresh_token'],
-            endpoint: LegacySpApiEndpointResolver::fromEndpointOrRegion(
-                $regionService->spApiEndpoint($region)
-            )
-        );
+        $officialSpApiService = $this->officialSpApiService ?? new OfficialSpApiService($regionService);
+
+        return $officialSpApiService->makeReportsV20210630Api($resolvedRegion);
     }
 
     private function normalizeRow(array $row, bool $ledgerMode = false): array

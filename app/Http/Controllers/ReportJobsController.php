@@ -5,11 +5,9 @@ namespace App\Http\Controllers;
 use App\Models\ReportJob;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\Amazon\OfficialSpApiService;
 use App\Services\ReportJobOrchestrator;
-use App\Services\RegionConfigService;
 use App\Services\SpApiReportLifecycleService;
-use App\Support\Amazon\LegacySpApiEndpointResolver;
-use SellingPartnerApi\SellingPartnerApi;
 
 class ReportJobsController extends Controller
 {
@@ -108,7 +106,7 @@ class ReportJobsController extends Controller
             ->with('status', $message);
     }
 
-    public function downloadCsv(int $id, RegionConfigService $regionConfig, SpApiReportLifecycleService $lifecycle)
+    public function downloadCsv(int $id, SpApiReportLifecycleService $lifecycle, OfficialSpApiService $officialSpApiService)
     {
         $job = ReportJob::query()->findOrFail($id);
         $documentId = trim((string) ($job->external_document_id ?? ''));
@@ -119,18 +117,15 @@ class ReportJobsController extends Controller
         }
 
         $region = strtoupper(trim((string) ($job->region ?? 'NA')));
-        $config = $regionConfig->spApiConfig($region);
-        $connector = SellingPartnerApi::seller(
-            clientId: (string) $config['client_id'],
-            clientSecret: (string) $config['client_secret'],
-            refreshToken: (string) $config['refresh_token'],
-            endpoint: LegacySpApiEndpointResolver::fromEndpointOrRegion(
-                $regionConfig->spApiEndpoint($region)
-            )
-        );
+        $reportsApi = $officialSpApiService->makeReportsV20210630Api($region);
+        if ($reportsApi === null) {
+            return redirect()
+                ->route('reports.jobs')
+                ->with('error', 'Unable to construct official reports API client.');
+        }
 
         $download = $lifecycle->downloadReportRows(
-            $connector->reportsV20210630(),
+            $reportsApi,
             $documentId,
             (string) $job->report_type
         );

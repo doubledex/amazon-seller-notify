@@ -3,16 +3,27 @@
 namespace App\Services;
 
 use App\Models\Marketplace;
+use App\Services\Amazon\OfficialSpApiService;
 use Illuminate\Support\Facades\Log;
 use SellingPartnerApi\SellingPartnerApi;
 
 class MarketplaceService
 {
-    public function getMarketplaceIds(SellingPartnerApi $connector): array
+    public function __construct(
+        private readonly ?RegionConfigService $regionConfigService = null,
+        private readonly ?OfficialSpApiService $officialSpApiService = null
+    ) {
+    }
+
+    public function getMarketplaceIds(?SellingPartnerApi $connector = null): array
     {
         $marketplaces = Marketplace::query()->orderBy('id')->get();
         if ($marketplaces->isEmpty()) {
-            $marketplaces = $this->syncFromApi($connector);
+            $regionService = $this->regionConfigService ?? new RegionConfigService();
+            $defaultRegion = $regionService->defaultSpApiRegion();
+            $marketplaces = $connector
+                ? $this->syncFromApi($connector)
+                : $this->syncFromOfficialApi($defaultRegion);
         }
 
         if ($marketplaces->isEmpty()) {
@@ -22,11 +33,15 @@ class MarketplaceService
         return $marketplaces->pluck('id')->all();
     }
 
-    public function getMarketplacesForUi(SellingPartnerApi $connector): array
+    public function getMarketplacesForUi(?SellingPartnerApi $connector = null): array
     {
         $marketplaces = Marketplace::query()->orderBy('id')->get();
         if ($marketplaces->isEmpty()) {
-            $marketplaces = $this->syncFromApi($connector);
+            $regionService = $this->regionConfigService ?? new RegionConfigService();
+            $defaultRegion = $regionService->defaultSpApiRegion();
+            $marketplaces = $connector
+                ? $this->syncFromApi($connector)
+                : $this->syncFromOfficialApi($defaultRegion);
         }
 
         $result = [];
@@ -51,6 +66,23 @@ class MarketplaceService
             ->orderBy('id')
             ->pluck('country_code', 'id')
             ->all();
+    }
+
+    public function getMarketplaceIdsForRegion(?string $region = null): array
+    {
+        $marketplaces = Marketplace::query()->orderBy('id')->get();
+        if ($marketplaces->isEmpty()) {
+            $regionService = $this->regionConfigService ?? new RegionConfigService();
+            $resolvedRegion = strtoupper(trim((string) ($region ?: $regionService->defaultSpApiRegion())));
+            $marketplaces = $this->syncFromOfficialApi($resolvedRegion);
+        }
+
+        if ($marketplaces->isEmpty()) {
+            $regionService = $this->regionConfigService ?? new RegionConfigService();
+            return array_values(array_filter((array) ($regionService->spApiConfig($region)['marketplace_ids'] ?? [])));
+        }
+
+        return $marketplaces->pluck('id')->all();
     }
 
     public function syncFromApi(SellingPartnerApi $connector)
@@ -98,6 +130,75 @@ class MarketplaceService
             return Marketplace::query()->orderBy('id')->get();
         } catch (\Exception $e) {
             Log::warning('Marketplace sync exception', ['error' => $e->getMessage()]);
+            return collect();
+        }
+    }
+
+    public function syncFromOfficialApi(?string $region = null)
+    {
+        try {
+            $regionService = $this->regionConfigService ?? new RegionConfigService();
+            $resolvedRegion = strtoupper(trim((string) ($region ?: $regionService->defaultSpApiRegion())));
+            if (!in_array($resolvedRegion, ['EU', 'NA', 'FE'], true)) {
+                $resolvedRegion = $regionService->defaultSpApiRegion();
+            }
+
+            $officialService = $this->officialSpApiService ?? new OfficialSpApiService($regionService);
+            $sellersApi = $officialService->makeSellersV1Api($resolvedRegion);
+            if ($sellersApi === null) {
+                Log::warning('Marketplace sync skipped: official sellers API client unavailable', [
+                    'region' => $resolvedRegion,
+                ]);
+                return collect();
+            }
+
+            [$response, $statusCode] = $sellersApi->getMarketplaceParticipationsWithHttpInfo();
+            if ($statusCode >= 400) {
+                Log::warning('Marketplace sync failed (official SDK)', [
+                    'region' => $resolvedRegion,
+                    'status' => $statusCode,
+                ]);
+                return collect();
+            }
+
+            $rows = [];
+            $payload = is_array($response->getPayload()) ? $response->getPayload() : [];
+            foreach ($payload as $participation) {
+                if (!is_object($participation) || !method_exists($participation, 'getMarketplace')) {
+                    continue;
+                }
+                $marketplace = $participation->getMarketplace();
+                if (!is_object($marketplace)) {
+                    continue;
+                }
+
+                $id = method_exists($marketplace, 'getId') ? $marketplace->getId() : null;
+                if (!is_string($id) || trim($id) === '') {
+                    continue;
+                }
+
+                $rows[] = [
+                    'id' => $id,
+                    'name' => method_exists($marketplace, 'getName') ? $marketplace->getName() : null,
+                    'country_code' => method_exists($marketplace, 'getCountryCode') ? $marketplace->getCountryCode() : null,
+                    'default_currency' => method_exists($marketplace, 'getDefaultCurrencyCode') ? $marketplace->getDefaultCurrencyCode() : null,
+                    'default_language' => method_exists($marketplace, 'getDefaultLanguageCode') ? $marketplace->getDefaultLanguageCode() : null,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
+            }
+
+            if (!empty($rows)) {
+                Marketplace::upsert(
+                    $rows,
+                    ['id'],
+                    ['name', 'country_code', 'default_currency', 'default_language', 'updated_at']
+                );
+            }
+
+            return Marketplace::query()->orderBy('id')->get();
+        } catch (\Throwable $e) {
+            Log::warning('Marketplace sync exception (official SDK)', ['error' => $e->getMessage()]);
             return collect();
         }
     }

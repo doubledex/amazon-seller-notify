@@ -32,9 +32,9 @@ It is a living checklist and must be updated whenever legacy usage is discovered
 | Status       | Count |
 |--------------|-------|
 | discovered   | 0     |
-| planned      | 3     |
-| in_progress  | 0     |
-| migrated     | 7     |
+| planned      | 0     |
+| in_progress  | 1     |
+| migrated     | 9     |
 | blocked      | 1     |
 | deferred     | 0     |
 
@@ -77,31 +77,31 @@ It is a living checklist and must be updated whenever legacy usage is discovered
 - Notes: removed jlevers enum imports from this service and replaced enum return with app-owned string endpoint resolution (`spApiEndpoint()`); legacy enum conversion now occurs in `App\Support\Amazon\LegacySpApiEndpointResolver` at jlevers callsites.
 
 ### ITEM-005
-- Status: planned
+- Status: in_progress
 - File path: `app/Services/OrderSyncService.php`, `app/Services/MarketplaceService.php`, `app/Http/Controllers/OrderController.php`, `app/Console/Commands/SyncMarketplaces.php`
 - Class/module: order and marketplace sync flow
 - Legacy usage type: direct static connector construction and legacy type-hinted connectors in service APIs
 - Purpose: order ingestion, marketplace sync, and related UI/controller orchestration
 - Official SDK replacement target: injected official SDK order/seller clients via shared factory + service interfaces without jlevers types
-- Notes: these files use `SellingPartnerApi::seller(...)` and/or `SellingPartnerApi` type hints, spreading legacy coupling into both services and HTTP/console entrypoints.
+- Notes: `OrderSyncService` now executes orders/items/address calls via official `OrdersV0Api` (`getOrdersWithHttpInfo`, `getOrderItemsWithHttpInfo`, `getOrderAddressWithHttpInfo`) and retry handling based on official status/headers. `MarketplaceService` + `SyncMarketplaces` use official sellers API via `OfficialSpApiService::makeSellersV1Api()` (`syncFromOfficialApi` path), and `OrderController` no longer depends on `LegacySpApiClientFactory`. Remaining legacy coupling in this unit is the `SellingPartnerApi`-typed connector path still kept for `MarketplaceService::getMarketplaceIds()/getMarketplacesForUi()` compatibility with legacy order adapters.
 
 ### ITEM-006
-- Status: planned
+- Status: migrated
 - File path: `app/Services/ReportJobOrchestrator.php`, `app/Services/MarketplaceListingsSyncService.php`, `app/Services/UsFcInventorySyncService.php`, `app/Services/SpApiReportLifecycleService.php`, `app/Http/Controllers/ReportJobsController.php`, `app/Http/Controllers/SqsMessagesController.php`
 - Class/module: SP-API report lifecycle and ingestion pipeline
 - Legacy usage type: legacy DTO imports and connector creation for reports APIs
 - Purpose: create/poll/download report documents and ingest listing/inventory report rows
 - Official SDK replacement target: official reports client/request models from `amzn-spapi/sdk` behind report-specific services/jobs
-- Notes: pipeline imports `SellingPartnerApi\Seller\ReportsV20210630\Dto\CreateReportSpecification` and uses jlevers connector instances across orchestration and controller download endpoints.
+- Notes: migrated to official SDK across this unit: report create/poll/document lifecycle now uses `SpApi\Api\reports\v2021_06_30\ReportsApi` + official `CreateReportSpecification`, download flows use official report APIs, and catalog parent enrichment moved to official `catalogItems/v2022_04_01` (`CatalogApi::searchCatalogItemsWithHttpInfo`) via `OfficialSpApiService`.
 
 ### ITEM-007
-- Status: planned
+- Status: migrated
 - File path: `app/Services/OrderFeeEstimateService.php`, `app/Services/PendingOrderEstimateService.php`
 - Class/module: fee estimation and pending-order pricing estimators
 - Legacy usage type: product fees/pricing DTO and connector dependencies from jlevers
 - Purpose: estimate fees/prices and persist derived financial values
 - Official SDK replacement target: official product-fees/pricing clients and request models via injected SDK adapters
-- Notes: `OrderFeeEstimateService` imports multiple `SellingPartnerApi\Seller\ProductFeesV0\Dto\*` classes and both services instantiate jlevers connectors per region.
+- Notes: migrated both services to official SDK `productFees/v0` and `pricing/v0` APIs via `OfficialSpApiService` (`WithHttpInfo` calls + model-to-array parsing); removed jlevers connector/DTO imports from these services.
 
 ### ITEM-008
 - Status: migrated

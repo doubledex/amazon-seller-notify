@@ -8,6 +8,11 @@ use SpApi\Api\finances\v2024_06_19\DefaultApi as FinancesV20240619Api;
 use SpApi\Api\fulfillment\inbound\v0\FbaInboundApi;
 use SpApi\Api\notifications\v1\NotificationsApi;
 use SpApi\Api\orders\v0\OrdersV0Api;
+use SpApi\Api\pricing\v0\ProductPricingApi;
+use SpApi\Api\productFees\v0\FeesApi;
+use SpApi\Api\catalogItems\v2022_04_01\CatalogApi;
+use SpApi\Api\reports\v2021_06_30\ReportsApi;
+use SpApi\Api\sellers\v1\SellersApi;
 use SpApi\Api\sellerWallet\v2024_03_01\AccountsApi as SellerWalletAccountsApi;
 use SpApi\AuthAndAuth\LWAAuthorizationCredentials;
 use SpApi\Configuration as OfficialSpApiConfiguration;
@@ -72,6 +77,61 @@ class OfficialSpApiService
         }
 
         return new FinancesV20240619Api($officialConfig, new GuzzleClient());
+    }
+
+    public function makeProductFeesV0Api(string $region): ?FeesApi
+    {
+        $region = strtoupper(trim($region));
+        $officialConfig = $this->makeOfficialConfiguration($region);
+        if ($officialConfig === null) {
+            return null;
+        }
+
+        return new FeesApi($officialConfig, new GuzzleClient());
+    }
+
+    public function makePricingV0Api(string $region): ?ProductPricingApi
+    {
+        $region = strtoupper(trim($region));
+        $officialConfig = $this->makeOfficialConfiguration($region);
+        if ($officialConfig === null) {
+            return null;
+        }
+
+        return new ProductPricingApi($officialConfig, new GuzzleClient());
+    }
+
+    public function makeSellersV1Api(string $region): ?SellersApi
+    {
+        $region = strtoupper(trim($region));
+        $officialConfig = $this->makeOfficialConfiguration($region);
+        if ($officialConfig === null) {
+            return null;
+        }
+
+        return new SellersApi($officialConfig, new GuzzleClient());
+    }
+
+    public function makeReportsV20210630Api(string $region): ?ReportsApi
+    {
+        $region = strtoupper(trim($region));
+        $officialConfig = $this->makeOfficialConfiguration($region);
+        if ($officialConfig === null) {
+            return null;
+        }
+
+        return new ReportsApi($officialConfig, new GuzzleClient());
+    }
+
+    public function makeCatalogItemsV20220401Api(string $region): ?CatalogApi
+    {
+        $region = strtoupper(trim($region));
+        $officialConfig = $this->makeOfficialConfiguration($region);
+        if ($officialConfig === null) {
+            return null;
+        }
+
+        return new CatalogApi($officialConfig, new GuzzleClient());
     }
 
     private function makeOfficialConfiguration(string $region): ?OfficialSpApiConfiguration

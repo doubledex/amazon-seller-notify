@@ -4,9 +4,7 @@ namespace App\Console\Commands;
 
 use App\Services\MarketplaceService;
 use App\Services\RegionConfigService;
-use App\Support\Amazon\LegacySpApiEndpointResolver;
 use Illuminate\Console\Command;
-use SellingPartnerApi\SellingPartnerApi;
 
 class SyncMarketplaces extends Command
 {
@@ -30,19 +28,7 @@ class SyncMarketplaces extends Command
 
         foreach ($regions as $region) {
             $region = strtoupper(trim($region));
-            $regionConfig = $regionService->spApiConfig($region);
-            $endpoint = LegacySpApiEndpointResolver::fromEndpointOrRegion(
-                $regionService->spApiEndpoint($region)
-            );
-
-            $connector = SellingPartnerApi::seller(
-                clientId: (string) $regionConfig['client_id'],
-                clientSecret: (string) $regionConfig['client_secret'],
-                refreshToken: (string) $regionConfig['refresh_token'],
-                endpoint: $endpoint
-            );
-
-            $marketplaces = $service->syncFromApi($connector);
+            $marketplaces = $service->syncFromOfficialApi($region);
             if ($marketplaces->isEmpty()) {
                 $this->warn("[{$region}] Marketplace sync returned no results.");
                 continue;

@@ -2,13 +2,12 @@
 
 namespace App\Services;
 
-use App\Support\Amazon\LegacySpApiEndpointResolver;
+use App\Services\Amazon\OfficialSpApiService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use SellingPartnerApi\SellingPartnerApi;
 
 class PendingOrderEstimateService
 {
@@ -51,7 +50,8 @@ class PendingOrderEstimateService
         $lookups = [];
         $priceLookup = [];
         $regionService = new RegionConfigService();
-        $connectors = [];
+        $pricingApisByRegion = [];
+        $officialSpApiService = new OfficialSpApiService($regionService);
 
         foreach ($rows as $row) {
             $marketplaceId = trim((string) ($row->marketplace_id ?? ''));
@@ -85,7 +85,7 @@ class PendingOrderEstimateService
 
         foreach ($lookups as $lookupKey => $lookup) {
             $regionCode = $lookup['region'];
-            if (!isset($connectors[$regionCode])) {
+            if (!isset($pricingApisByRegion[$regionCode])) {
                 $spConfig = $regionService->spApiConfig($regionCode);
                 if (
                     trim((string) ($spConfig['client_id'] ?? '')) === ''
@@ -95,14 +95,11 @@ class PendingOrderEstimateService
                     continue;
                 }
 
-                $connectors[$regionCode] = SellingPartnerApi::seller(
-                    clientId: (string) $spConfig['client_id'],
-                    clientSecret: (string) $spConfig['client_secret'],
-                    refreshToken: (string) $spConfig['refresh_token'],
-                    endpoint: LegacySpApiEndpointResolver::fromEndpointOrRegion(
-                        $regionService->spApiEndpoint($regionCode)
-                    )
-                );
+                $api = $officialSpApiService->makePricingV0Api($regionCode);
+                if ($api === null) {
+                    continue;
+                }
+                $pricingApisByRegion[$regionCode] = $api;
             }
 
             $cacheKey = 'pending_est_price:' . sha1($lookupKey);
@@ -112,7 +109,7 @@ class PendingOrderEstimateService
             } else {
                 $stats['cache_misses']++;
                 $price = $this->fetchSinglePendingApiPrice(
-                    $connectors[$regionCode],
+                    $pricingApisByRegion[$regionCode],
                     (string) $lookup['marketplace_id'],
                     (string) $lookup['asin'],
                     (bool) $lookup['is_business_order'],
@@ -227,26 +224,29 @@ class PendingOrderEstimateService
     }
 
     private function fetchSinglePendingApiPrice(
-        SellingPartnerApi $connector,
+        object $pricingApi,
         string $marketplaceId,
         string $asin,
         bool $isBusinessOrder,
         string $region,
         array &$stats
     ): ?array {
-        $pricingApi = $connector->productPricingV0();
         $customerType = $isBusinessOrder ? 'Business' : 'Consumer';
         $maxAttempts = 4;
 
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             try {
                 $stats['api_calls']++;
-                $response = $pricingApi->getItemOffers($asin, $marketplaceId, 'New', $customerType);
-                $status = $response->status();
+                [$response, $status, $headers] = $pricingApi->getItemOffersWithHttpInfo(
+                    $marketplaceId,
+                    'New',
+                    $asin,
+                    $customerType
+                );
 
                 if ($status === 429 && $attempt < $maxAttempts) {
                     $stats['throttle_retries']++;
-                    sleep($this->resolveRetryDelaySeconds($response, $attempt));
+                    sleep($this->resolveRetryDelaySeconds($headers, $attempt));
                     continue;
                 }
 
@@ -264,8 +264,7 @@ class PendingOrderEstimateService
                     return null;
                 }
 
-                $json = $response->json();
-                $price = $this->extractPriceFromItemOffersPayload(is_array($json) ? $json : []);
+                $price = $this->extractPriceFromItemOffersPayload($this->modelToArray($response));
                 if ($price !== null) {
                     $stats['api_success']++;
                     return $price;
@@ -274,7 +273,7 @@ class PendingOrderEstimateService
                 $stats['payload_missing']++;
                 return null;
             } catch (\Throwable $e) {
-                if (str_contains($e->getMessage(), '429') && $attempt < $maxAttempts) {
+                if ((int) $e->getCode() === 429 && $attempt < $maxAttempts) {
                     $stats['throttle_retries']++;
                     sleep(min(10, 1 + ($attempt * 2)));
                     continue;
@@ -330,16 +329,27 @@ class PendingOrderEstimateService
 
     private function resolveRetryDelaySeconds($response, int $attempt): int
     {
-        try {
-            $retryAfter = $response->header('Retry-After');
-            if (is_numeric($retryAfter)) {
-                return max(1, min(30, (int) $retryAfter));
-            }
-        } catch (\Throwable) {
-            // ignore
+        $retryAfter = $response['Retry-After'][0] ?? $response['retry-after'][0] ?? null;
+        if (is_numeric($retryAfter)) {
+            return max(1, min(30, (int) $retryAfter));
         }
 
         return min(10, 1 + ($attempt * 2));
+    }
+
+    private function modelToArray(mixed $value): array
+    {
+        if ($value === null) {
+            return [];
+        }
+
+        $json = json_encode($value);
+        if ($json === false) {
+            return [];
+        }
+
+        $decoded = json_decode($json, true);
+        return is_array($decoded) ? $decoded : [];
     }
 
     private function regionForCountry(string $countryCode): ?string

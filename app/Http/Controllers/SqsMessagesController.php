@@ -3,9 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\SqsMessage;
-use App\Support\Amazon\LegacySpApiEndpointResolver;
 use Illuminate\Http\Request;
-use SellingPartnerApi\SellingPartnerApi;
+use App\Services\Amazon\OfficialSpApiService;
 use App\Services\RegionConfigService;
 use App\Services\MarketplaceService;
 use Illuminate\Support\Facades\Log;
@@ -59,7 +58,11 @@ class SqsMessagesController extends Controller
         }
     }
 
-    public function downloadReportDocument(int $id, SpApiReportLifecycleService $reportLifecycle)
+    public function downloadReportDocument(
+        int $id,
+        SpApiReportLifecycleService $reportLifecycle,
+        OfficialSpApiService $officialSpApiService
+    )
     {
         $message = SqsMessage::findOrFail($id);
         $report = $this->extractReportDocumentData($message);
@@ -94,16 +97,11 @@ class SqsMessagesController extends Controller
                     continue;
                 }
 
-                $connector = SellingPartnerApi::seller(
-                    clientId: (string) $config['client_id'],
-                    clientSecret: (string) $config['client_secret'],
-                    refreshToken: (string) $config['refresh_token'],
-                    endpoint: LegacySpApiEndpointResolver::fromEndpointOrRegion(
-                        $regionService->spApiEndpoint($region)
-                    )
-                );
-
-                $reportsApi = $connector->reportsV20210630();
+                $reportsApi = $officialSpApiService->makeReportsV20210630Api($region);
+                if ($reportsApi === null) {
+                    $lastError = 'Unable to construct official reports API client.';
+                    continue;
+                }
                 $meta = $reportLifecycle->getReportDocumentMetadata($reportsApi, $reportDocumentId, $reportType);
                 if (!($meta['ok'] ?? false)) {
                     $lastError = (string) ($meta['error'] ?? 'Unable to fetch report document metadata.');

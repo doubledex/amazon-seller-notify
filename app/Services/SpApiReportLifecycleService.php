@@ -3,8 +3,11 @@
 namespace App\Services;
 
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use SellingPartnerApi\Seller\ReportsV20210630\Dto\CreateReportSpecification;
+use SpApi\Api\reports\v2021_06_30\ReportsApi;
+use SpApi\ApiException;
+use SpApi\Model\reports\v2021_06_30\CreateReportSpecification;
 
 class SpApiReportLifecycleService
 {
@@ -12,7 +15,7 @@ class SpApiReportLifecycleService
     private const CREATE_REPORT_BASE_BACKOFF_SECONDS = 15;
 
     public function createReportWithRetry(
-        object $reportsApi,
+        ReportsApi $reportsApi,
         CreateReportSpecification $specification,
         array $logContext = []
     ): array {
@@ -22,9 +25,9 @@ class SpApiReportLifecycleService
 
         for ($attempt = 0; $attempt < self::CREATE_REPORT_MAX_RETRIES; $attempt++) {
             try {
-                $createResponse = $reportsApi->createReport($specification);
-                $createPayload = $createResponse->json();
-                $reportId = trim((string) ($createPayload['reportId'] ?? ''));
+                [$createResponse] = $reportsApi->createReportWithHttpInfo($specification);
+                $createPayload = $this->modelToArray($createResponse);
+                $reportId = trim((string) ($createResponse?->getReportId() ?? ''));
                 if ($reportId !== '') {
                     return [
                         'ok' => true,
@@ -59,7 +62,7 @@ class SpApiReportLifecycleService
     }
 
     public function pollReportUntilTerminal(
-        object $reportsApi,
+        ReportsApi $reportsApi,
         string $reportId,
         int $maxAttempts,
         int $sleepSeconds,
@@ -71,23 +74,16 @@ class SpApiReportLifecycleService
         $polls = [];
 
         for ($i = 0; $i < $maxAttempts; $i++) {
-            $poll = $reportsApi->getReport($reportId);
-            $payload = $poll->json();
-            $status = strtoupper((string) ($payload['processingStatus'] ?? 'IN_QUEUE'));
-            $reportDocumentId = trim((string) ($payload['reportDocumentId'] ?? ''));
+            [$reportModel] = $reportsApi->getReportWithHttpInfo($reportId);
+            $status = strtoupper((string) ($reportModel?->getProcessingStatus() ?? 'IN_QUEUE'));
+            $reportDocumentId = trim((string) ($reportModel?->getReportDocumentId() ?? ''));
+            $payload = $this->modelToArray($reportModel);
 
             if ($capturePolls && count($polls) < 20) {
                 $polls[] = $payload;
             }
 
-            $completedAt = trim((string) ($payload['processingEndTime'] ?? ''));
-            if ($completedAt !== '') {
-                try {
-                    $reportDate = Carbon::parse($completedAt)->toDateString();
-                } catch (\Throwable) {
-                    $reportDate = null;
-                }
-            }
+            $reportDate = $this->normalizeReportDate($reportModel?->getProcessingEndTime());
 
             if ($status === 'DONE' && $reportDocumentId !== '') {
                 return [
@@ -122,33 +118,23 @@ class SpApiReportLifecycleService
         ];
     }
 
-    public function pollReportOnce(object $reportsApi, string $reportId): array
+    public function pollReportOnce(ReportsApi $reportsApi, string $reportId): array
     {
-        $poll = $reportsApi->getReport($reportId);
-        $payload = $poll->json();
-        $status = strtoupper((string) ($payload['processingStatus'] ?? 'IN_QUEUE'));
-        $reportDocumentId = trim((string) ($payload['reportDocumentId'] ?? ''));
-        $reportDate = null;
-        $completedAt = trim((string) ($payload['processingEndTime'] ?? ''));
-        if ($completedAt !== '') {
-            try {
-                $reportDate = Carbon::parse($completedAt)->toDateString();
-            } catch (\Throwable) {
-                $reportDate = null;
-            }
-        }
+        [$reportModel] = $reportsApi->getReportWithHttpInfo($reportId);
+        $status = strtoupper((string) ($reportModel?->getProcessingStatus() ?? 'IN_QUEUE'));
+        $reportDocumentId = trim((string) ($reportModel?->getReportDocumentId() ?? ''));
 
         return [
             'ok' => true,
             'processing_status' => $status,
             'report_document_id' => $reportDocumentId !== '' ? $reportDocumentId : null,
-            'report_date' => $reportDate,
-            'payload' => $payload,
+            'report_date' => $this->normalizeReportDate($reportModel?->getProcessingEndTime()),
+            'payload' => $this->modelToArray($reportModel),
         ];
     }
 
     public function downloadReportRows(
-        object $reportsApi,
+        ReportsApi $reportsApi,
         string $reportDocumentId,
         string $reportType
     ): array {
@@ -163,39 +149,50 @@ class SpApiReportLifecycleService
                     'error' => (string) ($meta['error'] ?? 'Failed to get report document metadata.'),
                 ];
             }
-            $documentResponse = $meta['response'];
+
             $documentPayload = is_array($meta['document_payload'] ?? null) ? $meta['document_payload'] : null;
             $documentUrlSha256 = $meta['report_document_url_sha256'] ?? null;
-
-            $document = $documentResponse->dto();
-            if (!is_object($document) || !method_exists($document, 'download')) {
+            $url = trim((string) ($meta['document_url'] ?? ''));
+            if ($url === '') {
                 return [
                     'ok' => false,
                     'rows' => [],
                     'document_payload' => $documentPayload,
                     'report_document_url_sha256' => $documentUrlSha256,
-                    'error' => 'Report document DTO missing or does not support download.',
+                    'error' => 'Report document URL missing in SP-API response.',
                 ];
             }
 
-            try {
-                $downloaded = $document->download($reportType);
-                $rows = $this->normalizeDownloadedRows($downloaded);
-            } catch (\Throwable $parseError) {
-                // Some documents return an empty/malformed spreadsheet body that the SDK parser cannot iterate.
-                // Fallback to raw document bytes and parse as delimited text in this service.
-                $rawDownloaded = $document->download($reportType, false);
-                $rows = $this->normalizeDownloadedRows($rawDownloaded);
-                Log::warning('SP-API report parser fallback used', [
-                    'report_document_id' => $reportDocumentId,
-                    'report_type' => $reportType,
-                    'error' => $parseError->getMessage(),
-                ]);
+            $raw = Http::timeout(180)->get($url);
+            if (!$raw->successful()) {
+                return [
+                    'ok' => false,
+                    'rows' => [],
+                    'document_payload' => $documentPayload,
+                    'report_document_url_sha256' => $documentUrlSha256,
+                    'error' => 'Unable to download report document payload.',
+                ];
+            }
+
+            $content = $raw->body();
+            $compression = strtoupper(trim((string) ($meta['compression_algorithm'] ?? '')));
+            if ($compression === 'GZIP') {
+                $decoded = @gzdecode($content);
+                if ($decoded === false) {
+                    return [
+                        'ok' => false,
+                        'rows' => [],
+                        'document_payload' => $documentPayload,
+                        'report_document_url_sha256' => $documentUrlSha256,
+                        'error' => 'Unable to decompress GZIP report document payload.',
+                    ];
+                }
+                $content = $decoded;
             }
 
             return [
                 'ok' => true,
-                'rows' => $rows,
+                'rows' => $this->normalizeDownloadedRows($content),
                 'document_payload' => $documentPayload,
                 'report_document_url_sha256' => $documentUrlSha256,
             ];
@@ -211,21 +208,22 @@ class SpApiReportLifecycleService
     }
 
     public function getReportDocumentMetadata(
-        object $reportsApi,
+        ReportsApi $reportsApi,
         string $reportDocumentId,
         string $reportType
     ): array {
         try {
-            $documentResponse = $reportsApi->getReportDocument($reportDocumentId, $reportType);
-            $documentPayload = $documentResponse->json();
-            $documentUrl = trim((string) ($documentPayload['url'] ?? ''));
+            [$document] = $reportsApi->getReportDocumentWithHttpInfo($reportDocumentId);
+            $documentPayload = $this->modelToArray($document);
+            $documentUrl = trim((string) ($document?->getUrl() ?? ''));
             $documentUrlSha256 = $documentUrl !== '' ? hash('sha256', $documentUrl) : null;
 
             return [
                 'ok' => true,
-                'response' => $documentResponse,
+                'response' => $document,
                 'document_payload' => $documentPayload,
                 'document_url' => $documentUrl,
+                'compression_algorithm' => $document?->getCompressionAlgorithm(),
                 'report_document_url_sha256' => $documentUrlSha256,
             ];
         } catch (\Throwable $e) {
@@ -234,6 +232,7 @@ class SpApiReportLifecycleService
                 'response' => null,
                 'document_payload' => null,
                 'document_url' => null,
+                'compression_algorithm' => null,
                 'report_document_url_sha256' => null,
                 'error' => $e->getMessage(),
             ];
@@ -249,6 +248,7 @@ class SpApiReportLifecycleService
                     $rows[] = $row;
                 }
             }
+
             return $rows;
         }
 
@@ -293,7 +293,12 @@ class SpApiReportLifecycleService
 
     private function isQuotaExceededError(\Throwable $e): bool
     {
+        if ($e instanceof ApiException && (int) $e->getCode() === 429) {
+            return true;
+        }
+
         $msg = strtoupper($e->getMessage());
+
         return str_contains($msg, '429')
             || str_contains($msg, 'QUOTAEXCEEDED')
             || str_contains($msg, 'TOO MANY REQUESTS');
@@ -303,6 +308,36 @@ class SpApiReportLifecycleService
     {
         $exp = self::CREATE_REPORT_BASE_BACKOFF_SECONDS * (2 ** $attempt);
         $cap = min(300, $exp);
+
         return max(1, $cap + random_int(0, 7));
+    }
+
+    private function normalizeReportDate(?\DateTime $value): ?string
+    {
+        if (!$value instanceof \DateTime) {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($value)->toDateString();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function modelToArray(mixed $value): array
+    {
+        if ($value === null) {
+            return [];
+        }
+
+        $json = json_encode($value);
+        if ($json === false) {
+            return [];
+        }
+
+        $decoded = json_decode($json, true);
+
+        return is_array($decoded) ? $decoded : [];
     }
 }

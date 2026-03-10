@@ -5,12 +5,14 @@ namespace App\Services;
 use App\Models\Marketplace;
 use App\Models\MarketplaceListing;
 use App\Models\SpApiReportRequest;
-use App\Support\Amazon\LegacySpApiEndpointResolver;
+use App\Services\Amazon\OfficialSpApiService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Saloon\Http\Response as SaloonResponse;
-use SellingPartnerApi\Seller\ReportsV20210630\Dto\CreateReportSpecification;
-use SellingPartnerApi\SellingPartnerApi;
+use SpApi\Api\catalogItems\v2022_04_01\CatalogApi;
+use SpApi\ApiException;
+use SpApi\Api\reports\v2021_06_30\ReportsApi;
+use SpApi\Model\reports\v2021_06_30\CreateReportSpecification;
 
 class MarketplaceListingsSyncService
 {
@@ -24,7 +26,8 @@ class MarketplaceListingsSyncService
 
     public function __construct(
         private readonly SpApiReportLifecycleService $reportLifecycle,
-        private readonly ProductProjectionBootstrapService $projectionBootstrap
+        private readonly ProductProjectionBootstrapService $projectionBootstrap,
+        private readonly ?OfficialSpApiService $officialSpApiService = null
     )
     {
     }
@@ -87,8 +90,10 @@ class MarketplaceListingsSyncService
             return ['created' => 0, 'existing' => 0, 'failed' => 0, 'outstanding' => 0, 'report_ids' => [], 'marketplaces' => []];
         }
 
-        $connector = $this->makeConnector($region);
-        $reportsApi = $connector->reportsV20210630();
+        $reportsApi = $this->makeReportsApi($region);
+        if ($reportsApi === null) {
+            return ['created' => 0, 'existing' => 0, 'failed' => count($marketplaceIds), 'outstanding' => 0, 'report_ids' => [], 'marketplaces' => []];
+        }
 
         $created = 0;
         $existing = 0;
@@ -102,7 +107,10 @@ class MarketplaceListingsSyncService
             $createResponsePayload = null;
             $createResult = $this->reportLifecycle->createReportWithRetry(
                 $reportsApi,
-                new CreateReportSpecification($reportType, [$marketplaceId]),
+                new CreateReportSpecification([
+                    'report_type' => (string) $reportType,
+                    'marketplace_ids' => [(string) $marketplaceId],
+                ]),
                 [
                     'marketplace_id' => $marketplaceId,
                     'report_type' => $reportType,
@@ -167,9 +175,10 @@ class MarketplaceListingsSyncService
         ?array $reportIds = null,
         ?string $region = null
     ): array {
-        $connector = $this->makeConnector($region);
-        $reportsApi = $connector->reportsV20210630();
-
+        $reportsApi = $this->makeReportsApi($region);
+        if ($reportsApi === null) {
+            return ['checked' => 0, 'processed' => 0, 'failed' => 0, 'outstanding' => 0];
+        }
         $query = SpApiReportRequest::query()
             ->whereNull('processed_at')
             ->where(function ($q) {
@@ -225,7 +234,7 @@ class MarketplaceListingsSyncService
                         $rows = collect(is_array($download['rows'] ?? null) ? $download['rows'] : []);
 
                         $syncedCount = $this->upsertRows($request->marketplace_id, $rows, $request->report_id);
-                        $parentCount = $this->syncParentAsinsFromCatalog($connector, $request->marketplace_id, $rows, $request->report_id);
+                        $parentCount = $this->syncParentAsinsFromCatalog($request->marketplace_id, $rows, $request->report_id);
 
                         $request->rows_synced = $syncedCount;
                         $request->parents_synced = $parentCount;
@@ -309,19 +318,30 @@ class MarketplaceListingsSyncService
             ->all();
     }
 
-    private function makeConnector(?string $region = null): SellingPartnerApi
+    private function makeReportsApi(?string $region = null): ?ReportsApi
     {
         $regionService = new RegionConfigService();
-        $regionConfig = $regionService->spApiConfig($region);
+        $resolvedRegion = strtoupper(trim((string) ($region ?: $regionService->defaultSpApiRegion())));
+        if (!in_array($resolvedRegion, ['EU', 'NA', 'FE'], true)) {
+            $resolvedRegion = $regionService->defaultSpApiRegion();
+        }
 
-        return SellingPartnerApi::seller(
-            clientId: (string) $regionConfig['client_id'],
-            clientSecret: (string) $regionConfig['client_secret'],
-            refreshToken: (string) $regionConfig['refresh_token'],
-            endpoint: LegacySpApiEndpointResolver::fromEndpointOrRegion(
-                $regionService->spApiEndpoint($region)
-            ),
-        );
+        $officialSpApiService = $this->officialSpApiService ?? new OfficialSpApiService($regionService);
+
+        return $officialSpApiService->makeReportsV20210630Api($resolvedRegion);
+    }
+
+    private function makeCatalogApi(?string $region = null): ?CatalogApi
+    {
+        $regionService = new RegionConfigService();
+        $resolvedRegion = strtoupper(trim((string) ($region ?: $regionService->defaultSpApiRegion())));
+        if (!in_array($resolvedRegion, ['EU', 'NA', 'FE'], true)) {
+            $resolvedRegion = $regionService->defaultSpApiRegion();
+        }
+
+        $officialSpApiService = $this->officialSpApiService ?? new OfficialSpApiService($regionService);
+
+        return $officialSpApiService->makeCatalogItemsV20220401Api($resolvedRegion);
     }
 
     private function upsertRows(string $marketplaceId, Collection $rows, string $reportId): int
@@ -400,7 +420,7 @@ class MarketplaceListingsSyncService
         return '';
     }
 
-    private function syncParentAsinsFromCatalog($connector, string $marketplaceId, Collection $rows, string $reportId): int
+    private function syncParentAsinsFromCatalog(string $marketplaceId, Collection $rows, string $reportId): int
     {
         $childAsins = $rows
             ->map(fn ($row) => is_array($row) ? trim((string) ($row['asin1'] ?? $row['asin'] ?? '')) : '')
@@ -412,22 +432,68 @@ class MarketplaceListingsSyncService
             return 0;
         }
 
-        $catalogApi = $connector->catalogItemsV20220401();
+        $catalogApi = $this->makeCatalogApi($this->regionForMarketplace($marketplaceId));
+        if ($catalogApi === null) {
+            Log::warning('Catalog parent lookup skipped: official catalog API client unavailable', [
+                'marketplace_id' => $marketplaceId,
+            ]);
+            return 0;
+        }
         $parentAsins = collect();
 
         foreach ($childAsins as $asin) {
             for ($attempt = 0; $attempt < 4; $attempt++) {
                 try {
-                    $response = $catalogApi->getCatalogItem($asin, [$marketplaceId], ['relationships']);
-                    $relationshipsByMarketplace = $response->json('relationships', []);
-                    if (!is_array($relationshipsByMarketplace)) {
-                        usleep(250000);
-                        break;
+                    [$searchResponse, $statusCode, $headers] = $catalogApi->searchCatalogItemsWithHttpInfo(
+                        marketplace_ids: [$marketplaceId],
+                        identifiers: [(string) $asin],
+                        identifiers_type: 'ASIN',
+                        included_data: ['relationships'],
+                        page_size: 1
+                    );
+                    if ($statusCode >= 400) {
+                        $sleep = $this->withJitter($this->retryAfterSecondsFromHeaders($headers, 2 + $attempt), 0.25);
+                        Log::warning('Catalog parent lookup retry', [
+                            'marketplace_id' => $marketplaceId,
+                            'asin' => $asin,
+                            'attempt' => $attempt,
+                            'sleep_seconds' => $sleep,
+                            'status' => $statusCode,
+                            'request_id' => $this->extractRequestIdFromHeaders($headers),
+                        ]);
+                        usleep((int) ($sleep * 1000000));
+                        continue;
                     }
 
-                    foreach ($relationshipsByMarketplace as $marketplaceRelationships) {
-                        foreach (($marketplaceRelationships['relationships'] ?? []) as $relationship) {
-                            foreach (($relationship['parentAsins'] ?? []) as $parentAsin) {
+                    $items = is_array($searchResponse?->getItems()) ? $searchResponse->getItems() : [];
+                    foreach ($items as $item) {
+                        if (!is_object($item) || !method_exists($item, 'getRelationships')) {
+                            continue;
+                        }
+                        $relationshipsByMarketplace = $item->getRelationships();
+                        if (!is_array($relationshipsByMarketplace)) {
+                            continue;
+                        }
+
+                        foreach ($relationshipsByMarketplace as $marketplaceRelationships) {
+                            if (!is_object($marketplaceRelationships) || !method_exists($marketplaceRelationships, 'getRelationships')) {
+                                continue;
+                            }
+                            $relationships = $marketplaceRelationships->getRelationships();
+                            if (!is_array($relationships)) {
+                                continue;
+                            }
+
+                            foreach ($relationships as $relationship) {
+                                if (!is_object($relationship) || !method_exists($relationship, 'getParentAsins')) {
+                                    continue;
+                                }
+                                $parents = $relationship->getParentAsins();
+                                if (!is_array($parents)) {
+                                    continue;
+                                }
+
+                                foreach ($parents as $parentAsin) {
                                 $parentAsin = trim((string) $parentAsin);
                                 if ($parentAsin !== '') {
                                     $parentAsins->push($parentAsin);
@@ -435,19 +501,30 @@ class MarketplaceListingsSyncService
                             }
                         }
                     }
+                    }
 
                     usleep(250000);
                     break;
-                } catch (\Throwable $e) {
-                    $response = $this->responseFromThrowable($e);
-                    $sleep = $this->withJitter($this->retryAfterSeconds($response, 2 + $attempt), 0.25);
+                } catch (ApiException $e) {
+                    $headers = (array) ($e->getResponseHeaders() ?? []);
+                    $sleep = $this->withJitter($this->retryAfterSecondsFromHeaders($headers, 2 + $attempt), 0.25);
                     Log::warning('Catalog parent lookup retry', [
                         'marketplace_id' => $marketplaceId,
                         'asin' => $asin,
                         'attempt' => $attempt,
                         'sleep_seconds' => $sleep,
-                        'status' => $response?->status(),
-                        'request_id' => $this->extractRequestId($response),
+                        'status' => (int) $e->getCode(),
+                        'request_id' => $this->extractRequestIdFromHeaders($headers),
+                        'error' => $e->getMessage(),
+                    ]);
+                    usleep((int) ($sleep * 1000000));
+                } catch (\Throwable $e) {
+                    $sleep = $this->withJitter(2 + $attempt, 0.25);
+                    Log::warning('Catalog parent lookup retry', [
+                        'marketplace_id' => $marketplaceId,
+                        'asin' => $asin,
+                        'attempt' => $attempt,
+                        'sleep_seconds' => $sleep,
                         'error' => $e->getMessage(),
                     ]);
                     usleep((int) ($sleep * 1000000));
@@ -504,6 +581,36 @@ class MarketplaceListingsSyncService
         }
 
         return $parentAsins->count();
+    }
+
+    private function retryAfterSecondsFromHeaders(array $headers, int $fallback): int
+    {
+        $retryAfter = $headers['Retry-After'][0] ?? $headers['retry-after'][0] ?? null;
+        if (is_numeric($retryAfter)) {
+            return max(1, (int) $retryAfter);
+        }
+
+        $limitReset = $headers['x-amzn-RateLimit-Reset'][0]
+            ?? $headers['x-amzn-ratelimit-reset'][0]
+            ?? $headers['X-Amzn-RateLimit-Reset'][0]
+            ?? null;
+        if (is_numeric($limitReset)) {
+            return max(1, (int) ceil((float) $limitReset));
+        }
+
+        return max(1, $fallback);
+    }
+
+    private function extractRequestIdFromHeaders(array $headers): ?string
+    {
+        $requestId = (string) ($headers['x-amzn-RequestId'][0]
+            ?? $headers['x-amzn-requestid'][0]
+            ?? $headers['x-amz-request-id'][0]
+            ?? $headers['X-Amzn-RequestId'][0]
+            ?? '');
+        $requestId = trim($requestId);
+
+        return $requestId !== '' ? $requestId : null;
     }
 
     private function normalizeFulfilmentType(string $raw): string

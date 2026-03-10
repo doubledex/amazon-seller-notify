@@ -7,18 +7,20 @@ use App\Models\OrderItem;
 use App\Models\OrderSyncRun;
 use App\Models\OrderShipAddress;
 use App\Models\PostalCodeGeo;
-use App\Support\Amazon\LegacySpApiEndpointResolver;
+use App\Services\Amazon\OfficialSpApiService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
-use Saloon\Exceptions\Request\Statuses\TooManyRequestsException;
-use Saloon\Http\Response;
-use SellingPartnerApi\SellingPartnerApi;
+use SpApi\ApiException;
 
 class OrderSyncService
 {
     private const FINAL_STATUSES = ['Shipped', 'Canceled', 'Unfulfillable'];
     private const GEO_MAX_PER_RUN = 50;
     private const MAX_API_RETRY_ATTEMPTS = 6;
+
+    public function __construct(private readonly ?OfficialSpApiService $officialSpApiService = null)
+    {
+    }
 
     public function sync(
         int $days,
@@ -101,29 +103,25 @@ class OrderSyncService
         ?string $source = null
     ): array {
         $regionService = new RegionConfigService();
-        $regionConfig = $regionService->spApiConfig($region);
-        $endpoint = LegacySpApiEndpointResolver::fromEndpointOrRegion(
-            $regionService->spApiEndpoint($region)
-        );
-
-        $connector = SellingPartnerApi::seller(
-            clientId: (string) $regionConfig['client_id'],
-            clientSecret: (string) $regionConfig['client_secret'],
-            refreshToken: (string) $regionConfig['refresh_token'],
-            endpoint: $endpoint
-        );
+        $officialSpApiService = $this->officialSpApiService ?? new OfficialSpApiService($regionService);
+        $ordersApi = $officialSpApiService->makeOrdersV0Api($region);
+        if ($ordersApi === null) {
+            return [
+                'ok' => false,
+                'message' => "[{$region}] Unable to construct official Orders API client.",
+            ];
+        }
 
         $createdBefore = $this->normalizeEndBefore($endBefore);
         $createdAfter = (new \DateTime($createdBefore))->modify("-{$days} days")->format('Y-m-d\TH:i:s\Z');
 
         $run = $this->startSyncRun($region, $days, $maxPages, $itemsLimit, $addressLimit, $createdAfter, $createdBefore, $source);
 
-        $ordersApi = $connector->ordersV0();
         $marketplaceService = new MarketplaceService();
         $marketplaceTimezoneService = new MarketplaceTimezoneService();
         $orderNetValueService = new OrderNetValueService();
         $marketplaceCountryMap = $marketplaceService->getMarketplaceMap();
-        $marketplaceIds = $marketplaceService->getMarketplaceIds($connector);
+        $marketplaceIds = $marketplaceService->getMarketplaceIdsForRegion($region);
 
         $nextToken = null;
         $page = 0;
@@ -143,10 +141,10 @@ class OrderSyncService
 
         do {
             $page++;
-            $response = $this->callSpApiWithRetries(
+            $response = $this->callOfficialApiWithRetries(
                 fn () => $nextToken
-                    ? $ordersApi->getOrders(marketplaceIds: $marketplaceIds, nextToken: $nextToken)
-                    : $ordersApi->getOrders(createdAfter: $createdAfter, createdBefore: $createdBefore, marketplaceIds: $marketplaceIds),
+                    ? $ordersApi->getOrdersWithHttpInfo(marketplace_ids: $marketplaceIds, next_token: $nextToken)
+                    : $ordersApi->getOrdersWithHttpInfo(marketplace_ids: $marketplaceIds, created_after: $createdAfter, created_before: $createdBefore),
                 'orders.getOrders',
                 self::MAX_API_RETRY_ATTEMPTS
             );
@@ -160,21 +158,21 @@ class OrderSyncService
                 return $result;
             }
 
-            if ($response->status() >= 400) {
+            if (($response['status'] ?? 500) >= 400) {
                 Log::error('Orders sync error', [
-                    'status' => $response->status(),
-                    'request_id' => $this->extractRequestId($response),
-                    'body' => $response->body(),
+                    'status' => $response['status'] ?? null,
+                    'request_id' => $this->extractRequestIdFromHeaders((array) ($response['headers'] ?? [])),
+                    'body' => $response['body'] ?? [],
                 ]);
                 $result = [
                     'ok' => false,
-                    'message' => "[{$region}] Orders API error: " . $response->status(),
+                    'message' => "[{$region}] Orders API error: " . (int) ($response['status'] ?? 500),
                 ];
                 $this->finishSyncRun($run, $result['ok'], $result['message'], $totalOrders, $itemsFetched, $addressesFetched, $geocoded);
                 return $result;
             }
 
-            $data = $response->json();
+            $data = (array) ($response['body'] ?? []);
             $payload = $data['payload'] ?? [];
             $orders = $payload['Orders'] ?? [];
             $nextToken = $payload['NextToken'] ?? null;
@@ -267,14 +265,14 @@ class OrderSyncService
                     $addressMissing = OrderShipAddress::query()->where('order_id', $orderId)->count() === 0;
 
                     if (($needsDetails || $itemsMissing || $itemsShipmentOutdated) && $itemsFetched < $itemsLimit) {
-                        $itemsResponse = $this->callSpApiWithRetries(
-                            fn () => $ordersApi->getOrderItems($orderId),
+                        $itemsResponse = $this->callOfficialApiWithRetries(
+                            fn () => $ordersApi->getOrderItemsWithHttpInfo($orderId),
                             'orders.getOrderItems',
                             self::MAX_API_RETRY_ATTEMPTS
                         );
 
-                        if ($itemsResponse && $itemsResponse->status() < 400) {
-                            $itemsData = $itemsResponse->json();
+                        if ($itemsResponse && ($itemsResponse['status'] ?? 500) < 400) {
+                            $itemsData = (array) ($itemsResponse['body'] ?? []);
                             $items = $itemsData['payload']['OrderItems'] ?? [];
                             $isMarketplaceFacilitator = false;
                             foreach ($items as $item) {
@@ -324,14 +322,14 @@ class OrderSyncService
                     }
 
                     if (($needsDetails || $addressMissing) && $addressesFetched < $addressLimit) {
-                        $addrResponse = $this->callSpApiWithRetries(
-                            fn () => $ordersApi->getOrderAddress($orderId),
+                        $addrResponse = $this->callOfficialApiWithRetries(
+                            fn () => $ordersApi->getOrderAddressWithHttpInfo($orderId),
                             'orders.getOrderAddress',
                             self::MAX_API_RETRY_ATTEMPTS
                         );
 
-                        if ($addrResponse && $addrResponse->status() < 400) {
-                            $addrData = $addrResponse->json();
+                        if ($addrResponse && ($addrResponse['status'] ?? 500) < 400) {
+                            $addrData = (array) ($addrResponse['body'] ?? []);
                             $addr = $addrData['payload']['ShippingAddress'] ?? [];
                             OrderShipAddress::updateOrCreate(
                                 ['order_id' => $orderId],
@@ -479,18 +477,17 @@ class OrderSyncService
         return app()->runningInConsole() ? 'console' : 'web';
     }
 
-    private function retryAfterSeconds(?Response $response): int
+    private function retryAfterSecondsFromHeaders(array $headers): int
     {
-        if (!$response) {
-            return 10;
-        }
-
-        $retryAfter = $response->header('Retry-After');
+        $retryAfter = $headers['Retry-After'][0] ?? $headers['retry-after'][0] ?? null;
         if (is_numeric($retryAfter)) {
             return max(1, (int) $retryAfter);
         }
 
-        $limitReset = $response->header('x-amzn-RateLimit-Reset') ?? $response->header('X-Amzn-RateLimit-Reset');
+        $limitReset = $headers['x-amzn-RateLimit-Reset'][0]
+            ?? $headers['x-amzn-ratelimit-reset'][0]
+            ?? $headers['X-Amzn-RateLimit-Reset'][0]
+            ?? null;
         if (is_numeric($limitReset)) {
             return max(1, (int) ceil($limitReset));
         }
@@ -498,72 +495,77 @@ class OrderSyncService
         return 10;
     }
 
-    private function callSpApiWithRetries(callable $callback, string $operation, int $maxAttempts): ?Response
+    private function callOfficialApiWithRetries(callable $callback, string $operation, int $maxAttempts): ?array
     {
         $lastResponse = null;
 
         for ($attempt = 0; $attempt < max(1, $maxAttempts); $attempt++) {
             try {
-                /** @var Response $response */
-                $response = $callback();
+                /** @var array{0:mixed,1:int,2:array} $raw */
+                $raw = $callback();
+                $responseModel = $raw[0] ?? null;
+                $status = (int) ($raw[1] ?? 500);
+                $headers = (array) ($raw[2] ?? []);
+                $response = [
+                    'status' => $status,
+                    'headers' => $headers,
+                    'body' => $this->modelToArray($responseModel),
+                ];
                 $lastResponse = $response;
 
-                if ($response->status() < 400) {
+                if ($status < 400) {
                     return $response;
                 }
 
-                if ($response->status() !== 429 && $response->status() < 500) {
+                if ($status !== 429 && $status < 500) {
                     Log::warning('SP-API non-retryable status', [
                         'operation' => $operation,
                         'attempt' => $attempt,
-                        'status' => $response->status(),
-                        'request_id' => $this->extractRequestId($response),
+                        'status' => $status,
+                        'request_id' => $this->extractRequestIdFromHeaders($headers),
                     ]);
                     return $response;
                 }
 
-                $sleep = $this->withJitter($this->retryAfterSeconds($response), 0.25);
+                $sleep = $this->withJitter($this->retryAfterSecondsFromHeaders($headers), 0.25);
                 Log::warning('SP-API retrying response status', [
                     'operation' => $operation,
                     'attempt' => $attempt,
-                    'status' => $response->status(),
-                    'request_id' => $this->extractRequestId($response),
+                    'status' => $status,
+                    'request_id' => $this->extractRequestIdFromHeaders($headers),
                     'sleep_seconds' => $sleep,
                 ]);
                 sleep($sleep);
-            } catch (TooManyRequestsException $e) {
-                $response = $e->getResponse();
-                $lastResponse = $response;
-                $sleep = $this->withJitter($this->retryAfterSeconds($response), 0.25);
+            } catch (ApiException $e) {
+                $status = (int) $e->getCode();
+                $headers = (array) ($e->getResponseHeaders() ?? []);
+                $lastResponse = [
+                    'status' => $status,
+                    'headers' => $headers,
+                    'body' => $this->modelToArray($e->getResponseBody()),
+                ];
+
+                if ($status !== 429 && $status < 500) {
+                    Log::error('SP-API exception without retry', [
+                        'operation' => $operation,
+                        'attempt' => $attempt,
+                        'status' => $status,
+                        'request_id' => $this->extractRequestIdFromHeaders($headers),
+                        'error' => $e->getMessage(),
+                    ]);
+                    break;
+                }
+
+                $sleep = $this->withJitter($this->retryAfterSecondsFromHeaders($headers), 0.25);
                 Log::warning('SP-API throttled exception', [
                     'operation' => $operation,
                     'attempt' => $attempt,
-                    'status' => $response?->status(),
-                    'request_id' => $this->extractRequestId($response),
+                    'status' => $status,
+                    'request_id' => $this->extractRequestIdFromHeaders($headers),
                     'sleep_seconds' => $sleep,
                 ]);
                 sleep($sleep);
             } catch (\Throwable $e) {
-                if (method_exists($e, 'getResponse')) {
-                    $response = $e->getResponse();
-                    if ($response instanceof Response) {
-                        $lastResponse = $response;
-                        if ($response->status() === 429 || $response->status() >= 500) {
-                            $sleep = $this->withJitter($this->retryAfterSeconds($response), 0.25);
-                            Log::warning('SP-API exception retry', [
-                                'operation' => $operation,
-                                'attempt' => $attempt,
-                                'status' => $response->status(),
-                                'request_id' => $this->extractRequestId($response),
-                                'sleep_seconds' => $sleep,
-                                'error' => $e->getMessage(),
-                            ]);
-                            sleep($sleep);
-                            continue;
-                        }
-                    }
-                }
-
                 Log::error('SP-API exception without retry', [
                     'operation' => $operation,
                     'attempt' => $attempt,
@@ -593,18 +595,30 @@ class OrderSyncService
         return max(1, $seconds + $offset);
     }
 
-    private function extractRequestId(?Response $response): ?string
+    private function extractRequestIdFromHeaders(array $headers): ?string
     {
-        if (!$response) {
-            return null;
-        }
-
-        $requestId = (string) ($response->header('x-amzn-RequestId')
-            ?? $response->header('x-amzn-requestid')
-            ?? $response->header('x-amz-request-id')
+        $requestId = (string) ($headers['x-amzn-RequestId'][0]
+            ?? $headers['x-amzn-requestid'][0]
+            ?? $headers['x-amz-request-id'][0]
+            ?? $headers['X-Amzn-RequestId'][0]
             ?? '');
         $requestId = trim($requestId);
         return $requestId !== '' ? $requestId : null;
+    }
+
+    private function modelToArray(mixed $value): array
+    {
+        if ($value === null) {
+            return [];
+        }
+
+        $json = json_encode($value);
+        if ($json === false) {
+            return [];
+        }
+
+        $decoded = json_decode($json, true);
+        return is_array($decoded) ? $decoded : [];
     }
 
     private function isMarketplaceFacilitatorItem(array $item): bool
