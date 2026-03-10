@@ -8,6 +8,10 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use SpApi\Model\pricing\v2022_05_01\CompetitiveSummaryBatchRequest;
+use SpApi\Model\pricing\v2022_05_01\CompetitiveSummaryIncludedData;
+use SpApi\Model\pricing\v2022_05_01\CompetitiveSummaryRequest;
+use SpApi\Model\pricing\v2022_05_01\HttpMethod;
 
 class PendingOrderEstimateService
 {
@@ -95,7 +99,7 @@ class PendingOrderEstimateService
                     continue;
                 }
 
-                $api = $officialSpApiService->makePricingV0Api($regionCode);
+                $api = $officialSpApiService->makePricingV20220501Api($regionCode);
                 if ($api === null) {
                     continue;
                 }
@@ -231,18 +235,25 @@ class PendingOrderEstimateService
         string $region,
         array &$stats
     ): ?array {
-        $customerType = $isBusinessOrder ? 'Business' : 'Consumer';
         $maxAttempts = 4;
 
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             try {
                 $stats['api_calls']++;
-                [$response, $status, $headers] = $pricingApi->getItemOffersWithHttpInfo(
-                    $marketplaceId,
-                    'New',
-                    $asin,
-                    $customerType
-                );
+                $request = new CompetitiveSummaryRequest([
+                    'asin' => $asin,
+                    'marketplace_id' => $marketplaceId,
+                    'included_data' => [
+                        CompetitiveSummaryIncludedData::FEATURED_BUYING_OPTIONS,
+                        CompetitiveSummaryIncludedData::LOWEST_PRICED_OFFERS,
+                    ],
+                    'method' => HttpMethod::GET,
+                    'uri' => '/products/pricing/2022-05-01/items/' . rawurlencode($asin) . '/competitiveSummary',
+                ]);
+                $batchRequest = new CompetitiveSummaryBatchRequest([
+                    'requests' => [$request],
+                ]);
+                [$response, $status, $headers] = $pricingApi->getCompetitiveSummaryWithHttpInfo($batchRequest);
 
                 if ($status === 429 && $attempt < $maxAttempts) {
                     $stats['throttle_retries']++;
@@ -257,14 +268,29 @@ class PendingOrderEstimateService
                         'marketplace_id' => $marketplaceId,
                         'region' => $region,
                         'is_business_order' => $isBusinessOrder,
-                        'customer_type' => $customerType,
                         'status' => $status,
                         'attempt' => $attempt,
                     ]);
                     return null;
                 }
 
-                $price = $this->extractPriceFromItemOffersPayload($this->modelToArray($response));
+                $responseBody = $this->modelToArray($response);
+                $batchStatus = (int) data_get($responseBody, 'responses.0.status.statusCode', 200);
+                if ($batchStatus >= 400) {
+                    $stats['api_non_200']++;
+                    Log::warning('Pending estimate competitive summary non-200', [
+                        'asin' => $asin,
+                        'marketplace_id' => $marketplaceId,
+                        'region' => $region,
+                        'is_business_order' => $isBusinessOrder,
+                        'http_status' => $status,
+                        'batch_status' => $batchStatus,
+                        'attempt' => $attempt,
+                    ]);
+                    return null;
+                }
+
+                $price = $this->extractPriceFromCompetitiveSummaryPayload($responseBody);
                 if ($price !== null) {
                     $stats['api_success']++;
                     return $price;
@@ -285,7 +311,6 @@ class PendingOrderEstimateService
                     'marketplace_id' => $marketplaceId,
                     'region' => $region,
                     'is_business_order' => $isBusinessOrder,
-                    'customer_type' => $customerType,
                     'attempt' => $attempt,
                     'error' => $e->getMessage(),
                 ]);
@@ -296,20 +321,13 @@ class PendingOrderEstimateService
         return null;
     }
 
-    private function extractPriceFromItemOffersPayload(array $json): ?array
+    private function extractPriceFromCompetitiveSummaryPayload(array $json): ?array
     {
-        $payload = (array) ($json['payload'] ?? []);
-        $summary = (array) ($payload['Summary'] ?? []);
-        $buyBox = (array) (($summary['BuyBoxPrices'] ?? [])[0] ?? []);
-        $lowest = (array) (($summary['LowestPrices'] ?? [])[0] ?? []);
-
         $candidates = [
-            data_get($buyBox, 'LandedPrice'),
-            data_get($buyBox, 'ListingPrice'),
-            data_get($summary, 'ListPrice'),
-            data_get($lowest, 'LandedPrice'),
-            data_get($lowest, 'ListingPrice'),
-            data_get($payload, 'Offers.0.ListingPrice'),
+            data_get($json, 'responses.0.body.featuredBuyingOptions.0.segmentedFeaturedOffers.0.listingPrice'),
+            data_get($json, 'responses.0.body.lowestPricedOffers.0.offers.0.listingPrice'),
+            data_get($json, 'responses.0.body.lowestPricedOffers.0.offers.1.listingPrice'),
+            data_get($json, 'responses.0.body.lowestPricedOffers.1.offers.0.listingPrice'),
         ];
 
         foreach ($candidates as $money) {
@@ -317,8 +335,8 @@ class PendingOrderEstimateService
                 continue;
             }
 
-            $amount = (float) ($money['Amount'] ?? 0);
-            $currency = strtoupper(trim((string) ($money['CurrencyCode'] ?? '')));
+            $amount = (float) ($money['amount'] ?? 0);
+            $currency = strtoupper(trim((string) ($money['currencyCode'] ?? '')));
             if ($amount > 0 && $currency !== '') {
                 return ['amount' => $amount, 'currency' => $currency];
             }

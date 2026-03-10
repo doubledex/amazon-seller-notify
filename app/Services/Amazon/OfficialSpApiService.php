@@ -9,7 +9,7 @@ use SpApi\Api\fulfillment\inbound\v0\FbaInboundApi;
 use SpApi\Api\orders\v2026_01_01\GetOrderApi as OrdersV20260101GetOrderApi;
 use SpApi\Api\orders\v2026_01_01\SearchOrdersApi as OrdersV20260101SearchOrdersApi;
 use SpApi\Api\notifications\v1\NotificationsApi;
-use SpApi\Api\pricing\v0\ProductPricingApi;
+use SpApi\Api\pricing\v2022_05_01\ProductPricingApi as ProductPricingV20220501Api;
 use SpApi\Api\productFees\v0\FeesApi;
 use SpApi\Api\catalogItems\v2022_04_01\CatalogApi;
 use SpApi\Api\reports\v2021_06_30\ReportsApi;
@@ -102,7 +102,7 @@ class OfficialSpApiService
         return new FeesApi($officialConfig, new GuzzleClient());
     }
 
-    public function makePricingV0Api(string $region): ?ProductPricingApi
+    public function makePricingV20220501Api(string $region): ?ProductPricingV20220501Api
     {
         $region = strtoupper(trim($region));
         $officialConfig = $this->makeOfficialConfiguration($region);
@@ -110,7 +110,7 @@ class OfficialSpApiService
             return null;
         }
 
-        return new ProductPricingApi($officialConfig, new GuzzleClient());
+        return new ProductPricingV20220501Api($officialConfig, new GuzzleClient());
     }
 
     public function makeSellersV1Api(string $region): ?SellersApi
