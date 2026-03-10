@@ -9,7 +9,6 @@ use SpApi\Api\fulfillment\inbound\v0\FbaInboundApi;
 use SpApi\Api\orders\v2026_01_01\GetOrderApi as OrdersV20260101GetOrderApi;
 use SpApi\Api\orders\v2026_01_01\SearchOrdersApi as OrdersV20260101SearchOrdersApi;
 use SpApi\Api\notifications\v1\NotificationsApi;
-use SpApi\Api\orders\v0\OrdersV0Api;
 use SpApi\Api\pricing\v0\ProductPricingApi;
 use SpApi\Api\productFees\v0\FeesApi;
 use SpApi\Api\catalogItems\v2022_04_01\CatalogApi;
@@ -57,17 +56,6 @@ class OfficialSpApiService
         }
 
         return new NotificationsApi($officialConfig, new GuzzleClient());
-    }
-
-    public function makeOrdersV0Api(string $region): ?OrdersV0Api
-    {
-        $region = strtoupper(trim($region));
-        $officialConfig = $this->makeOfficialConfiguration($region);
-        if ($officialConfig === null) {
-            return null;
-        }
-
-        return new OrdersV0Api($officialConfig, new GuzzleClient());
     }
 
     public function makeSearchOrdersV20260101Api(string $region): ?OrdersV20260101SearchOrdersApi
