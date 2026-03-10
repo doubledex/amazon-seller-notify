@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Integrations\Amazon\SpApi\LegacySpApiClientFactory;
 use Illuminate\Http\Request;
 use DateTime;
 use Illuminate\Support\Facades\Log;
@@ -465,7 +466,9 @@ class OrderController extends Controller
                 ->value('country_code');
         }
 
-        $ordersApi = $this->connector->ordersV0();
+        $ordersApi = (new LegacySpApiClientFactory(new RegionConfigService()))
+            ->makeSellerConnector()
+            ->ordersV0();
         $needsOrder = !$orderRecord;
         $needsItems = $items->isEmpty() || $this->needsItemShipmentRefresh($orderRecord, $items);
         $needsAddress = !$address;
