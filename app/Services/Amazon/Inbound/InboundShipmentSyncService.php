@@ -614,6 +614,13 @@ class InboundShipmentSyncService
 
     private function persistShipmentRows(array $shipmentRows, array $cartonRowsByShipment): int
     {
+        $shipmentRows = array_map(function (array $row): array {
+            $row['api_shipment_payload'] = $this->encodePayloadForStorage($row['api_shipment_payload'] ?? null);
+            $row['api_items_payload'] = $this->encodePayloadForStorage($row['api_items_payload'] ?? null);
+
+            return $row;
+        }, $shipmentRows);
+
         DB::transaction(function () use ($shipmentRows, $cartonRowsByShipment, &$cartonRowsUpserted) {
             InboundShipment::upsert(
                 $shipmentRows,
@@ -644,6 +651,23 @@ class InboundShipmentSyncService
         });
 
         return $cartonRowsUpserted;
+    }
+
+    private function encodePayloadForStorage(mixed $payload): ?string
+    {
+        if ($payload === null || $payload === '') {
+            return null;
+        }
+
+        if (is_string($payload)) {
+            return $payload;
+        }
+
+        try {
+            return json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        } catch (\JsonException $e) {
+            throw new \RuntimeException('Failed to encode inbound payload for storage.', previous: $e);
+        }
     }
 
     private function callWithRetries(callable $callback, string $operation)
