@@ -10,6 +10,7 @@ use App\Services\MarketplaceService;
 use App\Services\OrderNetValueService;
 use App\Services\MarketplaceTimezoneService;
 use App\Services\RegionConfigService;
+use App\Support\Amazon\LegacySpApiEndpointResolver;
 use App\Services\OrderFinancialEventsSummaryService;
 use App\Models\CityGeo;
 use App\Models\PostalCodeGeo;
@@ -43,7 +44,9 @@ class OrderController extends Controller
     {
         $regionService = new RegionConfigService();
         $regionConfig = $regionService->spApiConfig();
-        $endpoint = $regionService->spApiEndpointEnum();
+        $endpoint = LegacySpApiEndpointResolver::fromEndpointOrRegion(
+            $regionService->spApiEndpoint()
+        );
 
         $this->connector = SellingPartnerApi::seller(
             clientId: (string) $regionConfig['client_id'],

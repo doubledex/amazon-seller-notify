@@ -2,9 +2,9 @@
 
 namespace App\Console\Commands;
 
+use App\Services\Amazon\OfficialSpApiService;
 use App\Services\RegionConfigService;
 use Illuminate\Console\Command;
-use SellingPartnerApi\SellingPartnerApi;
 use Throwable;
 
 class CheckSellerWalletAccess extends Command
@@ -12,7 +12,7 @@ class CheckSellerWalletAccess extends Command
     protected $signature = 'wallet:check-access {--region= : Optional SP-API region (EU|NA|FE)}';
     protected $description = 'Check Seller Wallet API access for configured SP-API credentials.';
 
-    public function handle(RegionConfigService $regions): int
+    public function handle(RegionConfigService $regions, OfficialSpApiService $officialSpApiService): int
     {
         $requestedRegion = $this->option('region') ? strtoupper(trim((string) $this->option('region'))) : null;
         $targets = $requestedRegion ? [$requestedRegion] : $regions->spApiRegions();
@@ -37,16 +37,16 @@ class CheckSellerWalletAccess extends Command
             }
 
             try {
-                $connector = SellingPartnerApi::seller(
-                    clientId: $config['client_id'],
-                    clientSecret: $config['client_secret'],
-                    refreshToken: $config['refresh_token'],
-                    endpoint: $regions->spApiEndpointEnum((string) $region),
-                );
+                $walletApi = $officialSpApiService->makeSellerWalletAccountsApi((string) $region);
+                if ($walletApi === null) {
+                    $hasFailure = true;
+                    $this->warn('  wallet_access_probe: skipped (unable to build official SDK wallet client)');
+                    $this->newLine();
+                    continue;
+                }
 
-                $walletApi = $connector->sellerWalletV20240320();
-                $accountsResponse = $walletApi->listAccounts((string) $marketplaceId);
-                $accounts = $accountsResponse->json('payload') ?? [];
+                $accountsListing = $walletApi->listAccounts((string) $marketplaceId);
+                $accounts = $accountsListing->getAccounts() ?? [];
 
                 if (!is_array($accounts) || count($accounts) === 0) {
                     $this->info('  wallet_list_accounts: success (no accounts returned)');
@@ -55,7 +55,9 @@ class CheckSellerWalletAccess extends Command
                 }
 
                 $firstAccount = $accounts[0] ?? [];
-                $accountId = is_array($firstAccount) ? ($firstAccount['accountId'] ?? null) : null;
+                $accountId = is_object($firstAccount) && method_exists($firstAccount, 'getAccountId')
+                    ? $firstAccount->getAccountId()
+                    : null;
 
                 if (!$accountId) {
                     $this->warn('  wallet_list_accounts: success but accountId not found in payload');
@@ -63,8 +65,8 @@ class CheckSellerWalletAccess extends Command
                     continue;
                 }
 
-                $balancesResponse = $walletApi->listAccountBalances((string) $accountId, (string) $marketplaceId);
-                $balances = $balancesResponse->json('payload') ?? [];
+                $balancesListing = $walletApi->listAccountBalances((string) $accountId, (string) $marketplaceId);
+                $balances = $balancesListing->getBalances() ?? [];
                 $balanceCount = is_array($balances) ? count($balances) : 0;
 
                 $this->info('  wallet_access_probe: SUCCESS');
@@ -76,17 +78,11 @@ class CheckSellerWalletAccess extends Command
                 $status = null;
                 $responseBody = null;
 
-                if (method_exists($e, 'getResponse')) {
+                if (method_exists($e, 'getResponseBody')) {
+                    $status = $e->getCode();
                     try {
-                        $response = $e->getResponse();
-                        if ($response) {
-                            if (method_exists($response, 'status')) {
-                                $status = $response->status();
-                            }
-                            if (method_exists($response, 'body')) {
-                                $responseBody = (string) $response->body();
-                            }
-                        }
+                        $rawBody = $e->getResponseBody();
+                        $responseBody = is_string($rawBody) ? $rawBody : json_encode($rawBody);
                     } catch (Throwable) {
                     }
                 }
@@ -106,4 +102,3 @@ class CheckSellerWalletAccess extends Command
         return $hasFailure ? self::FAILURE : self::SUCCESS;
     }
 }
-

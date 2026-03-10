@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Marketplace;
 use App\Models\MarketplaceListing;
 use App\Models\SpApiReportRequest;
+use App\Support\Amazon\LegacySpApiEndpointResolver;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Saloon\Http\Response as SaloonResponse;
@@ -317,7 +318,9 @@ class MarketplaceListingsSyncService
             clientId: (string) $regionConfig['client_id'],
             clientSecret: (string) $regionConfig['client_secret'],
             refreshToken: (string) $regionConfig['refresh_token'],
-            endpoint: $regionService->spApiEndpointEnum($region),
+            endpoint: LegacySpApiEndpointResolver::fromEndpointOrRegion(
+                $regionService->spApiEndpoint($region)
+            ),
         );
     }
 

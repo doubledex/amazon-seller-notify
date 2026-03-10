@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\SqsMessage;
+use App\Support\Amazon\LegacySpApiEndpointResolver;
 use Illuminate\Http\Request;
 use SellingPartnerApi\SellingPartnerApi;
 use App\Services\RegionConfigService;
@@ -97,7 +98,9 @@ class SqsMessagesController extends Controller
                     clientId: (string) $config['client_id'],
                     clientSecret: (string) $config['client_secret'],
                     refreshToken: (string) $config['refresh_token'],
-                    endpoint: $regionService->spApiEndpointEnum($region)
+                    endpoint: LegacySpApiEndpointResolver::fromEndpointOrRegion(
+                        $regionService->spApiEndpoint($region)
+                    )
                 );
 
                 $reportsApi = $connector->reportsV20210630();

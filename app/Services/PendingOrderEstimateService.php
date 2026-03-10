@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\Amazon\LegacySpApiEndpointResolver;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -98,7 +99,9 @@ class PendingOrderEstimateService
                     clientId: (string) $spConfig['client_id'],
                     clientSecret: (string) $spConfig['client_secret'],
                     refreshToken: (string) $spConfig['refresh_token'],
-                    endpoint: $regionService->spApiEndpointEnum($regionCode)
+                    endpoint: LegacySpApiEndpointResolver::fromEndpointOrRegion(
+                        $regionService->spApiEndpoint($regionCode)
+                    )
                 );
             }
 

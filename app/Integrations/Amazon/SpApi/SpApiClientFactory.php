@@ -3,6 +3,7 @@
 namespace App\Integrations\Amazon\SpApi;
 
 use App\Services\RegionConfigService;
+use App\Support\Amazon\LegacySpApiEndpointResolver;
 use SellingPartnerApi\SellingPartnerApi;
 
 class SpApiClientFactory
@@ -15,7 +16,9 @@ class SpApiClientFactory
     {
         $regionConfigService = $this->regionConfigService ?? new RegionConfigService();
         $config = $regionConfigService->spApiConfig($region);
-        $endpoint = $regionConfigService->spApiEndpointEnum($region);
+        $endpoint = LegacySpApiEndpointResolver::fromEndpointOrRegion(
+            $regionConfigService->spApiEndpoint($region)
+        );
 
         return SellingPartnerApi::seller(
             clientId: $config['client_id'],

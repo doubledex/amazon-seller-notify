@@ -22,8 +22,8 @@ This plan expands the landed-cost and reporting proposals with a hard constraint
 
 ### A. Centralize SP-API client creation
 
-Current code mixes direct `SellingPartnerApi::seller(...)` construction in multiple services/controllers.
-As we refactor landed cost + reporting, move touched flows to a centralized factory pattern.
+Current code mixes direct legacy connector construction in multiple services/controllers.
+As we refactor landed cost + reporting, move touched flows to a centralized official SDK client-factory pattern.
 
 Targets to prioritize when touched:
 
@@ -78,4 +78,3 @@ A story touching Amazon integration is done only if:
 3. Retries/backoff/request-id logging are preserved (or improved).
 4. Idempotency/replay behavior is documented and tested for commands/jobs.
 5. Operational docs are updated with any new commands/env keys.
-

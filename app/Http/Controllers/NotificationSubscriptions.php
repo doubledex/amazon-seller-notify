@@ -2,37 +2,36 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Amazon\OfficialSpApiService;
 use App\Services\RegionConfigService;
 use Illuminate\Http\Request;
-use SellingPartnerApi\SellingPartnerApi;
 use Illuminate\Support\Facades\Log;
-// use function config;
-use SellingPartnerApi\Seller\NotificationsV1\Dto\DestinationResourceSpecification;
-use SellingPartnerApi\Seller\NotificationsV1\Dto\CreateDestinationRequest;
-use SellingPartnerApi\Seller\NotificationsV1\Dto\SqsResource;
-use SellingPartnerApi\Seller\NotificationsV1\Dto\CreateSubscriptionRequest;
+use SpApi\Api\notifications\v1\NotificationsApi;
+use SpApi\Model\notifications\v1\CreateDestinationRequest;
+use SpApi\Model\notifications\v1\CreateSubscriptionRequest;
+use SpApi\Model\notifications\v1\DestinationResourceSpecification;
+use SpApi\Model\notifications\v1\SqsResource;
 
 class NotificationSubscriptions extends Controller
 {
-    private $connector;
+    private readonly NotificationsApi $notificationsApi;
 
-    public function __construct()
+    public function __construct(
+        RegionConfigService $regionService,
+        OfficialSpApiService $officialSpApiService
+    )
     {
-        $regionService = new RegionConfigService();
-        $regionConfig = $regionService->spApiConfig();
-        $endpointEnum = $regionService->spApiEndpointEnum();
+        $defaultRegion = $regionService->defaultSpApiRegion();
+        $notificationsApi = $officialSpApiService->makeNotificationsV1Api($defaultRegion);
+        if ($notificationsApi === null) {
+            throw new \RuntimeException("Unable to create Notifications API client for region {$defaultRegion}.");
+        }
 
-        $this->connector = SellingPartnerApi::seller(
-            clientId: (string) $regionConfig['client_id'],
-            clientSecret: (string) $regionConfig['client_secret'],
-            refreshToken: (string) $regionConfig['refresh_token'],
-            endpoint: $endpointEnum
-        );
+        $this->notificationsApi = $notificationsApi;
     }
 
     public function index(Request $request)
     {
-        $notificationsApi = $this->connector->notificationsV1();
         $notificationTypes = [
             'ACCOUNT_STATUS_CHANGED', 'ANY_OFFER_CHANGED', 'B2B_ANY_OFFER_CHANGED', 'BRANDED_ITEM_CONTENT_CHANGE',
             'FBA_INVENTORY_AVAILABILITY_CHANGES', 'FBA_OUTBOUND_SHIPMENT_STATUS',
@@ -43,12 +42,12 @@ class NotificationSubscriptions extends Controller
         ];
 
         try {
-            $responses = $this->fetchSubscriptions($notificationsApi, $notificationTypes, $request);
-            $destinationsResponse = $notificationsApi->getDestinations();
+            $responses = $this->fetchSubscriptions($this->notificationsApi, $notificationTypes, $request);
+            $destinationsResponse = $this->notificationsApi->getDestinations();
             return view('notifications.index', [
                 'responses' => $responses,
                 'notifications' => $responses['notificationData']['payload'] ?? [],
-                'destinations' => $destinationsResponse->json()['payload'] ?? [],
+                'destinations' => $this->modelToArray($destinationsResponse->getPayload() ?? []),
                 'responseHeaders' => $responses['responseHeaders'],
                 'notificationTypes' => $notificationTypes,
             ]);
@@ -63,22 +62,17 @@ class NotificationSubscriptions extends Controller
         $responseHeaders = [];
         foreach ($notificationTypes as $notificationType) {
             try {
-                $response = $notificationsApi->getSubscription($notificationType);
+                [$response, $statusCode, $headers] = $notificationsApi->getSubscriptionWithHttpInfo($notificationType);
+                $responses[$notificationType] = $this->modelToArray($response->getPayload());
+                $responseHeaders = $headers;
 
-                $responses[$notificationType] = $response->json()['payload'] ?? []; // Using notificationType as key
-
-                // $responses [] = [
-                //     'notificationType' => $notificationType,
-                //     'response' => $response->json()['payload'] ?? [],
-                // ];
-
-                if ($response->status() >= 400) {
-                    throw new \Exception("Amazon SP-API Error: " . $response->body());
+                if ($statusCode >= 400) {
+                    throw new \Exception("Amazon SP-API Error (HTTP {$statusCode}) while fetching subscription.");
                 }
 
-                $responseHeaders = $response->headers()->all();
-                $notificationData = $response->json();
-                $nextToken = $notificationData['payload']['NextToken'] ?? null;
+                $nextToken = $response->getPayload() && method_exists($response->getPayload(), 'getNextToken')
+                    ? $response->getPayload()->getNextToken()
+                    : null;
                 if ($nextToken) {
                     $request->session()->put('next_token', $nextToken);
                 }
@@ -97,8 +91,12 @@ class NotificationSubscriptions extends Controller
 
     private function applyRateLimit($responseHeaders)
     {
-        $rateLimit = $responseHeaders['x-amzn-RateLimit-Limit'][0] ?? 1;
-        $delay = (1 / $rateLimit) * 1000000;
+        $rateLimitHeader = $responseHeaders['x-amzn-RateLimit-Limit'][0]
+            ?? $responseHeaders['x-amzn-ratelimit-limit'][0]
+            ?? null;
+        $rateLimit = is_numeric($rateLimitHeader) ? (float) $rateLimitHeader : 1.0;
+        $rateLimit = $rateLimit > 0 ? $rateLimit : 1.0;
+        $delay = (int) ((1 / $rateLimit) * 1000000);
         usleep($delay);
     }
 
@@ -128,12 +126,14 @@ class NotificationSubscriptions extends Controller
         ]);
 
         try {
-            $sqsResource = new SqsResource($request->input('sqsArn'));
-            $resourceSpecification = new DestinationResourceSpecification($sqsResource);
-            $destinationRequest = new CreateDestinationRequest($resourceSpecification, $request->input('name'));
+            $sqsResource = new SqsResource(['arn' => (string) $request->input('sqsArn')]);
+            $resourceSpecification = new DestinationResourceSpecification(['sqs' => $sqsResource]);
+            $destinationRequest = new CreateDestinationRequest([
+                'resource_specification' => $resourceSpecification,
+                'name' => (string) $request->input('name'),
+            ]);
 
-            $notificationsApi = $this->connector->notificationsV1();
-            $notificationResponse = $notificationsApi->createDestination($destinationRequest);
+            $this->notificationsApi->createDestination($destinationRequest);
 
             return back()->with('success', 'Destination created successfully.');
         } catch (\Exception $e) {
@@ -150,8 +150,7 @@ class NotificationSubscriptions extends Controller
         
         try {
             $destinationId = $request->input('destinationId');
-            $notificationsApi = $this->connector->notificationsV1();
-            $notificationResponse = $notificationsApi->deleteDestination($destinationId);
+            $this->notificationsApi->deleteDestination((string) $destinationId);
 
             return back()->with('success', 'Destination deleted successfully.');
         } catch (\Exception $e) {
@@ -167,8 +166,7 @@ class NotificationSubscriptions extends Controller
         try {
             $subscriptionId = $request->input('subscriptionId');
             $notificationType = $request->input('notificationType');
-            $notificationsApi = $this->connector->notificationsV1();
-            $notificationResponse = $notificationsApi->deleteSubscriptionbyId($subscriptionId, $notificationType);
+            $this->notificationsApi->deleteSubscriptionById((string) $subscriptionId, (string) $notificationType);
 
             return back()->with('success', 'Subscription deleted successfully.');
         } catch (\Exception $e) {
@@ -189,9 +187,11 @@ class NotificationSubscriptions extends Controller
             $destinationId = $request->input('destinationId');
             $payloadVersion = $request->input('payloadVersion');
 
-            $createSubscriptionRequest = new CreateSubscriptionRequest($payloadVersion, $destinationId);
-            $notificationsApi = $this->connector->notificationsV1();
-            $notificationResponse = $notificationsApi->createSubscription($notificationType, $createSubscriptionRequest);
+            $createSubscriptionRequest = new CreateSubscriptionRequest([
+                'payload_version' => (string) $payloadVersion,
+                'destination_id' => (string) $destinationId,
+            ]);
+            $this->notificationsApi->createSubscription((string) $notificationType, $createSubscriptionRequest);
 
             return back()->with('success', 'Subscription created successfully.');
         } catch (\Exception $e) {
@@ -203,5 +203,20 @@ class NotificationSubscriptions extends Controller
     {
         Log::error("Exception: " . $e->getMessage());
         return back()->with('error', $defaultMessage . ' ' . $e->getMessage());
+    }
+
+    private function modelToArray(mixed $value): array
+    {
+        if ($value === null) {
+            return [];
+        }
+
+        $json = json_encode($value);
+        if ($json === false) {
+            return [];
+        }
+
+        $decoded = json_decode($json, true);
+        return is_array($decoded) ? $decoded : [];
     }
 }

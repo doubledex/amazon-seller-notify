@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Marketplace;
 use App\Models\ReportJob;
+use App\Support\Amazon\LegacySpApiEndpointResolver;
 use App\Services\ReportJobs\MarketplaceListingsReportJobProcessor;
 use App\Services\ReportJobs\ReportJobProcessor;
 use App\Services\ReportJobs\UsFcInventoryReportJobProcessor;
@@ -302,7 +303,9 @@ class ReportJobOrchestrator
             clientId: (string) $config['client_id'],
             clientSecret: (string) $config['client_secret'],
             refreshToken: (string) $config['refresh_token'],
-            endpoint: $this->regionConfig->spApiEndpointEnum($region),
+            endpoint: LegacySpApiEndpointResolver::fromEndpointOrRegion(
+                $this->regionConfig->spApiEndpoint($region)
+            ),
         );
     }
 

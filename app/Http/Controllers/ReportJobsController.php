@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use App\Services\ReportJobOrchestrator;
 use App\Services\RegionConfigService;
 use App\Services\SpApiReportLifecycleService;
+use App\Support\Amazon\LegacySpApiEndpointResolver;
 use SellingPartnerApi\SellingPartnerApi;
 
 class ReportJobsController extends Controller
@@ -123,7 +124,9 @@ class ReportJobsController extends Controller
             clientId: (string) $config['client_id'],
             clientSecret: (string) $config['client_secret'],
             refreshToken: (string) $config['refresh_token'],
-            endpoint: $regionConfig->spApiEndpointEnum($region)
+            endpoint: LegacySpApiEndpointResolver::fromEndpointOrRegion(
+                $regionConfig->spApiEndpoint($region)
+            )
         );
 
         $download = $lifecycle->downloadReportRows(

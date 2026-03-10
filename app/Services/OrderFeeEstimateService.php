@@ -6,6 +6,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use App\Support\Amazon\LegacySpApiEndpointResolver;
 use SellingPartnerApi\SellingPartnerApi;
 use SellingPartnerApi\Seller\ProductFeesV0\Dto\FeesEstimateRequest;
 use SellingPartnerApi\Seller\ProductFeesV0\Dto\GetMyFeesEstimateRequest;
@@ -123,7 +124,9 @@ class OrderFeeEstimateService
                     clientId: (string) $spConfig['client_id'],
                     clientSecret: (string) $spConfig['client_secret'],
                     refreshToken: (string) $spConfig['refresh_token'],
-                    endpoint: $regionService->spApiEndpointEnum($regionCode)
+                    endpoint: LegacySpApiEndpointResolver::fromEndpointOrRegion(
+                        $regionService->spApiEndpoint($regionCode)
+                    )
                 );
             }
 

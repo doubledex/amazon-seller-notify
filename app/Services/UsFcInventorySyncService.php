@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\UsFcInventory;
+use App\Support\Amazon\LegacySpApiEndpointResolver;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -370,7 +371,9 @@ class UsFcInventorySyncService
             clientId: (string) $config['client_id'],
             clientSecret: (string) $config['client_secret'],
             refreshToken: (string) $config['refresh_token'],
-            endpoint: $regionService->spApiEndpointEnum($region)
+            endpoint: LegacySpApiEndpointResolver::fromEndpointOrRegion(
+                $regionService->spApiEndpoint($region)
+            )
         );
     }
 

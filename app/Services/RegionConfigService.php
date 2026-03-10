@@ -2,12 +2,19 @@
 
 namespace App\Services;
 
-use SellingPartnerApi\Enums\Endpoint;
-use SellingPartnerApi\Enums\Region;
-
 class RegionConfigService
 {
     private const VALID_REGIONS = ['EU', 'NA', 'FE'];
+    private const ENDPOINT_BY_REGION = [
+        'NA' => 'https://sellingpartnerapi-na.amazon.com',
+        'EU' => 'https://sellingpartnerapi-eu.amazon.com',
+        'FE' => 'https://sellingpartnerapi-fe.amazon.com',
+    ];
+    private const SANDBOX_ENDPOINT_BY_REGION = [
+        'NA' => 'https://sandbox.sellingpartnerapi-na.amazon.com',
+        'EU' => 'https://sandbox.sellingpartnerapi-eu.amazon.com',
+        'FE' => 'https://sandbox.sellingpartnerapi-fe.amazon.com',
+    ];
 
     public function spApiRegions(): array
     {
@@ -72,16 +79,14 @@ class RegionConfigService
         return $region ?? 'EU';
     }
 
-    public function spApiEndpointEnum(?string $region = null): Endpoint
+    public function spApiEndpoint(?string $region = null): string
     {
         $config = $this->spApiConfig($region);
         $endpointRaw = trim((string) ($config['endpoint'] ?? ''));
 
-        $normalizedRegion = $this->normalizeEndpointOrRegionToRegion($endpointRaw)
-            ?? $this->normalizeEndpointOrRegionToRegion((string) ($config['region'] ?? 'EU'))
-            ?? 'EU';
-
-        return Endpoint::byRegion(Region::from($normalizedRegion));
+        return $this->normalizeEndpointOrRegionToEndpoint($endpointRaw)
+            ?? $this->normalizeEndpointOrRegionToEndpoint((string) ($config['region'] ?? 'EU'))
+            ?? self::ENDPOINT_BY_REGION['EU'];
     }
 
     public function defaultAdsRegion(): string
@@ -111,7 +116,7 @@ class RegionConfigService
 
     private function normalizeEndpointOrRegionToRegion(string $value): ?string
     {
-        $value = trim($value);
+        $value = strtoupper(trim($value));
         if ($value === '') {
             return null;
         }
@@ -121,16 +126,31 @@ class RegionConfigService
             return $region;
         }
 
-        $endpoint = Endpoint::tryFrom($value);
-        if ($endpoint === null) {
+        return match ($value) {
+            'NA_SANDBOX', strtoupper(self::SANDBOX_ENDPOINT_BY_REGION['NA']), strtoupper(self::ENDPOINT_BY_REGION['NA']) => 'NA',
+            'EU_SANDBOX', strtoupper(self::SANDBOX_ENDPOINT_BY_REGION['EU']), strtoupper(self::ENDPOINT_BY_REGION['EU']) => 'EU',
+            'FE_SANDBOX', strtoupper(self::SANDBOX_ENDPOINT_BY_REGION['FE']), strtoupper(self::ENDPOINT_BY_REGION['FE']) => 'FE',
+            default => null,
+        };
+    }
+
+    private function normalizeEndpointOrRegionToEndpoint(string $value): ?string
+    {
+        $value = strtoupper(trim($value));
+        if ($value === '') {
             return null;
         }
 
-        return match ($endpoint) {
-            Endpoint::NA, Endpoint::NA_SANDBOX => 'NA',
-            Endpoint::EU, Endpoint::EU_SANDBOX => 'EU',
-            Endpoint::FE, Endpoint::FE_SANDBOX => 'FE',
-        };
+        $region = $this->normalizeEndpointOrRegionToRegion($value);
+        if ($region === null) {
+            return null;
+        }
+
+        if (str_ends_with($value, '_SANDBOX') || str_contains($value, 'SANDBOX.')) {
+            return self::SANDBOX_ENDPOINT_BY_REGION[$region];
+        }
+
+        return self::ENDPOINT_BY_REGION[$region];
     }
 
     private function normalizeMarketplaceIds(array $marketplaceIds): array

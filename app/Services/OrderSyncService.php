@@ -7,6 +7,7 @@ use App\Models\OrderItem;
 use App\Models\OrderSyncRun;
 use App\Models\OrderShipAddress;
 use App\Models\PostalCodeGeo;
+use App\Support\Amazon\LegacySpApiEndpointResolver;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Saloon\Exceptions\Request\Statuses\TooManyRequestsException;
@@ -101,7 +102,9 @@ class OrderSyncService
     ): array {
         $regionService = new RegionConfigService();
         $regionConfig = $regionService->spApiConfig($region);
-        $endpoint = $regionService->spApiEndpointEnum($region);
+        $endpoint = LegacySpApiEndpointResolver::fromEndpointOrRegion(
+            $regionService->spApiEndpoint($region)
+        );
 
         $connector = SellingPartnerApi::seller(
             clientId: (string) $regionConfig['client_id'],
