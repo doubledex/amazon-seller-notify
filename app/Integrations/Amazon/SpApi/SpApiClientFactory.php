@@ -5,7 +5,7 @@ namespace App\Integrations\Amazon\SpApi;
 use App\Services\Amazon\OfficialSpApiService;
 use App\Services\RegionConfigService;
 use SpApi\Api\finances\v2024_06_19\DefaultApi as FinancesV20240619Api;
-use SpApi\Api\fulfillment\inbound\v0\FbaInboundApi;
+use SpApi\Api\fulfillment\inbound\v2024_03_20\FbaInboundApi as FbaInboundV20240320Api;
 use SpApi\Api\notifications\v1\NotificationsApi;
 use SpApi\Api\orders\v2026_01_01\GetOrderApi as OrdersV20260101GetOrderApi;
 use SpApi\Api\orders\v2026_01_01\SearchOrdersApi as OrdersV20260101SearchOrdersApi;
@@ -19,9 +19,9 @@ class SpApiClientFactory
     ) {
     }
 
-    public function makeInboundV0Api(?string $region = null): ?FbaInboundApi
+    public function makeInboundV20240320Api(?string $region = null): ?FbaInboundV20240320Api
     {
-        return $this->officialSpApiService()->makeInboundV0Api($this->resolveRegion($region));
+        return $this->officialSpApiService()->makeInboundV20240320Api($this->resolveRegion($region));
     }
 
     public function makeNotificationsV1Api(?string $region = null): ?NotificationsApi

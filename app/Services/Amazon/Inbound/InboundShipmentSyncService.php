@@ -9,9 +9,9 @@ use App\Services\RegionConfigService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use SpApi\Api\fulfillment\inbound\v0\FbaInboundApi;
+use SpApi\Api\fulfillment\inbound\v2024_03_20\FbaInboundApi;
 use SpApi\ApiException;
-use SpApi\Model\fulfillment\inbound\v0\ShipmentStatus;
+use SpApi\Model\fulfillment\inbound\v2024_03_20\InboundPlanSummary;
 
 class InboundShipmentSyncService
 {
@@ -86,7 +86,7 @@ class InboundShipmentSyncService
     private function syncRegion(string $regionCode, int $days, ?string $singleMarketplaceId = null): array
     {
         $config = $this->regionConfigService->spApiConfig($regionCode);
-        $api = $this->officialSpApiService->makeInboundV0Api($regionCode);
+        $api = $this->officialSpApiService->makeInboundV20240320Api($regionCode);
         if ($api === null) {
             return [
                 'ok' => false,
@@ -168,43 +168,10 @@ class InboundShipmentSyncService
 
     private function syncMarketplace(FbaInboundApi $api, string $regionCode, string $marketplaceId, int $days): array
     {
-        $nowUtc = Carbon::now('UTC');
-        $updatedAfter = $nowUtc->copy()->subDays($days);
-        $nextToken = null;
-        $shipmentData = [];
+        $updatedAfter = Carbon::now('UTC')->subDays($days);
+        $shipmentRefs = $this->collectShipmentReferences($api, $marketplaceId, $updatedAfter);
 
-        do {
-            $queryType = $nextToken ? 'NEXT_TOKEN' : 'DATE_RANGE';
-
-            $response = $this->callWithRetries(
-                fn () => $api->getShipments(
-                    query_type: $queryType,
-                    marketplace_id: $marketplaceId,
-                    shipment_status_list: $nextToken ? null : $this->shipmentStatusFilter(),
-                    shipment_id_list: null,
-                    last_updated_after: $nextToken ? null : $updatedAfter->toDateTime(),
-                    last_updated_before: $nextToken ? null : $nowUtc->toDateTime(),
-                    next_token: $nextToken,
-                ),
-                'fbaInbound.getShipments'
-            );
-
-            $payload = $response->getPayload();
-            foreach ((array) ($payload?->getShipmentData() ?? []) as $shipment) {
-                $shipmentId = trim((string) $shipment->getShipmentId());
-                if ($shipmentId === '') {
-                    continue;
-                }
-                $shipmentData[$shipmentId] = $shipment;
-            }
-
-            $nextToken = trim((string) ($payload?->getNextToken() ?? ''));
-            if ($nextToken === '') {
-                $nextToken = null;
-            }
-        } while ($nextToken !== null);
-
-        if (empty($shipmentData)) {
+        if (empty($shipmentRefs)) {
             return [
                 'shipments_upserted' => 0,
                 'shipments_scanned' => 0,
@@ -218,8 +185,14 @@ class InboundShipmentSyncService
         $cartonRowsByShipment = [];
         $shipmentItemsScanned = 0;
 
-        foreach ($shipmentData as $shipmentId => $shipment) {
-            $status = strtoupper(trim((string) $shipment->getShipmentStatus()));
+        foreach ($shipmentRefs as $ref) {
+            $shipment = $this->callWithRetries(
+                fn () => $api->getShipment($ref['inbound_plan_id'], $ref['shipment_id']),
+                'fbaInbound.getShipment'
+            );
+
+            $shipmentId = $ref['shipment_id'];
+            $status = strtoupper(trim((string) $shipment->getStatus()));
             $shipmentRows[] = [
                 'shipment_id' => $shipmentId,
                 'region_code' => $regionCode,
@@ -232,14 +205,7 @@ class InboundShipmentSyncService
                 'updated_at' => $syncedAt,
             ];
 
-            $itemsResponse = $this->callWithRetries(
-                fn () => $api->getShipmentItemsByShipmentId(
-                    shipment_id: $shipmentId,
-                    marketplace_id: $marketplaceId
-                ),
-                'fbaInbound.getShipmentItemsByShipmentId'
-            );
-            $items = (array) ($itemsResponse->getPayload()?->getItemData() ?? []);
+            $items = $this->collectShipmentItems($api, $ref['inbound_plan_id'], $shipmentId);
             $shipmentItemsScanned += count($items);
             $cartonRowsByShipment[$shipmentId] = $this->buildCartonRows($shipmentId, $items, $syncedAt);
         }
@@ -278,19 +244,125 @@ class InboundShipmentSyncService
         ];
     }
 
+    /**
+     * @return array<int, array{inbound_plan_id: string, shipment_id: string}>
+     */
+    private function collectShipmentReferences(FbaInboundApi $api, string $marketplaceId, Carbon $updatedAfter): array
+    {
+        $nextToken = null;
+        $refs = [];
+
+        do {
+            $response = $this->callWithRetries(
+                fn () => $api->listInboundPlans(
+                    page_size: 50,
+                    pagination_token: $nextToken,
+                    status: null
+                ),
+                'fbaInbound.listInboundPlans'
+            );
+
+            foreach ((array) ($response->getInboundPlans() ?? []) as $planSummary) {
+                if (!$planSummary instanceof InboundPlanSummary) {
+                    continue;
+                }
+
+                if (!$this->planMatchesMarketplaceAndWindow($planSummary, $marketplaceId, $updatedAfter)) {
+                    continue;
+                }
+
+                $planId = trim((string) $planSummary->getInboundPlanId());
+                if ($planId === '') {
+                    continue;
+                }
+
+                $inboundPlan = $this->callWithRetries(
+                    fn () => $api->getInboundPlan($planId),
+                    'fbaInbound.getInboundPlan'
+                );
+
+                foreach ((array) ($inboundPlan->getShipments() ?? []) as $shipmentSummary) {
+                    $shipmentId = trim((string) ($shipmentSummary?->getShipmentId() ?? ''));
+                    if ($shipmentId === '') {
+                        continue;
+                    }
+
+                    $key = $planId . '|' . $shipmentId;
+                    $refs[$key] = [
+                        'inbound_plan_id' => $planId,
+                        'shipment_id' => $shipmentId,
+                    ];
+                }
+            }
+
+            $nextToken = trim((string) ($response->getPagination()?->getNextToken() ?? ''));
+            if ($nextToken === '') {
+                $nextToken = null;
+            }
+        } while ($nextToken !== null);
+
+        return array_values($refs);
+    }
+
+    private function planMatchesMarketplaceAndWindow(
+        InboundPlanSummary $planSummary,
+        string $marketplaceId,
+        Carbon $updatedAfter
+    ): bool {
+        $marketplaces = array_map(
+            static fn ($value) => trim((string) $value),
+            (array) ($planSummary->getMarketplaceIds() ?? [])
+        );
+
+        if (!in_array($marketplaceId, $marketplaces, true)) {
+            return false;
+        }
+
+        return Carbon::instance($planSummary->getLastUpdatedAt())->greaterThanOrEqualTo($updatedAfter);
+    }
+
+    private function collectShipmentItems(FbaInboundApi $api, string $inboundPlanId, string $shipmentId): array
+    {
+        $nextToken = null;
+        $items = [];
+
+        do {
+            $response = $this->callWithRetries(
+                fn () => $api->listShipmentItems(
+                    inbound_plan_id: $inboundPlanId,
+                    shipment_id: $shipmentId,
+                    page_size: 50,
+                    pagination_token: $nextToken
+                ),
+                'fbaInbound.listShipmentItems'
+            );
+
+            foreach ((array) ($response->getItems() ?? []) as $item) {
+                $items[] = $item;
+            }
+
+            $nextToken = trim((string) ($response->getPagination()?->getNextToken() ?? ''));
+            if ($nextToken === '') {
+                $nextToken = null;
+            }
+        } while ($nextToken !== null);
+
+        return $items;
+    }
+
     private function buildCartonRows(string $shipmentId, array $items, Carbon $syncedAt): array
     {
         $lineMap = [];
 
         foreach ($items as $item) {
-            $sku = trim((string) $item->getSellerSku());
-            $fnsku = trim((string) $item->getFulfillmentNetworkSku());
-            $quantityShipped = max(0, (int) $item->getQuantityShipped());
+            $sku = trim((string) ($item?->getMsku() ?? ''));
+            $fnsku = '';
+            $quantityShipped = max(0, (int) ($item?->getQuantity() ?? 0));
             if ($quantityShipped <= 0) {
                 continue;
             }
 
-            $quantityInCase = max(0, (int) ($item->getQuantityInCase() ?? 0));
+            $quantityInCase = 0;
             $key = $sku . '|' . $fnsku;
 
             if (!isset($lineMap[$key])) {
@@ -384,19 +456,4 @@ class InboundShipmentSyncService
         return null;
     }
 
-    private function shipmentStatusFilter(): array
-    {
-        return [
-            ShipmentStatus::WORKING,
-            ShipmentStatus::SHIPPED,
-            ShipmentStatus::RECEIVING,
-            ShipmentStatus::CANCELLED,
-            ShipmentStatus::DELETED,
-            ShipmentStatus::CLOSED,
-            ShipmentStatus::ERROR,
-            ShipmentStatus::IN_TRANSIT,
-            ShipmentStatus::DELIVERED,
-            ShipmentStatus::CHECKED_IN,
-        ];
-    }
 }
