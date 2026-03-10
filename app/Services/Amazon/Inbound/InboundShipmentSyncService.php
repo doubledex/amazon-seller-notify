@@ -730,50 +730,71 @@ class InboundShipmentSyncService
 
     private function shipmentPayloadV0(object $shipment): array
     {
-        return [
-            'shipment_id' => (string) ($shipment->getShipmentId() ?? ''),
-            'shipment_status' => (string) ($shipment->getShipmentStatus() ?? ''),
-            'shipment_name' => (string) ($shipment->getShipmentName() ?? ''),
-            'destination_fulfillment_center_id' => (string) ($shipment->getDestinationFulfillmentCenterId() ?? ''),
-            'label_prep_type' => (string) ($shipment->getLabelPrepType() ?? ''),
-        ];
+        $payload = $this->normalizePayload($shipment);
+
+        return is_array($payload) ? $payload : ['value' => $payload];
     }
 
     private function itemsPayloadV0(array $items): array
     {
-        return array_map(static function ($item): array {
-            return [
-                'seller_sku' => (string) ($item->getSellerSku() ?? ''),
-                'fnsku' => (string) ($item->getFulfillmentNetworkSku() ?? ''),
-                'quantity_shipped' => (int) ($item->getQuantityShipped() ?? 0),
-                'quantity_received' => (int) ($item->getQuantityReceived() ?? 0),
-                'quantity_in_case' => (int) ($item->getQuantityInCase() ?? 0),
-            ];
-        }, $items);
+        $payload = $this->normalizePayload($items);
+
+        return is_array($payload) ? $payload : ['value' => $payload];
     }
 
     private function shipmentPayloadV2024(object $shipment): array
     {
-        return [
-            'shipment_id' => (string) ($shipment->getShipmentId() ?? ''),
-            'status' => (string) ($shipment->getStatus() ?? ''),
-            'name' => (string) ($shipment->getName() ?? ''),
-            'destination' => $this->safeJson($shipment->getDestination()),
-        ];
+        $payload = $this->normalizePayload($shipment);
+
+        return is_array($payload) ? $payload : ['value' => $payload];
     }
 
     private function itemsPayloadV2024(array $items): array
     {
-        return array_map(static function ($item): array {
-            return [
-                'msku' => (string) ($item->getMsku() ?? ''),
-                'quantity' => (int) ($item->getQuantity() ?? 0),
-            ];
-        }, $items);
+        $payload = $this->normalizePayload($items);
+
+        return is_array($payload) ? $payload : ['value' => $payload];
     }
 
-    private function safeJson(mixed $value): ?array
+    private function normalizePayload(mixed $value): mixed
     {
+        if ($value === null || is_scalar($value)) {
+            return $value;
+        }
+
+        if ($value instanceof \DateTimeInterface) {
+            return $value->format(DATE_ATOM);
+        }
+
+        if ($value instanceof \UnitEnum) {
+            return $value instanceof \BackedEnum ? $value->value : $value->name;
+        }
+
+        if (is_array($value)) {
+            $normalized = [];
+            foreach ($value as $key => $item) {
+                $normalized[$key] = $this->normalizePayload($item);
+            }
+
+            return $normalized;
+        }
+
+        if ($value instanceof \ArrayAccess && method_exists($value, 'attributeMap')) {
+            try {
+                $attributeMap = $value::attributeMap();
+                if (is_array($attributeMap)) {
+                    $normalized = [];
+                    foreach (array_keys($attributeMap) as $attribute) {
+                        $normalized[$attribute] = $this->normalizePayload($value[$attribute] ?? null);
+                    }
+
+                    return $normalized;
+                }
+            } catch (\Throwable) {
+                // Fall through to JSON fallback.
+            }
+        }
+
         $json = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if ($json === false) {
             return ['_serialization_error' => 'json_encode_failed'];
