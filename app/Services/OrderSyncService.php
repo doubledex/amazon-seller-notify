@@ -405,7 +405,9 @@ class OrderSyncService
         $ship = is_array($order['ShippingAddress'] ?? null) ? $order['ShippingAddress'] : [];
         $city = trim((string) ($ship['City'] ?? ''));
         $country = trim((string) ($ship['CountryCode'] ?? ''));
-        $hasCounts = array_key_exists('NumberOfItemsShipped', $order) || array_key_exists('NumberOfItemsUnshipped', $order);
+        $hasShippedCount = array_key_exists('NumberOfItemsShipped', $order) && is_numeric($order['NumberOfItemsShipped']);
+        $hasUnshippedCount = array_key_exists('NumberOfItemsUnshipped', $order) && is_numeric($order['NumberOfItemsUnshipped']);
+        $hasCounts = $hasShippedCount || $hasUnshippedCount;
 
         return $status === ''
             || $network === ''
