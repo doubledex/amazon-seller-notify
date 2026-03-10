@@ -229,16 +229,55 @@ class OfficialOrderAdapter implements AmazonOrderApi
         $proceeds = (array) ($order['proceeds'] ?? []);
         $grandTotal = (array) ($proceeds['grandTotal'] ?? []);
         $buyer = (array) ($order['buyer'] ?? []);
+        $itemCounts = (array) ($order['itemCounts'] ?? []);
+        $payment = (array) ($order['payment'] ?? []);
+
+        $orderStatus = $fulfillment['fulfillmentStatus']
+            ?? $order['orderStatus']
+            ?? $order['status']
+            ?? null;
+
+        $fulfilledBy = strtoupper(trim((string) (
+            $fulfillment['fulfilledBy']
+            ?? $order['fulfillmentChannel']
+            ?? $order['fulfilledBy']
+            ?? ''
+        )));
+        $fulfillmentChannel = match ($fulfilledBy) {
+            'AMAZON', 'AFN', 'FBA' => 'AFN',
+            'SELLER', 'MFN', 'FBM', 'MERCHANT' => 'MFN',
+            default => ($fulfilledBy !== '' ? $fulfilledBy : null),
+        };
+
+        $paymentMethod = $order['paymentMethod']
+            ?? $payment['paymentMethod']
+            ?? $payment['method']
+            ?? null;
+
+        $itemsShipped = $itemCounts['numberOfItemsShipped']
+            ?? $itemCounts['itemsShipped']
+            ?? $itemCounts['quantityShipped']
+            ?? $itemCounts['shippedCount']
+            ?? null;
+        $itemsUnshipped = $itemCounts['numberOfItemsUnshipped']
+            ?? $itemCounts['itemsUnshipped']
+            ?? $itemCounts['quantityUnshipped']
+            ?? $itemCounts['unshippedCount']
+            ?? null;
 
         return [
             'AmazonOrderId' => $order['orderId'] ?? null,
             'PurchaseDate' => $order['createdTime'] ?? null,
             'LastUpdateDate' => $order['lastUpdatedTime'] ?? null,
-            'OrderStatus' => $fulfillment['fulfillmentStatus'] ?? null,
-            'FulfillmentChannel' => $fulfillment['fulfilledBy'] ?? null,
+            'OrderStatus' => $orderStatus,
+            'FulfillmentChannel' => $fulfillmentChannel,
             'SalesChannel' => $salesChannel['channelName'] ?? null,
             'MarketplaceId' => $salesChannel['marketplaceId'] ?? null,
             'IsBusinessOrder' => !empty($buyer['buyerCompanyName']),
+            'PaymentMethodDetails' => $paymentMethod ? [$paymentMethod] : [],
+            'PaymentMethod' => $paymentMethod,
+            'NumberOfItemsShipped' => is_numeric($itemsShipped) ? (int) $itemsShipped : null,
+            'NumberOfItemsUnshipped' => is_numeric($itemsUnshipped) ? (int) $itemsUnshipped : null,
             'OrderTotal' => [
                 'Amount' => $grandTotal['amount'] ?? null,
                 'CurrencyCode' => $grandTotal['currencyCode'] ?? null,
@@ -247,7 +286,7 @@ class OfficialOrderAdapter implements AmazonOrderApi
                 'City' => $address['city'] ?? null,
                 'CountryCode' => $address['countryCode'] ?? null,
                 'PostalCode' => $address['postalCode'] ?? null,
-                'CompanyName' => $address['companyName'] ?? null,
+                'CompanyName' => $address['companyName'] ?? ($buyer['buyerCompanyName'] ?? null),
                 'StateOrRegion' => $address['stateOrRegion'] ?? null,
             ],
         ];

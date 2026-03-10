@@ -9,6 +9,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 class InboundDiscrepancyController extends Controller
@@ -49,22 +50,35 @@ class InboundDiscrepancyController extends Controller
             ]);
         }
 
+        $fcLookup = DB::table('us_fc_inventories')
+            ->selectRaw("marketplace_id, COALESCE(seller_sku, '') as sku, COALESCE(fnsku, '') as fnsku")
+            ->selectRaw("MAX(COALESCE(fulfillment_center_id, 'n/a')) as fulfillment_center_id")
+            ->groupBy('marketplace_id', 'sku', 'fnsku');
+
         $query = InboundDiscrepancy::query()
-            ->with('shipment:id,shipment_id,marketplace_id,region_code')
+            ->leftJoin('inbound_shipments as s', 's.shipment_id', '=', 'inbound_discrepancies.shipment_id')
+            ->leftJoinSub($fcLookup, 'fc', function ($join) {
+                $join->on('fc.marketplace_id', '=', 's.marketplace_id')
+                    ->on('fc.sku', '=', 'inbound_discrepancies.sku')
+                    ->on('fc.fnsku', '=', 'inbound_discrepancies.fnsku');
+            })
+            ->select('inbound_discrepancies.*')
+            ->selectRaw("COALESCE(fc.fulfillment_center_id, 'n/a') as destination_fulfillment_center_id")
+            ->with('shipment:id,shipment_id,marketplace_id,region_code,api_shipment_payload')
             ->withCount('claimCases')
-            ->orderBy('challenge_deadline_at')
-            ->orderByDesc('value_impact');
+            ->orderBy('inbound_discrepancies.challenge_deadline_at')
+            ->orderByDesc('inbound_discrepancies.value_impact');
 
         if ($status !== 'all') {
-            $query->where('status', $status);
+            $query->where('inbound_discrepancies.status', $status);
         }
 
         if ($severity !== '') {
-            $query->where('severity', $severity);
+            $query->where('inbound_discrepancies.severity', $severity);
         }
 
         if ($splitOnly) {
-            $query->where('split_carton', true);
+            $query->where('inbound_discrepancies.split_carton', true);
         }
 
         $rows = $query->paginate(50)->appends($request->query());

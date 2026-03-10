@@ -639,7 +639,7 @@
                         data-local="{{ $purchaseTimeOutLocal }}"
                         data-utc="{{ $purchaseTimeOutUtc }}"
                     >{{ $purchaseTimeOutLocal }}</td>
-                    <td>{{ $order['OrderStatus'] }}</td>
+                    <td>{{ trim((string) ($order['OrderStatus'] ?? '')) !== '' ? $order['OrderStatus'] : 'N/A' }}</td>
                     <td>
                         <a href="{{ route('orders.show', ['order_id' => $order['AmazonOrderId']]) }}" class="text-blue-600 hover:underline">
                             {{ $order['AmazonOrderId'] }}
@@ -661,8 +661,8 @@
                             <span style="color:#9aa3af;">N/A</span>
                         @endif
                     </td>
-                    <td>{{ $order['ShippingAddress']['City'] ?? 'N/A' }}</td>
-                    <td>{{ $order['FulfillmentChannel'] ?? 'N/A' }}</td>
+                    <td>{{ trim((string) ($order['ShippingAddress']['City'] ?? '')) !== '' ? $order['ShippingAddress']['City'] : 'N/A' }}</td>
+                    <td>{{ trim((string) ($order['FulfillmentChannel'] ?? '')) !== '' ? $order['FulfillmentChannel'] : 'N/A' }}</td>
                     <td style="text-align:center;">
                         @php
                             $geo = $order['Geocode'] ?? ['exists' => false, 'lat' => null, 'lng' => null];
@@ -681,7 +681,7 @@
                     </td>
                     <td style="text-align: center;">{{ $order['NumberOfItemsUnshipped'] ?? '' }}</td>
                     <td style="text-align: center;">{{ $order['NumberOfItemsShipped'] ?? '' }}</td>
-                    <td>{{ $order['PaymentMethodDetails'][0] ?? 'N/A' }}</td>
+                    <td>{{ trim((string) ($order['PaymentMethodDetails'][0] ?? '')) !== '' ? $order['PaymentMethodDetails'][0] : 'N/A' }}</td>
                     <td>{{ $netCurrency !== '' ? $netCurrency : 'N/A' }}</td>
                     <td dir="rtl">
                         @if(str_starts_with((string) ($order['OrderNetExTax']['Source'] ?? ''), 'estimated'))
@@ -701,7 +701,7 @@
                     <td dir="rtl">
                         {{ $marginGbpAmount !== null ? '£' . number_format($marginGbpAmount, 2) : 'N/A' }}
                     </td>
-                    <td>{{ $order['ShippingAddress']['CountryCode'] ?? '' }}</td>
+                    <td>{{ trim((string) ($order['ShippingAddress']['CountryCode'] ?? '')) !== '' ? $order['ShippingAddress']['CountryCode'] : 'N/A' }}</td>
                     <td>
                         @if($marketplaceId)
                             <div class="inline-flex items-center gap-2">
@@ -714,7 +714,7 @@
                             N/A
                         @endif
                     </td>
-                    <td>{{ $order['ShippingAddress']['CompanyName'] ?? 'N/A' }}</td>
+                    <td>{{ trim((string) ($order['ShippingAddress']['CompanyName'] ?? '')) !== '' ? $order['ShippingAddress']['CompanyName'] : 'N/A' }}</td>
                 </tr>
             @endforeach
             </tbody>

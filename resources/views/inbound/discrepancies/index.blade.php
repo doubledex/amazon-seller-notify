@@ -60,6 +60,8 @@
                     <tr>
                         <th class="text-left">ID</th>
                         <th class="text-left">Shipment</th>
+                        <th class="text-left">Ship-From Country</th>
+                        <th class="text-left">Destination FC</th>
                         <th class="text-left">SKU/FNSKU</th>
                         <th class="text-right">Expected</th>
                         <th class="text-right">Received</th>
@@ -80,6 +82,8 @@
                                 </a>
                             </td>
                             <td>{{ $row->shipment_id }}</td>
+                            <td>{{ $row->shipment?->ship_from_country_code ?? 'n/a' }}</td>
+                            <td>{{ $row->destination_fulfillment_center_id ?? 'n/a' }}</td>
                             <td>
                                 <div>{{ $row->sku ?: 'n/a' }}</div>
                                 <div class="text-xs text-gray-500">{{ $row->fnsku ?: 'n/a' }}</div>
@@ -94,7 +98,7 @@
                             <td>{{ (int) $row->claim_cases_count }}</td>
                         </tr>
                     @empty
-                        <tr><td colspan="11">No discrepancies found for this filter.</td></tr>
+                        <tr><td colspan="13">No discrepancies found for this filter.</td></tr>
                     @endforelse
                     </tbody>
                 </table>

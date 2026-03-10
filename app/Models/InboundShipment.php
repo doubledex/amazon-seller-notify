@@ -41,4 +41,26 @@ class InboundShipment extends Model
     {
         return $this->hasMany(InboundDiscrepancy::class, 'shipment_id', 'shipment_id');
     }
+
+    public function getShipFromCountryCodeAttribute(): ?string
+    {
+        $payload = $this->api_shipment_payload;
+        if (!is_array($payload)) {
+            return null;
+        }
+
+        $country = data_get($payload, 'ship_from_address.country_code')
+            ?? data_get($payload, 'ship_from_address.country')
+            ?? data_get($payload, 'shipFromAddress.countryCode')
+            ?? data_get($payload, 'shipFromAddress.country')
+            ?? data_get($payload, 'source_address.country_code')
+            ?? data_get($payload, 'sourceAddress.countryCode');
+
+        $country = strtoupper(trim((string) $country));
+        if ($country === '') {
+            return null;
+        }
+
+        return $country === 'UK' ? 'GB' : $country;
+    }
 }
