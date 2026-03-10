@@ -1,9 +1,13 @@
 <?php
 
 use App\Contracts\Amazon\AmazonOrderApi;
+use App\Integrations\Amazon\SpApi\LegacySpApiClientFactory;
 use App\Integrations\Amazon\SpApi\SpApiClientFactory;
 use App\Services\Amazon\Orders\LegacyOrderAdapter;
 use App\Services\Amazon\Support\AmazonRequestPolicy;
+use Tests\TestCase;
+
+uses(TestCase::class);
 
 it('binds amazon order api contract to legacy adapter', function () {
     $instance = app(AmazonOrderApi::class);
@@ -19,7 +23,13 @@ it('registers amazon request policy as singleton', function () {
 });
 
 
-it('supports zero-arg sp-api client factory construction for legacy call sites', function () {
+it('supports zero-arg legacy sp-api client factory construction for legacy call sites', function () {
+    $factory = new LegacySpApiClientFactory();
+
+    expect($factory)->toBeInstanceOf(LegacySpApiClientFactory::class);
+});
+
+it('supports zero-arg official sp-api client factory construction', function () {
     $factory = new SpApiClientFactory();
 
     expect($factory)->toBeInstanceOf(SpApiClientFactory::class);

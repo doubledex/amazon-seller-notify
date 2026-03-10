@@ -4,8 +4,10 @@ namespace App\Services\Amazon;
 
 use App\Services\RegionConfigService;
 use GuzzleHttp\Client as GuzzleClient;
+use SpApi\Api\finances\v2024_06_19\DefaultApi as FinancesV20240619Api;
 use SpApi\Api\fulfillment\inbound\v0\FbaInboundApi;
 use SpApi\Api\notifications\v1\NotificationsApi;
+use SpApi\Api\orders\v0\OrdersV0Api;
 use SpApi\Api\sellerWallet\v2024_03_01\AccountsApi as SellerWalletAccountsApi;
 use SpApi\AuthAndAuth\LWAAuthorizationCredentials;
 use SpApi\Configuration as OfficialSpApiConfiguration;
@@ -48,6 +50,28 @@ class OfficialSpApiService
         }
 
         return new NotificationsApi($officialConfig, new GuzzleClient());
+    }
+
+    public function makeOrdersV0Api(string $region): ?OrdersV0Api
+    {
+        $region = strtoupper(trim($region));
+        $officialConfig = $this->makeOfficialConfiguration($region);
+        if ($officialConfig === null) {
+            return null;
+        }
+
+        return new OrdersV0Api($officialConfig, new GuzzleClient());
+    }
+
+    public function makeFinancesV20240619Api(string $region): ?FinancesV20240619Api
+    {
+        $region = strtoupper(trim($region));
+        $officialConfig = $this->makeOfficialConfiguration($region);
+        if ($officialConfig === null) {
+            return null;
+        }
+
+        return new FinancesV20240619Api($officialConfig, new GuzzleClient());
     }
 
     private function makeOfficialConfiguration(string $region): ?OfficialSpApiConfiguration

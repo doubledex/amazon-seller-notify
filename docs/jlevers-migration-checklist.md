@@ -32,9 +32,9 @@ It is a living checklist and must be updated whenever legacy usage is discovered
 | Status       | Count |
 |--------------|-------|
 | discovered   | 0     |
-| planned      | 4     |
+| planned      | 3     |
 | in_progress  | 0     |
-| migrated     | 6     |
+| migrated     | 7     |
 | blocked      | 1     |
 | deferred     | 0     |
 
@@ -59,13 +59,13 @@ It is a living checklist and must be updated whenever legacy usage is discovered
 - Notes: removed unused controller (no route/internal references), eliminating `vendor/jlevers` include and wrapper-specific legacy usage from this area.
 
 ### ITEM-003
-- Status: planned
+- Status: migrated
 - File path: `app/Integrations/Amazon/SpApi/SpApiClientFactory.php`
 - Class/module: `App\Integrations\Amazon\SpApi\SpApiClientFactory`
 - Legacy usage type: centralized wrapper around legacy static connector builder
 - Purpose: constructs seller connector used by integration adapters
 - Official SDK replacement target: official SP-API client factory that returns operation clients (or typed API clients) from `amzn-spapi/sdk`
-- Notes: currently returns `SellingPartnerApi::seller(...)`, so this is a key migration seam for reducing churn across consumers.
+- Notes: migrated to an official SDK client factory (orders, finances, notifications, wallet, inbound APIs). Legacy connector creation was split into `App\Integrations\Amazon\SpApi\LegacySpApiClientFactory` for remaining legacy adapters.
 
 ### ITEM-004
 - Status: migrated

@@ -8,7 +8,7 @@ class FinancesAdapter
 {
     private array $financesApisByRegion = [];
 
-    public function __construct(private readonly SpApiClientFactory $clientFactory)
+    public function __construct(private readonly LegacySpApiClientFactory $clientFactory)
     {}
 
     public function listTransactionsByOrderId(

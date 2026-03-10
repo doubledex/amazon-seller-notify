@@ -12,7 +12,7 @@ class OrdersAdapter
     private array $marketplaceIds;
 
     public function __construct(
-        private readonly SpApiClientFactory $clientFactory,
+        private readonly LegacySpApiClientFactory $clientFactory,
         private readonly MarketplaceService $marketplaceService
     ) {
         $this->connector = $this->clientFactory->makeSellerConnector();

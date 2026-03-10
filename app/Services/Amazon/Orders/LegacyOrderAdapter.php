@@ -3,7 +3,7 @@
 namespace App\Services\Amazon\Orders;
 
 use App\Contracts\Amazon\AmazonOrderApi;
-use App\Integrations\Amazon\SpApi\SpApiClientFactory;
+use App\Integrations\Amazon\SpApi\LegacySpApiClientFactory;
 use App\Services\Amazon\Support\AmazonRequestPolicy;
 use App\Services\MarketplaceService;
 use Saloon\Http\Response;
@@ -11,7 +11,7 @@ use Saloon\Http\Response;
 class LegacyOrderAdapter implements AmazonOrderApi
 {
     public function __construct(
-        private readonly SpApiClientFactory $clientFactory,
+        private readonly LegacySpApiClientFactory $clientFactory,
         private readonly MarketplaceService $marketplaceService,
         private readonly AmazonRequestPolicy $requestPolicy,
     ) {

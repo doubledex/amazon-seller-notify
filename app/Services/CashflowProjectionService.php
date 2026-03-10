@@ -3,7 +3,7 @@
 namespace App\Services;
 
 use App\Integrations\Amazon\SpApi\FinancesAdapter;
-use App\Integrations\Amazon\SpApi\SpApiClientFactory;
+use App\Integrations\Amazon\SpApi\LegacySpApiClientFactory;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -301,7 +301,7 @@ class CashflowProjectionService
             ];
         }
 
-        $adapter = $this->financesAdapter ?? new FinancesAdapter(new SpApiClientFactory());
+        $adapter = $this->financesAdapter ?? new FinancesAdapter(new LegacySpApiClientFactory());
         $regionService = $this->regionConfigService ?? new RegionConfigService();
         $regions = $regionService->spApiRegions();
         $postedAfter = now()->utc()->subDays(self::OUTSTANDING_LOOKBACK_DAYS)->startOfDay();

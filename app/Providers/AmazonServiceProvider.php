@@ -3,7 +3,9 @@
 namespace App\Providers;
 
 use App\Contracts\Amazon\AmazonOrderApi;
+use App\Integrations\Amazon\SpApi\LegacySpApiClientFactory;
 use App\Integrations\Amazon\SpApi\SpApiClientFactory;
+use App\Services\Amazon\OfficialSpApiService;
 use App\Services\Amazon\Orders\LegacyOrderAdapter;
 use App\Services\Amazon\Support\AmazonRequestPolicy;
 use App\Services\MarketplaceService;
@@ -17,12 +19,19 @@ class AmazonServiceProvider extends ServiceProvider
         $this->app->singleton(AmazonRequestPolicy::class);
 
         $this->app->singleton(SpApiClientFactory::class, function ($app) {
-            return new SpApiClientFactory($app->make(RegionConfigService::class));
+            return new SpApiClientFactory(
+                $app->make(RegionConfigService::class),
+                $app->make(OfficialSpApiService::class)
+            );
+        });
+
+        $this->app->singleton(LegacySpApiClientFactory::class, function ($app) {
+            return new LegacySpApiClientFactory($app->make(RegionConfigService::class));
         });
 
         $this->app->bind(AmazonOrderApi::class, function ($app) {
             return new LegacyOrderAdapter(
-                $app->make(SpApiClientFactory::class),
+                $app->make(LegacySpApiClientFactory::class),
                 $app->make(MarketplaceService::class),
                 $app->make(AmazonRequestPolicy::class)
             );

@@ -3,7 +3,7 @@
 namespace App\Services;
 
 use App\Integrations\Amazon\SpApi\FinancesAdapter;
-use App\Integrations\Amazon\SpApi\SpApiClientFactory;
+use App\Integrations\Amazon\SpApi\LegacySpApiClientFactory;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -37,7 +37,7 @@ class OrderFinancialEventsSummaryService
 
     private function fetchAndSummarize(string $orderId, ?string $marketplaceId): array
     {
-        $adapter = $this->financesAdapter ?? new FinancesAdapter(new SpApiClientFactory());
+        $adapter = $this->financesAdapter ?? new FinancesAdapter(new LegacySpApiClientFactory());
         $region = $this->resolveRegionForMarketplace($marketplaceId);
 
         try {
