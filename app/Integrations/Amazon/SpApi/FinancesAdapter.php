@@ -4,6 +4,8 @@ namespace App\Integrations\Amazon\SpApi;
 
 use App\Services\Amazon\OfficialSpApiService;
 use App\Services\RegionConfigService;
+use GuzzleHttp\Client;
+use GuzzleHttp\Exception\GuzzleException;
 use SpApi\ApiException;
 
 class FinancesAdapter
@@ -43,6 +45,26 @@ class FinancesAdapter
                 'headers' => (array) $headers,
                 'body' => $this->modelToArray($model),
             ];
+        } catch (\InvalidArgumentException $e) {
+            if ($this->isFinancesEnumDeserializationError($e)) {
+                return $this->listTransactionsRaw(
+                    $financesApi,
+                    postedAfter: null,
+                    postedBefore: null,
+                    marketplaceId: $marketplaceId,
+                    transactionStatus: null,
+                    relatedIdentifierName: 'ORDER_ID',
+                    relatedIdentifierValue: $orderId,
+                    nextToken: $nextToken
+                );
+            }
+
+            return [
+                'status' => 500,
+                'headers' => [],
+                'body' => [],
+                'error' => $e->getMessage(),
+            ];
         } catch (ApiException $e) {
             return [
                 'status' => (int) $e->getCode(),
@@ -81,6 +103,26 @@ class FinancesAdapter
                 'status' => (int) $status,
                 'headers' => (array) $headers,
                 'body' => $this->modelToArray($model),
+            ];
+        } catch (\InvalidArgumentException $e) {
+            if ($this->isFinancesEnumDeserializationError($e)) {
+                return $this->listTransactionsRaw(
+                    $financesApi,
+                    postedAfter: $this->toDateTime($postedAfter),
+                    postedBefore: $this->toDateTime($postedBefore),
+                    marketplaceId: $marketplaceId,
+                    transactionStatus: $transactionStatus,
+                    relatedIdentifierName: null,
+                    relatedIdentifierValue: null,
+                    nextToken: $nextToken
+                );
+            }
+
+            return [
+                'status' => 500,
+                'headers' => [],
+                'body' => [],
+                'error' => $e->getMessage(),
             ];
         } catch (ApiException $e) {
             return [
@@ -139,5 +181,60 @@ class FinancesAdapter
         $decoded = json_decode($json, true);
 
         return is_array($decoded) ? $decoded : [];
+    }
+
+    private function isFinancesEnumDeserializationError(\InvalidArgumentException $e): bool
+    {
+        $message = strtoupper(trim($e->getMessage()));
+
+        return str_contains($message, 'ITEM_RELATED_IDENTIFIER_NAME')
+            && str_contains($message, 'INVALID VALUE');
+    }
+
+    private function listTransactionsRaw(
+        mixed $financesApi,
+        ?\DateTime $postedAfter,
+        ?\DateTime $postedBefore,
+        ?string $marketplaceId,
+        ?string $transactionStatus,
+        ?string $relatedIdentifierName,
+        ?string $relatedIdentifierValue,
+        ?string $nextToken
+    ): array {
+        try {
+            $request = $financesApi->listTransactionsRequest(
+                posted_after: $postedAfter,
+                posted_before: $postedBefore,
+                marketplace_id: $marketplaceId,
+                transaction_status: $transactionStatus,
+                related_identifier_name: $relatedIdentifierName,
+                related_identifier_value: $relatedIdentifierValue,
+                next_token: $nextToken
+            );
+            $request = $financesApi->getConfig()->sign($request);
+
+            $response = (new Client())->send($request);
+            $decoded = json_decode((string) $response->getBody(), true);
+
+            return [
+                'status' => (int) $response->getStatusCode(),
+                'headers' => $response->getHeaders(),
+                'body' => is_array($decoded) ? $decoded : [],
+            ];
+        } catch (ApiException $e) {
+            return [
+                'status' => (int) $e->getCode(),
+                'headers' => (array) ($e->getResponseHeaders() ?? []),
+                'body' => $this->modelToArray($e->getResponseBody()),
+                'error' => $e->getMessage(),
+            ];
+        } catch (GuzzleException|\Throwable $e) {
+            return [
+                'status' => 500,
+                'headers' => [],
+                'body' => [],
+                'error' => $e->getMessage(),
+            ];
+        }
     }
 }
