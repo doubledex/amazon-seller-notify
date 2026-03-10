@@ -113,24 +113,12 @@ class AmazonAdsSpendSyncService
             }
 
             if ($rowsByProfile[$profileId] === 0) {
-                $legacyRows = $this->fetchLegacySponsoredProductsSpend($token, $adsConfig, $profileId, $from, $to);
-                foreach ($legacyRows as $row) {
-                    $date = (string) ($row['date'] ?? '');
-                    $amount = (float) ($row['spend'] ?? 0);
-                    if ($date === '' || $amount <= 0) {
-                        continue;
-                    }
-
-                    $targetCurrency = $this->targetCurrencyForRegion($region);
-                    $converted = $this->fxRateService->convert($amount, $currency, $targetCurrency, $date);
-                    if ($converted === null) {
-                        continue;
-                    }
-
-                    $key = "{$date}|{$region}|{$targetCurrency}";
-                    $aggregated[$key] = ($aggregated[$key] ?? 0) + $converted;
-                    $rowsByProfile[$profileId]++;
-                }
+                Log::info('Ads sync produced zero rows for profile', [
+                    'profile_id' => $profileId,
+                    'api_region' => $apiRegion,
+                    'from' => $from->toDateString(),
+                    'to' => $to->toDateString(),
+                ]);
             }
         }
 
@@ -1118,87 +1106,6 @@ class AmazonAdsSpendSyncService
         }
 
         return $chunks;
-    }
-
-    private function fetchLegacySponsoredProductsSpend(string $token, array $adsConfig, string $profileId, Carbon $from, Carbon $to): array
-    {
-        $baseUrl = rtrim((string) ($adsConfig['base_url'] ?? ''), '/');
-        $clientId = trim((string) ($adsConfig['client_id'] ?? ''));
-        $date = $from->copy()->startOfDay();
-        $end = $to->copy()->startOfDay();
-        $daily = [];
-
-        while ($date->lte($end)) {
-            $dateYmd = $date->format('Ymd');
-
-            $create = Http::timeout(30)
-                ->withToken($token)
-                ->withHeaders([
-                    'Amazon-Advertising-API-ClientId' => $clientId,
-                    'Amazon-Advertising-API-Scope' => $profileId,
-                    'Content-Type' => 'application/json',
-                ])
-                ->post($baseUrl . '/v2/sp/campaigns/report', [
-                    'reportDate' => $dateYmd,
-                    'metrics' => 'cost',
-                ]);
-
-            if (!$create->ok()) {
-                $date->addDay();
-                continue;
-            }
-
-            $reportId = (string) ($create->json('reportId') ?? '');
-            if ($reportId === '') {
-                $date->addDay();
-                continue;
-            }
-
-            $location = null;
-            for ($i = 0; $i < 10; $i++) {
-                sleep(2);
-                $status = Http::timeout(30)
-                    ->withToken($token)
-                    ->withHeaders([
-                        'Amazon-Advertising-API-ClientId' => $clientId,
-                        'Amazon-Advertising-API-Scope' => $profileId,
-                    ])
-                    ->get($baseUrl . '/v2/reports/' . $reportId);
-
-                if (!$status->ok()) {
-                    continue;
-                }
-
-                $statusText = strtoupper((string) ($status->json('status') ?? ''));
-                if ($statusText === 'SUCCESS') {
-                    $location = (string) ($status->json('location') ?? '');
-                    break;
-                }
-                if (in_array($statusText, ['FAILURE', 'FAILED'], true)) {
-                    break;
-                }
-            }
-
-            if (!empty($location)) {
-                $rows = $this->downloadReportRows($location);
-                if (is_array($rows)) {
-                    $sum = 0.0;
-                    foreach ($rows as $row) {
-                        if (!is_array($row)) {
-                            continue;
-                        }
-                        $sum += (float) ($row['cost'] ?? 0);
-                    }
-                    if ($sum > 0) {
-                        $daily[] = ['date' => $date->toDateString(), 'spend' => $sum];
-                    }
-                }
-            }
-
-            $date->addDay();
-        }
-
-        return $daily;
     }
 
     private function scheduleBackgroundRetry(AmazonAdsReportRequest $request, Response $response, int $fallbackSeconds): void
