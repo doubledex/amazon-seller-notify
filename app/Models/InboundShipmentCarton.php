@@ -13,12 +13,14 @@ class InboundShipmentCarton extends Model
         'sku',
         'fnsku',
         'expected_units',
+        'received_units',
         'units_per_carton',
         'carton_count',
     ];
 
     protected $casts = [
         'expected_units' => 'integer',
+        'received_units' => 'integer',
         'units_per_carton' => 'integer',
         'carton_count' => 'integer',
     ];

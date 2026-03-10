@@ -5,7 +5,6 @@ namespace App\Services\Amazon\Inbound;
 use App\Models\InboundDiscrepancy;
 use App\Models\InboundShipment;
 use App\Models\InboundShipmentCarton;
-use App\Models\UsFcInventory;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -26,9 +25,6 @@ class InboundDiscrepancyDetectionService
         }
 
         $expectedRows = $this->expectedCartonLines($shipments->keys()->all());
-        $receivedByMarketplace = $this->receivedUnitsByMarketplace(
-            $shipments->pluck('marketplace_id')->filter()->unique()->values()->all()
-        );
 
         $upserted = 0;
         foreach ($expectedRows as $line) {
@@ -37,12 +33,7 @@ class InboundDiscrepancyDetectionService
                 continue;
             }
 
-            $receivedUnits = $this->receivedUnitsForLine(
-                $receivedByMarketplace,
-                (string) $shipment->marketplace_id,
-                $line['sku'],
-                $line['fnsku']
-            );
+            $receivedUnits = $line['received_units'];
 
             $delta = $receivedUnits - $line['expected_units'];
             $cartonEquivalentDelta = $line['units_per_carton'] > 0
@@ -93,6 +84,7 @@ class InboundDiscrepancyDetectionService
         return InboundShipmentCarton::query()
             ->selectRaw('shipment_id, COALESCE(sku, "") as sku, COALESCE(fnsku, "") as fnsku')
             ->selectRaw('SUM(COALESCE(expected_units, units_per_carton * carton_count, 0)) as expected_units')
+            ->selectRaw('SUM(COALESCE(received_units, 0)) as received_units')
             ->selectRaw('MAX(COALESCE(units_per_carton, 0)) as units_per_carton')
             ->selectRaw('SUM(COALESCE(carton_count, 0)) as carton_count')
             ->whereIn('shipment_id', $shipmentIds)
@@ -103,57 +95,10 @@ class InboundDiscrepancyDetectionService
                 'sku' => (string) $row->sku,
                 'fnsku' => (string) $row->fnsku,
                 'expected_units' => (int) $row->expected_units,
+                'received_units' => (int) $row->received_units,
                 'units_per_carton' => (int) $row->units_per_carton,
                 'carton_count' => (int) $row->carton_count,
             ]);
-    }
-
-    private function receivedUnitsByMarketplace(array $marketplaceIds): array
-    {
-        if (empty($marketplaceIds)) {
-            return [];
-        }
-
-        $latestByMarketplace = UsFcInventory::query()
-            ->selectRaw('marketplace_id, MAX(last_seen_at) as max_last_seen_at')
-            ->whereIn('marketplace_id', $marketplaceIds)
-            ->whereNotNull('last_seen_at')
-            ->groupBy('marketplace_id');
-
-        $rows = UsFcInventory::query()
-            ->joinSub($latestByMarketplace, 'latest', function ($join) {
-                $join->on('us_fc_inventories.marketplace_id', '=', 'latest.marketplace_id');
-                $join->on('us_fc_inventories.last_seen_at', '=', 'latest.max_last_seen_at');
-            })
-            ->selectRaw('us_fc_inventories.marketplace_id')
-            ->selectRaw('COALESCE(us_fc_inventories.seller_sku, "") as sku')
-            ->selectRaw('COALESCE(us_fc_inventories.fnsku, "") as fnsku')
-            ->selectRaw('SUM(COALESCE(us_fc_inventories.quantity_available, 0)) as received_units')
-            ->groupBy('us_fc_inventories.marketplace_id', 'sku', 'fnsku')
-            ->get();
-
-        $result = [];
-        foreach ($rows as $row) {
-            $result[$row->marketplace_id][$this->keyPart($row->sku)][$this->keyPart($row->fnsku)] = (int) $row->received_units;
-        }
-
-        return $result;
-    }
-
-    private function receivedUnitsForLine(array $receivedByMarketplace, string $marketplaceId, string $sku, string $fnsku): int
-    {
-        $skuKey = $this->keyPart($sku);
-        $fnskuKey = $this->keyPart($fnsku);
-
-        if (!isset($receivedByMarketplace[$marketplaceId])) {
-            return 0;
-        }
-
-        if (!isset($receivedByMarketplace[$marketplaceId][$skuKey])) {
-            return 0;
-        }
-
-        return (int) ($receivedByMarketplace[$marketplaceId][$skuKey][$fnskuKey] ?? 0);
     }
 
     private function challengeDeadlineForShipment(mixed $shipmentClosedAt): ?Carbon
@@ -193,9 +138,4 @@ class InboundDiscrepancyDetectionService
         return 'low';
     }
 
-    private function keyPart(?string $value): string
-    {
-        return trim((string) $value);
-    }
 }
-

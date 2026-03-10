@@ -224,7 +224,7 @@ class InboundShipmentSyncService
 
         foreach ($shipmentRefs as $ref) {
             $shipment = $this->callWithRetries(
-                fn () => $api->getShipment($ref['inbound_plan_id'], $ref['shipment_id']),
+                fn () => $api2024->getShipment($ref['inbound_plan_id'], $ref['shipment_id']),
                 'fbaInbound.getShipment'
             );
 
@@ -512,6 +512,7 @@ class InboundShipmentSyncService
                     'sku' => $sku,
                     'fnsku' => $fnsku,
                     'expected_units' => 0,
+                    'received_units' => 0,
                     'units_per_carton' => 0,
                 ];
             }
@@ -535,6 +536,7 @@ class InboundShipmentSyncService
                 'sku' => $line['sku'],
                 'fnsku' => $line['fnsku'],
                 'expected_units' => $expectedUnits,
+                'received_units' => (int) ($line['received_units'] ?? 0),
                 'units_per_carton' => $unitsPerCarton,
                 'carton_count' => $cartonCount,
                 'created_at' => $syncedAt,
@@ -556,6 +558,7 @@ class InboundShipmentSyncService
             if ($quantityShipped <= 0) {
                 continue;
             }
+            $quantityReceived = max(0, (int) ($item->getQuantityReceived() ?? 0));
 
             $quantityInCase = max(0, (int) ($item->getQuantityInCase() ?? 0));
             $key = $sku . '|' . $fnsku;
@@ -565,11 +568,13 @@ class InboundShipmentSyncService
                     'sku' => $sku,
                     'fnsku' => $fnsku,
                     'expected_units' => 0,
+                    'received_units' => 0,
                     'units_per_carton' => 0,
                 ];
             }
 
             $lineMap[$key]['expected_units'] += $quantityShipped;
+            $lineMap[$key]['received_units'] += $quantityReceived;
             if ($quantityInCase > 0) {
                 $lineMap[$key]['units_per_carton'] = max($lineMap[$key]['units_per_carton'], $quantityInCase);
             }
@@ -588,6 +593,7 @@ class InboundShipmentSyncService
                 'sku' => $line['sku'],
                 'fnsku' => $line['fnsku'],
                 'expected_units' => $expectedUnits,
+                'received_units' => (int) ($line['received_units'] ?? 0),
                 'units_per_carton' => $unitsPerCarton,
                 'carton_count' => $cartonCount,
                 'created_at' => $syncedAt,
