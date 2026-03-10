@@ -165,8 +165,29 @@ class OrderSyncService
             $nextToken = $payload['NextToken'] ?? null;
 
             if (!empty($orders)) {
+                $orderIds = array_values(array_filter(array_map(
+                    static fn ($order) => (string) (($order['AmazonOrderId'] ?? '') ?: ''),
+                    (array) $orders
+                )));
+                $existingOrders = empty($orderIds)
+                    ? collect()
+                    : Order::query()
+                        ->whereIn('amazon_order_id', $orderIds)
+                        ->get()
+                        ->keyBy('amazon_order_id');
+
+                $normalizedOrders = [];
                 $rows = [];
                 foreach ($orders as $order) {
+                    $orderId = (string) ($order['AmazonOrderId'] ?? '');
+                    if ($orderId === '') {
+                        continue;
+                    }
+                    /** @var Order|null $existing */
+                    $existing = $existingOrders->get($orderId);
+                    $order = $this->mergeSummaryOrderWithExisting((array) $order, $existing);
+                    $normalizedOrders[] = $order;
+
                     $ship = $order['ShippingAddress'] ?? [];
                     $paymentMethod = $order['PaymentMethodDetails'][0] ?? ($order['PaymentMethod'] ?? null);
                     $marketplaceId = $order['MarketplaceId'] ?? null;
@@ -180,7 +201,7 @@ class OrderSyncService
                     }
                     $localized = $marketplaceTimezoneService->localizeFromUtc($order['PurchaseDate'] ?? null, $marketplaceId, $region);
                     $rows[] = [
-                        'amazon_order_id' => $order['AmazonOrderId'] ?? null,
+                        'amazon_order_id' => $orderId,
                         'purchase_date' => $purchaseDate,
                         'purchase_date_local' => $localized['purchase_date_local'],
                         'purchase_date_local_date' => $localized['purchase_date_local_date'],
@@ -237,7 +258,7 @@ class OrderSyncService
 
                 $totalOrders += count($rows);
 
-                foreach ($orders as $order) {
+                foreach ($normalizedOrders as $order) {
                     $orderId = $order['AmazonOrderId'] ?? null;
                     if (!$orderId) {
                         continue;
@@ -392,6 +413,71 @@ class OrderSyncService
             || !$hasCounts
             || $city === ''
             || $country === '';
+    }
+
+    private function mergeSummaryOrderWithExisting(array $incoming, ?Order $existing): array
+    {
+        if ($existing === null) {
+            return $incoming;
+        }
+
+        $existingRaw = $this->decodeRawOrder($existing->raw_order);
+        $existingShip = is_array($existingRaw['ShippingAddress'] ?? null) ? $existingRaw['ShippingAddress'] : [];
+        $incomingShip = is_array($incoming['ShippingAddress'] ?? null) ? $incoming['ShippingAddress'] : [];
+
+        $incoming['OrderStatus'] = $this->preferString($incoming['OrderStatus'] ?? null, $existingRaw['OrderStatus'] ?? $existing->order_status);
+        $incoming['FulfillmentChannel'] = $this->preferString(
+            $incoming['FulfillmentChannel'] ?? null,
+            $existingRaw['FulfillmentChannel'] ?? $existing->fulfillment_channel
+        );
+
+        $incomingPaymentMethod = $this->preferString(
+            $incoming['PaymentMethodDetails'][0] ?? ($incoming['PaymentMethod'] ?? null),
+            $existingRaw['PaymentMethodDetails'][0] ?? ($existingRaw['PaymentMethod'] ?? $existing->payment_method)
+        );
+        $incoming['PaymentMethod'] = $incomingPaymentMethod;
+        $incoming['PaymentMethodDetails'] = $incomingPaymentMethod !== null ? [$incomingPaymentMethod] : [];
+
+        if (!array_key_exists('NumberOfItemsShipped', $incoming) && array_key_exists('NumberOfItemsShipped', $existingRaw)) {
+            $incoming['NumberOfItemsShipped'] = $existingRaw['NumberOfItemsShipped'];
+        }
+        if (!array_key_exists('NumberOfItemsUnshipped', $incoming) && array_key_exists('NumberOfItemsUnshipped', $existingRaw)) {
+            $incoming['NumberOfItemsUnshipped'] = $existingRaw['NumberOfItemsUnshipped'];
+        }
+
+        $incomingShip['City'] = $this->preferString($incomingShip['City'] ?? null, $existingShip['City'] ?? $existing->shipping_city);
+        $incomingShip['CountryCode'] = $this->preferString($incomingShip['CountryCode'] ?? null, $existingShip['CountryCode'] ?? $existing->shipping_country_code);
+        $incomingShip['PostalCode'] = $this->preferString($incomingShip['PostalCode'] ?? null, $existingShip['PostalCode'] ?? $existing->shipping_postal_code);
+        $incomingShip['CompanyName'] = $this->preferString($incomingShip['CompanyName'] ?? null, $existingShip['CompanyName'] ?? $existing->shipping_company);
+        $incomingShip['StateOrRegion'] = $this->preferString($incomingShip['StateOrRegion'] ?? null, $existingShip['StateOrRegion'] ?? $existing->shipping_region);
+        $incoming['ShippingAddress'] = $incomingShip;
+
+        return $incoming;
+    }
+
+    private function decodeRawOrder(mixed $raw): array
+    {
+        if (is_array($raw)) {
+            return $raw;
+        }
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+            return is_array($decoded) ? $decoded : [];
+        }
+
+        return [];
+    }
+
+    private function preferString(mixed $primary, mixed $fallback): ?string
+    {
+        $first = trim((string) ($primary ?? ''));
+        if ($first !== '') {
+            return $first;
+        }
+
+        $second = trim((string) ($fallback ?? ''));
+
+        return $second !== '' ? $second : null;
     }
 
     private function hydrateOrderFromSummary(string $orderId, array $summary): void
