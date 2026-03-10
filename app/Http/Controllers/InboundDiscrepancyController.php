@@ -82,7 +82,7 @@ class InboundDiscrepancyController extends Controller
     {
         $discrepancy = InboundDiscrepancy::query()
             ->with([
-                'shipment:id,shipment_id,region_code,marketplace_id,carrier_name,pro_tracking_number,shipment_created_at,shipment_closed_at',
+                'shipment:id,shipment_id,region_code,marketplace_id,carrier_name,pro_tracking_number,shipment_created_at,shipment_closed_at,api_source_version,api_shipment_payload,api_items_payload',
                 'shipment.cartons:id,shipment_id,carton_id,sku,fnsku,units_per_carton,carton_count,expected_units',
                 'claimCases.evidences',
                 'slaTransitions',

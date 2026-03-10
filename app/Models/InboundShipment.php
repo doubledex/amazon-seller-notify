@@ -15,11 +15,16 @@ class InboundShipment extends Model
         'pro_tracking_number',
         'shipment_created_at',
         'shipment_closed_at',
+        'api_source_version',
+        'api_shipment_payload',
+        'api_items_payload',
     ];
 
     protected $casts = [
         'shipment_created_at' => 'datetime',
         'shipment_closed_at' => 'datetime',
+        'api_shipment_payload' => 'array',
+        'api_items_payload' => 'array',
     ];
 
     public function cartons(): HasMany

@@ -238,11 +238,15 @@ class InboundShipmentSyncService
                 'pro_tracking_number' => null,
                 'shipment_created_at' => null,
                 'shipment_closed_at' => $this->shipmentClosedAtFromStatus($status, $syncedAt),
+                'api_source_version' => 'fulfillment/inbound/v2024-03-20',
+                'api_shipment_payload' => $this->serializeApiPayload($shipment),
+                'api_items_payload' => null,
                 'created_at' => $syncedAt,
                 'updated_at' => $syncedAt,
             ];
 
             $items = $this->collectShipmentItems($api2024, $ref['inbound_plan_id'], $shipmentId);
+            $shipmentRows[array_key_last($shipmentRows)]['api_items_payload'] = $this->serializeApiPayload($items);
             $shipmentItemsScanned += count($items);
             $cartonRowsByShipment[$shipmentId] = $this->buildCartonRowsFromV2024($shipmentId, $items, $syncedAt);
         }
@@ -333,6 +337,9 @@ class InboundShipmentSyncService
                 'pro_tracking_number' => null,
                 'shipment_created_at' => null,
                 'shipment_closed_at' => $this->shipmentClosedAtFromStatus($status, $syncedAt),
+                'api_source_version' => 'fulfillment/inbound/v0',
+                'api_shipment_payload' => $this->serializeApiPayload($shipment),
+                'api_items_payload' => null,
                 'created_at' => $syncedAt,
                 'updated_at' => $syncedAt,
             ];
@@ -345,6 +352,7 @@ class InboundShipmentSyncService
                 'fbaInbound.v0.getShipmentItemsByShipmentId'
             );
             $items = (array) ($itemsResponse->getPayload()?->getItemData() ?? []);
+            $shipmentRows[array_key_last($shipmentRows)]['api_items_payload'] = $this->serializeApiPayload($items);
             $shipmentItemsScanned += count($items);
             $cartonRowsByShipment[$shipmentId] = $this->buildCartonRowsFromV0($shipmentId, $items, $syncedAt);
         }
@@ -617,6 +625,9 @@ class InboundShipmentSyncService
                     'pro_tracking_number',
                     'shipment_created_at',
                     'shipment_closed_at',
+                    'api_source_version',
+                    'api_shipment_payload',
+                    'api_items_payload',
                     'updated_at',
                 ]
             );
@@ -691,6 +702,18 @@ class InboundShipmentSyncService
     private function shipmentStatusFilter(): array
     {
         return ShipmentStatus::getAllowableEnumValues();
+    }
+
+    private function serializeApiPayload(mixed $payload): ?array
+    {
+        $json = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($json === false) {
+            return null;
+        }
+
+        $decoded = json_decode($json, true);
+
+        return is_array($decoded) ? $decoded : null;
     }
 
 }
