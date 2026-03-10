@@ -24,7 +24,13 @@ class InboundShipmentSyncService
     ) {
     }
 
-    public function sync(int $days = 120, ?string $region = null, ?string $marketplaceId = null, bool $runDetection = true): array
+    public function sync(
+        int $days = 120,
+        ?string $region = null,
+        ?string $marketplaceId = null,
+        bool $runDetection = true,
+        bool $debug = false
+    ): array
     {
         $days = max(1, min($days, 365));
         $region = $region ? strtoupper(trim($region)) : null;
@@ -56,7 +62,7 @@ class InboundShipmentSyncService
         ];
 
         foreach ($regions as $regionCode) {
-            $result = $this->syncRegion($regionCode, $days, $marketplaceId);
+            $result = $this->syncRegion($regionCode, $days, $marketplaceId, $debug);
             $summary['messages'][] = $result['message'];
             $summary['marketplaces_scanned'] += (int) ($result['marketplaces_scanned'] ?? 0);
             $summary['shipments_upserted'] += (int) ($result['shipments_upserted'] ?? 0);
@@ -83,7 +89,7 @@ class InboundShipmentSyncService
         return $summary;
     }
 
-    private function syncRegion(string $regionCode, int $days, ?string $singleMarketplaceId = null): array
+    private function syncRegion(string $regionCode, int $days, ?string $singleMarketplaceId = null, bool $debug = false): array
     {
         $config = $this->regionConfigService->spApiConfig($regionCode);
         $api = $this->officialSpApiService->makeInboundV20240320Api($regionCode);
@@ -127,7 +133,7 @@ class InboundShipmentSyncService
 
         foreach ($marketplaceIds as $marketplaceId) {
             try {
-                $result = $this->syncMarketplace($api, $regionCode, $marketplaceId, $days);
+                $result = $this->syncMarketplace($api, $regionCode, $marketplaceId, $days, $debug);
                 $shipmentsUpserted += $result['shipments_upserted'];
                 $shipmentsScanned += $result['shipments_scanned'];
                 $shipmentItemsScanned += $result['shipment_items_scanned'];
@@ -166,10 +172,16 @@ class InboundShipmentSyncService
         ];
     }
 
-    private function syncMarketplace(FbaInboundApi $api, string $regionCode, string $marketplaceId, int $days): array
+    private function syncMarketplace(
+        FbaInboundApi $api,
+        string $regionCode,
+        string $marketplaceId,
+        int $days,
+        bool $debug = false
+    ): array
     {
         $updatedAfter = Carbon::now('UTC')->subDays($days);
-        $shipmentRefs = $this->collectShipmentReferences($api, $marketplaceId, $updatedAfter);
+        $shipmentRefs = $this->collectShipmentReferences($api, $regionCode, $marketplaceId, $updatedAfter, $debug);
 
         if (empty($shipmentRefs)) {
             return [
@@ -247,12 +259,25 @@ class InboundShipmentSyncService
     /**
      * @return array<int, array{inbound_plan_id: string, shipment_id: string}>
      */
-    private function collectShipmentReferences(FbaInboundApi $api, string $marketplaceId, Carbon $updatedAfter): array
+    private function collectShipmentReferences(
+        FbaInboundApi $api,
+        string $regionCode,
+        string $marketplaceId,
+        Carbon $updatedAfter,
+        bool $debug = false
+    ): array
     {
         $nextToken = null;
         $refs = [];
+        $pages = 0;
+        $plansTotal = 0;
+        $plansMarketplaceMatch = 0;
+        $plansWindowMatch = 0;
+        $shipmentsDiscovered = 0;
+        $samplePlanIds = [];
 
         do {
+            $pages++;
             $response = $this->callWithRetries(
                 fn () => $api->listInboundPlans(
                     page_size: 30,
@@ -266,12 +291,28 @@ class InboundShipmentSyncService
                 if (!$planSummary instanceof InboundPlanSummary) {
                     continue;
                 }
-
-                if (!$this->planMatchesMarketplaceAndWindow($planSummary, $marketplaceId, $updatedAfter)) {
-                    continue;
-                }
+                $plansTotal++;
 
                 $planId = trim((string) $planSummary->getInboundPlanId());
+                if ($planId !== '' && count($samplePlanIds) < 5) {
+                    $samplePlanIds[] = $planId;
+                }
+
+                $marketplaces = array_map(
+                    static fn ($value) => trim((string) $value),
+                    (array) ($planSummary->getMarketplaceIds() ?? [])
+                );
+                if (!in_array($marketplaceId, $marketplaces, true)) {
+                    continue;
+                }
+                $plansMarketplaceMatch++;
+
+                $lastUpdatedAt = Carbon::instance($planSummary->getLastUpdatedAt());
+                if ($lastUpdatedAt->lt($updatedAfter)) {
+                    continue;
+                }
+                $plansWindowMatch++;
+
                 if ($planId === '') {
                     continue;
                 }
@@ -301,24 +342,22 @@ class InboundShipmentSyncService
             }
         } while ($nextToken !== null);
 
-        return array_values($refs);
-    }
-
-    private function planMatchesMarketplaceAndWindow(
-        InboundPlanSummary $planSummary,
-        string $marketplaceId,
-        Carbon $updatedAfter
-    ): bool {
-        $marketplaces = array_map(
-            static fn ($value) => trim((string) $value),
-            (array) ($planSummary->getMarketplaceIds() ?? [])
-        );
-
-        if (!in_array($marketplaceId, $marketplaces, true)) {
-            return false;
+        if ($debug) {
+            $shipmentsDiscovered = count($refs);
+            Log::info('Inbound sync plan discovery diagnostics', [
+                'region' => $regionCode,
+                'marketplace_id' => $marketplaceId,
+                'updated_after' => $updatedAfter->toIso8601String(),
+                'pages' => $pages,
+                'plans_total' => $plansTotal,
+                'plans_marketplace_match' => $plansMarketplaceMatch,
+                'plans_window_match' => $plansWindowMatch,
+                'shipment_refs_discovered' => $shipmentsDiscovered,
+                'sample_plan_ids' => $samplePlanIds,
+            ]);
         }
 
-        return Carbon::instance($planSummary->getLastUpdatedAt())->greaterThanOrEqualTo($updatedAfter);
+        return array_values($refs);
     }
 
     private function collectShipmentItems(FbaInboundApi $api, string $inboundPlanId, string $shipmentId): array

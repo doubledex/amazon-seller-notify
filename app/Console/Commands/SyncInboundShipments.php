@@ -11,7 +11,8 @@ class SyncInboundShipments extends Command
         {--days=120 : Days of shipment updates to fetch}
         {--region= : Optional SP-API region (EU|NA|FE)}
         {--marketplace= : Optional marketplace ID}
-        {--no-detect : Skip discrepancy detection after sync}';
+        {--no-detect : Skip discrepancy detection after sync}
+        {--debug : Enable verbose inbound plan/shipment discovery logs}';
 
     protected $description = 'Sync inbound shipments/items via official Amazon SP-API and populate local discrepancy source tables.';
 
@@ -22,6 +23,7 @@ class SyncInboundShipments extends Command
             region: $this->option('region') ? (string) $this->option('region') : null,
             marketplaceId: $this->option('marketplace') ? (string) $this->option('marketplace') : null,
             runDetection: !(bool) $this->option('no-detect'),
+            debug: (bool) $this->option('debug'),
         );
 
         if (!($result['ok'] ?? false)) {
