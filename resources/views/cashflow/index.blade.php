@@ -50,7 +50,18 @@
                             Apply
                         </button>
                     </div>
+                    <div>
+                        <button
+                            id="cashflow-sync-now"
+                            type="button"
+                            class="px-4 py-2 rounded-md text-sm font-semibold"
+                            style="background:#059669;color:#ffffff;border:1px solid #047857;"
+                        >
+                            Sync Now
+                        </button>
+                    </div>
                 </form>
+                <div id="cashflow-sync-status" class="mt-2 text-sm text-gray-600 dark:text-gray-300" aria-live="polite"></div>
                 <div class="mt-3 flex flex-wrap items-center gap-2">
                     <button type="button" class="px-3 py-1 text-xs border rounded js-range-preset bg-white text-gray-700 hover:bg-gray-50" data-preset="all">All</button>
                     <button type="button" class="px-3 py-1 text-xs border rounded js-range-preset bg-white text-gray-700 hover:bg-gray-50" data-preset="today">Today</button>
@@ -73,12 +84,29 @@
             const output = document.getElementById('cashflow-output');
             const meta = document.getElementById('cashflow-meta');
             const projectionUrl = @json(route('cashflow.projection'));
+            const syncNowUrl = @json(route('cashflow.syncNow'));
+            const syncNowButton = document.getElementById('cashflow-sync-now');
+            const syncStatus = document.getElementById('cashflow-sync-status');
             const orderShowUrlTemplate = @json(route('orders.show', ['order_id' => '__ORDER_ID__']));
             const marketplacesById = @json(collect($marketplaces ?? [])->keyBy('id')->all());
             const fromInput = form.querySelector('input[name="from"]');
             const toInput = form.querySelector('input[name="to"]');
             const presetButtons = Array.from(document.querySelectorAll('.js-range-preset'));
             let availableAllRange = { from: '', to: '' };
+
+            function setSyncStatus(message, isError = false) {
+                syncStatus.textContent = message;
+                syncStatus.classList.remove('text-gray-600', 'dark:text-gray-300', 'text-red-600', 'text-green-700');
+                if (isError) {
+                    syncStatus.classList.add('text-red-600');
+                    return;
+                }
+                if ((message || '').toLowerCase().includes('queued')) {
+                    syncStatus.classList.add('text-green-700');
+                    return;
+                }
+                syncStatus.classList.add('text-gray-600', 'dark:text-gray-300');
+            }
 
             async function load() {
                 try {
@@ -247,6 +275,38 @@
             form.addEventListener('submit', function (event) {
                 event.preventDefault();
                 load();
+            });
+
+            syncNowButton.addEventListener('click', async function () {
+                if (syncNowButton.disabled) {
+                    return;
+                }
+
+                syncNowButton.disabled = true;
+                setSyncStatus('Queueing cashflow sync...');
+
+                try {
+                    const response = await fetch(syncNowUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+                        },
+                    });
+                    const json = await response.json().catch(() => null);
+
+                    if (!response.ok) {
+                        const message = json && json.error ? json.error : `Failed to queue sync (HTTP ${response.status}).`;
+                        setSyncStatus(message, true);
+                        return;
+                    }
+
+                    setSyncStatus((json && json.message) ? json.message : 'Cashflow outstanding sync queued.');
+                } catch (error) {
+                    setSyncStatus('Failed to queue cashflow sync.', true);
+                } finally {
+                    syncNowButton.disabled = false;
+                }
             });
 
             const ymd = d => {

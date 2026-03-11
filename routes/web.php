@@ -60,6 +60,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/metrics/inbound-discrepancies.csv', [InboundDiscrepancyMetricsController::class, 'exportCsv'])->name('metrics.inbound_discrepancies.csv');
     Route::get('/cashflow', [CashflowController::class, 'page'])->name('cashflow.index');
     Route::get('/cashflow/projection', [CashflowController::class, 'index'])->name('cashflow.projection');
+    Route::post('/cashflow/sync-now', [CashflowController::class, 'syncNow'])->name('cashflow.syncNow');
     Route::get('/ads/reports', [AdsReportController::class, 'index'])->name('ads.reports');
     Route::post('/ads/reports/poll-now', [AdsReportController::class, 'pollNow'])->name('ads.reports.poll');
     Route::get('/reports/jobs', [ReportJobsController::class, 'index'])->name('reports.jobs');

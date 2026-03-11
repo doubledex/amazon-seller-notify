@@ -7,6 +7,7 @@ use App\Services\CashflowProjectionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\View\View;
 
 class CashflowController extends Controller
@@ -78,6 +79,25 @@ class CashflowController extends Controller
             'filters' => array_filter($filters, fn ($v) => $v !== null && trim((string) $v) !== ''),
             'data' => $data,
         ]);
+    }
+
+    public function syncNow(): JsonResponse
+    {
+        try {
+            Artisan::queue('cashflow:sync-outstanding');
+
+            return response()->json([
+                'status' => 'queued',
+                'message' => 'Cashflow outstanding sync queued.',
+                'queued_at_utc' => now()->utc()->toIso8601String(),
+            ], 202);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return response()->json([
+                'error' => 'Failed to queue cashflow sync.',
+            ], 500);
+        }
     }
 
     private function flagFromCountryCode(string $countryCode): string
