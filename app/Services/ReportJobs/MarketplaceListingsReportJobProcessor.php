@@ -81,7 +81,7 @@ class MarketplaceListingsReportJobProcessor implements ReportJobProcessor
                 continue;
             }
 
-            $value = trim((string) $row[$key]);
+            $value = $this->normalizeUtf8String(trim((string) $row[$key]));
             if ($value !== '') {
                 return $value;
             }
@@ -137,16 +137,16 @@ class MarketplaceListingsReportJobProcessor implements ReportJobProcessor
             return $value;
         }
 
+        $converted = @mb_convert_encoding($value, 'UTF-8', 'Windows-1252,ISO-8859-1,UTF-8');
+        if (is_string($converted) && $converted !== '' && mb_check_encoding($converted, 'UTF-8')) {
+            return $converted;
+        }
+
         if (function_exists('iconv')) {
             $converted = iconv('UTF-8', 'UTF-8//IGNORE', $value);
             if (is_string($converted) && $converted !== '' && mb_check_encoding($converted, 'UTF-8')) {
                 return $converted;
             }
-        }
-
-        $converted = @mb_convert_encoding($value, 'UTF-8', 'UTF-8,ISO-8859-1,Windows-1252');
-        if (is_string($converted) && $converted !== '' && mb_check_encoding($converted, 'UTF-8')) {
-            return $converted;
         }
 
         return preg_replace('/[^\x09\x0A\x0D\x20-\x7E]/', '?', $value) ?? '';
