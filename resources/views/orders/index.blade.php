@@ -560,6 +560,7 @@
                 <th>Ship to</th>
                 <th>Marketplace</th>
                 <th>Company Name</th>
+                <th>Raw JSON</th>
             </tr>
             </thead>
             <tbody>
@@ -639,7 +640,21 @@
                         data-local="{{ $purchaseTimeOutLocal }}"
                         data-utc="{{ $purchaseTimeOutUtc }}"
                     >{{ $purchaseTimeOutLocal }}</td>
-                    <td>{{ trim((string) ($order['OrderStatus'] ?? '')) !== '' ? $order['OrderStatus'] : 'N/A' }}</td>
+                    @php
+                        $statusRaw = trim((string) ($order['OrderStatus'] ?? ''));
+                        $statusDisplay = 'N/A';
+                        if ($statusRaw !== '') {
+                            $statusSpaced = str_replace(['_', '-'], ' ', $statusRaw);
+                            $isAllCaps = strtoupper($statusRaw) === $statusRaw && strtolower($statusRaw) !== $statusRaw;
+                            if ($isAllCaps) {
+                                $statusDisplay = ucwords(strtolower($statusSpaced));
+                            } else {
+                                $statusWords = preg_replace('/(?<!^)[A-Z]/', ' $0', $statusSpaced);
+                                $statusDisplay = ucwords(strtolower((string) $statusWords));
+                            }
+                        }
+                    @endphp
+                    <td>{{ $statusDisplay }}</td>
                     <td>
                         <a href="{{ route('orders.show', ['order_id' => $order['AmazonOrderId']]) }}" class="text-blue-600 hover:underline">
                             {{ $order['AmazonOrderId'] }}
@@ -715,6 +730,15 @@
                         @endif
                     </td>
                     <td>{{ trim((string) ($order['ShippingAddress']['CompanyName'] ?? '')) !== '' ? $order['ShippingAddress']['CompanyName'] : 'N/A' }}</td>
+                    <td style="min-width: 280px; max-width: 420px;">
+                        @php
+                            $orderDebugJson = json_encode($order, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+                        @endphp
+                        <details>
+                            <summary style="cursor:pointer; color:#2563eb;">View JSON</summary>
+                            <pre style="margin-top:8px; max-height:220px; overflow:auto; white-space:pre; font-size:11px; line-height:1.3;">{{ $orderDebugJson ?: '{}' }}</pre>
+                        </details>
+                    </td>
                 </tr>
             @endforeach
             </tbody>
