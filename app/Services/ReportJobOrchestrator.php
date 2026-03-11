@@ -190,10 +190,10 @@ class ReportJobOrchestrator
                 $rowCount = count($rows);
                 $job->rows_parsed = $rowCount;
                 $job->document_url_sha256 = $download['report_document_url_sha256'] ?? null;
-                $job->debug_payload = [
+                $job->debug_payload = $this->normalizeUtf8ForJson([
                     'document_payload' => $download['document_payload'] ?? null,
                     'row_preview' => array_slice($rows, 0, 2),
-                ];
+                ]);
 
                 $ingested = $this->ingestRows($job, $rows);
                 $job->rows_ingested = (int) ($ingested['rows_ingested'] ?? 0);
@@ -322,6 +322,46 @@ class ReportJobOrchestrator
             'us_fc_inventory' => 'NA',
             default => 'NA',
         };
+    }
+
+    private function normalizeUtf8ForJson(mixed $value): mixed
+    {
+        if (is_array($value)) {
+            $normalized = [];
+            foreach ($value as $key => $item) {
+                $normalizedKey = is_string($key) ? $this->normalizeUtf8String($key) : $key;
+                $normalized[$normalizedKey] = $this->normalizeUtf8ForJson($item);
+            }
+
+            return $normalized;
+        }
+
+        if (is_string($value)) {
+            return $this->normalizeUtf8String($value);
+        }
+
+        return $value;
+    }
+
+    private function normalizeUtf8String(string $value): string
+    {
+        if ($value === '' || mb_check_encoding($value, 'UTF-8')) {
+            return $value;
+        }
+
+        if (function_exists('iconv')) {
+            $converted = iconv('UTF-8', 'UTF-8//IGNORE', $value);
+            if (is_string($converted) && $converted !== '' && mb_check_encoding($converted, 'UTF-8')) {
+                return $converted;
+            }
+        }
+
+        $converted = @mb_convert_encoding($value, 'UTF-8', 'UTF-8,ISO-8859-1,Windows-1252');
+        if (is_string($converted) && $converted !== '' && mb_check_encoding($converted, 'UTF-8')) {
+            return $converted;
+        }
+
+        return preg_replace('/[^\x09\x0A\x0D\x20-\x7E]/', '?', $value) ?? '';
     }
 
     private function normalizeReportOptions(string $reportType, ?array $reportOptions): ?array

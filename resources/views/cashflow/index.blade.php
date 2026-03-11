@@ -87,12 +87,18 @@
             const syncNowUrl = @json(route('cashflow.syncNow'));
             const syncNowButton = document.getElementById('cashflow-sync-now');
             const syncStatus = document.getElementById('cashflow-sync-status');
+            const syncNowButtonDefaultLabel = syncNowButton.textContent;
             const orderShowUrlTemplate = @json(route('orders.show', ['order_id' => '__ORDER_ID__']));
             const marketplacesById = @json(collect($marketplaces ?? [])->keyBy('id')->all());
             const fromInput = form.querySelector('input[name="from"]');
             const toInput = form.querySelector('input[name="to"]');
             const presetButtons = Array.from(document.querySelectorAll('.js-range-preset'));
             let availableAllRange = { from: '', to: '' };
+            let syncPollingTimer = null;
+            let syncPollingDeadline = 0;
+            let syncPollingInFlight = false;
+            const syncPollingIntervalMs = 5000;
+            const syncPollingTimeoutMs = 2 * 60 * 1000;
 
             function setSyncStatus(message, isError = false) {
                 syncStatus.textContent = message;
@@ -106,6 +112,11 @@
                     return;
                 }
                 syncStatus.classList.add('text-gray-600', 'dark:text-gray-300');
+            }
+
+            function setSyncButtonBusy(isBusy) {
+                syncNowButton.disabled = isBusy;
+                syncNowButton.textContent = isBusy ? 'Syncing...' : syncNowButtonDefaultLabel;
             }
 
             async function load() {
@@ -282,10 +293,14 @@
                     return;
                 }
 
-                syncNowButton.disabled = true;
-                setSyncStatus('Queueing cashflow sync...');
+                stopSyncPolling();
+                setSyncButtonBusy(true);
+                setSyncStatus('Checking current snapshot...');
 
                 try {
+                    const previousRunAtMs = await fetchLatestOutstandingRunAtMs().catch(() => null);
+                    setSyncStatus('Queueing cashflow sync...');
+
                     const response = await fetch(syncNowUrl, {
                         method: 'POST',
                         headers: {
@@ -301,11 +316,11 @@
                         return;
                     }
 
-                    setSyncStatus((json && json.message) ? json.message : 'Cashflow outstanding sync queued.');
+                    setSyncStatus('Queued. Waiting for new snapshot...');
+                    startSyncPolling(previousRunAtMs);
                 } catch (error) {
                     setSyncStatus('Failed to queue cashflow sync.', true);
-                } finally {
-                    syncNowButton.disabled = false;
+                    setSyncButtonBusy(false);
                 }
             });
 
@@ -382,6 +397,89 @@
                     from: extractYmd(json.data.available_maturity_from_utc),
                     to: extractYmd(json.data.available_maturity_to_utc),
                 };
+            }
+
+            async function fetchLatestOutstandingRunAtMs() {
+                const params = new URLSearchParams();
+                const formData = new FormData(form);
+                params.set('view', 'outstanding');
+                for (const [key, value] of formData.entries()) {
+                    if (['from', 'to', 'date', 'view'].includes(key)) {
+                        continue;
+                    }
+                    const text = (value || '').toString().trim();
+                    if (text !== '') {
+                        params.set(key, text);
+                    }
+                }
+
+                const response = await fetch(`${projectionUrl}?${params.toString()}`, {
+                    headers: { 'Accept': 'application/json' }
+                });
+                const json = await response.json().catch(() => null);
+                if (!response.ok || !json || !json.data || json.data.view !== 'outstanding') {
+                    return null;
+                }
+
+                const ranAt = json.data.diagnostics ? (json.data.diagnostics.ran_at_utc || '') : '';
+                const parsed = Date.parse((ranAt || '').toString());
+                return Number.isNaN(parsed) ? null : parsed;
+            }
+
+            function stopSyncPolling() {
+                if (syncPollingTimer !== null) {
+                    clearInterval(syncPollingTimer);
+                    syncPollingTimer = null;
+                }
+                syncPollingInFlight = false;
+                syncPollingDeadline = 0;
+            }
+
+            function startSyncPolling(previousRunAtMs) {
+                stopSyncPolling();
+                syncPollingDeadline = Date.now() + syncPollingTimeoutMs;
+
+                const poll = async function () {
+                    if (syncPollingInFlight) {
+                        return;
+                    }
+
+                    syncPollingInFlight = true;
+                    try {
+                        const latestRunAtMs = await fetchLatestOutstandingRunAtMs();
+                        const hasNewRun = latestRunAtMs !== null
+                            && (previousRunAtMs === null || latestRunAtMs > previousRunAtMs);
+
+                        if (hasNewRun) {
+                            stopSyncPolling();
+                            setSyncStatus('Sync complete. Data refreshed.');
+                            await load();
+                            setSyncButtonBusy(false);
+                            return;
+                        }
+
+                        if (Date.now() >= syncPollingDeadline) {
+                            stopSyncPolling();
+                            setSyncStatus('Still running. You can refresh later.');
+                            setSyncButtonBusy(false);
+                            return;
+                        }
+
+                        setSyncStatus('Queued. Waiting for new snapshot...');
+                    } catch (error) {
+                        if (Date.now() >= syncPollingDeadline) {
+                            stopSyncPolling();
+                            setSyncStatus('Still running. You can refresh later.');
+                            setSyncButtonBusy(false);
+                            return;
+                        }
+                    } finally {
+                        syncPollingInFlight = false;
+                    }
+                };
+
+                syncPollingTimer = setInterval(poll, syncPollingIntervalMs);
+                poll();
             }
 
             function updatePresetHighlight() {
