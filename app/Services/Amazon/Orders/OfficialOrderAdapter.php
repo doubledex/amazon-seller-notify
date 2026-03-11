@@ -12,8 +12,8 @@ use SpApi\ApiException;
 class OfficialOrderAdapter implements AmazonOrderApi
 {
     private const MAX_ATTEMPTS = 4;
-    private const SEARCH_INCLUDED_DATA = ['FULFILLMENT', 'PAYMENT', 'PROCEEDS', 'BUYER'];
-    private const GET_ORDER_INCLUDED_DATA = ['FULFILLMENT', 'PACKAGES', 'PAYMENT', 'PROCEEDS', 'BUYER'];
+    private const SEARCH_INCLUDED_DATA = ['BUYER', 'RECIPIENT', 'PROCEEDS', 'FULFILLMENT', 'PACKAGES'];
+    private const GET_ORDER_INCLUDED_DATA = ['BUYER', 'RECIPIENT', 'PROCEEDS', 'FULFILLMENT', 'PACKAGES'];
 
     public function __construct(
         private readonly OfficialSpApiService $officialSpApiService,

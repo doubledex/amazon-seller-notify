@@ -569,7 +569,7 @@ class OrderController extends Controller
                 try {
                     [$orderModel, $statusCode] = $ordersGetApi->getOrderWithHttpInfo(
                         $order_id,
-                        ['FULFILLMENT', 'PACKAGES', 'PAYMENT', 'PROCEEDS', 'BUYER', 'RECIPIENT']
+                        ['BUYER', 'RECIPIENT', 'PROCEEDS', 'FULFILLMENT', 'PACKAGES']
                     );
                     if ($statusCode < 400) {
                         $orderData = $this->modelToArray($orderModel);
