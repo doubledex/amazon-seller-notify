@@ -567,7 +567,10 @@ class OrderController extends Controller
         if (($needsOrder || $needsItems || $needsAddress) && $ordersGetApi !== null) {
             if ($needsOrder) {
                 try {
-                    [$orderModel, $statusCode] = $ordersGetApi->getOrderWithHttpInfo($order_id);
+                    [$orderModel, $statusCode] = $ordersGetApi->getOrderWithHttpInfo(
+                        $order_id,
+                        ['FULFILLMENT', 'PACKAGES', 'PAYMENT', 'PROCEEDS', 'BUYER', 'RECIPIENT']
+                    );
                     if ($statusCode < 400) {
                         $orderData = $this->modelToArray($orderModel);
                         $order = $this->normalizeV20260101OrderToV0Payload((array) ($orderData['order'] ?? []));

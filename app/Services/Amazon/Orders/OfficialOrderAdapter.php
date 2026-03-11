@@ -12,6 +12,8 @@ use SpApi\ApiException;
 class OfficialOrderAdapter implements AmazonOrderApi
 {
     private const MAX_ATTEMPTS = 4;
+    private const SEARCH_INCLUDED_DATA = ['FULFILLMENT', 'PAYMENT', 'PROCEEDS', 'BUYER'];
+    private const GET_ORDER_INCLUDED_DATA = ['FULFILLMENT', 'PACKAGES', 'PAYMENT', 'PROCEEDS', 'BUYER'];
 
     public function __construct(
         private readonly OfficialSpApiService $officialSpApiService,
@@ -36,7 +38,8 @@ class OfficialOrderAdapter implements AmazonOrderApi
                 marketplace_ids: $marketplaceIds,
                 created_after: new DateTime($createdAfter),
                 created_before: new DateTime($createdBefore),
-                pagination_token: $paginationToken !== '' ? $paginationToken : null
+                pagination_token: $paginationToken !== '' ? $paginationToken : null,
+                included_data: self::SEARCH_INCLUDED_DATA
             );
         }, fn (array $body) => $this->normalizeSearchOrdersBody($body));
     }
@@ -50,7 +53,7 @@ class OfficialOrderAdapter implements AmazonOrderApi
         }
 
         return $this->callWithRetries(
-            fn () => $getOrderApi->getOrderWithHttpInfo($amazonOrderId, ['FULFILLMENT', 'PACKAGES', 'PROCEEDS', 'BUYER']),
+            fn () => $getOrderApi->getOrderWithHttpInfo($amazonOrderId, self::GET_ORDER_INCLUDED_DATA),
             fn (array $body) => $this->normalizeGetOrderItemsBody($body, $amazonOrderId)
         );
     }
