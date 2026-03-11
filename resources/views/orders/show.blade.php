@@ -604,14 +604,29 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div class="p-4 rounded-lg border border-gray-200 bg-white shadow-sm">
                     <details>
-                        <summary class="cursor-pointer text-sm font-semibold">Raw Order JSON</summary>
-                        <pre class="text-xs mt-3 bg-gray-50 p-3 rounded overflow-x-auto">{{ json_encode($order, JSON_PRETTY_PRINT) }}</pre>
+                        <summary class="cursor-pointer text-sm font-semibold">Raw Order JSON (Debug)</summary>
+                        <pre class="text-xs mt-3 bg-gray-50 p-3 rounded overflow-x-auto">{{ json_encode($order, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
                     </details>
                 </div>
                 <div class="p-4 rounded-lg border border-gray-200 bg-white shadow-sm">
                     <details>
+                        <summary class="cursor-pointer text-sm font-semibold">Raw Stored Order JSON (DB) (Debug)</summary>
+                        @php
+                            $storedRawOrder = $orderRecord?->raw_order ?? null;
+                            if (is_string($storedRawOrder)) {
+                                $decodedStoredRawOrder = json_decode($storedRawOrder, true);
+                                $storedRawOrder = is_array($decodedStoredRawOrder) ? $decodedStoredRawOrder : ['raw' => $storedRawOrder];
+                            } elseif (!is_array($storedRawOrder)) {
+                                $storedRawOrder = [];
+                            }
+                        @endphp
+                        <pre class="text-xs mt-3 bg-gray-50 p-3 rounded overflow-x-auto">{{ json_encode($storedRawOrder, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                    </details>
+                </div>
+                <div class="p-4 rounded-lg border border-gray-200 bg-white shadow-sm lg:col-span-2">
+                    <details>
                         <summary class="cursor-pointer text-sm font-semibold">Raw Items JSON</summary>
-                        <pre class="text-xs mt-3 bg-gray-50 p-3 rounded overflow-x-auto">{{ json_encode($items, JSON_PRETTY_PRINT) }}</pre>
+                        <pre class="text-xs mt-3 bg-gray-50 p-3 rounded overflow-x-auto">{{ json_encode($items, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
                     </details>
                 </div>
             </div>
