@@ -695,7 +695,19 @@
                     </td>
                     <td style="text-align: center;">{{ $order['NumberOfItemsUnshipped'] ?? '' }}</td>
                     <td style="text-align: center;">{{ $order['NumberOfItemsShipped'] ?? '' }}</td>
-                    <td>{{ trim((string) ($order['PaymentMethodDetails'][0] ?? '')) !== '' ? $order['PaymentMethodDetails'][0] : 'N/A' }}</td>
+                    @php
+                        $paymentMethodDisplay = trim((string) ($order['PaymentMethodDetails'][0] ?? ''));
+                        if ($paymentMethodDisplay === '') {
+                            $paymentMethodDisplay = trim((string) ($order['paymentMethodDetails'][0] ?? ''));
+                        }
+                        if ($paymentMethodDisplay === '') {
+                            $paymentMethodDisplay = trim((string) ($order['PaymentMethod'] ?? ''));
+                        }
+                        if ($paymentMethodDisplay === '') {
+                            $paymentMethodDisplay = trim((string) ($order['paymentMethod'] ?? ''));
+                        }
+                    @endphp
+                    <td>{{ $paymentMethodDisplay !== '' ? $paymentMethodDisplay : 'N/A' }}</td>
                     <td>{{ $netCurrency !== '' ? $netCurrency : 'N/A' }}</td>
                     <td dir="rtl">
                         @if(str_starts_with((string) ($order['OrderNetExTax']['Source'] ?? ''), 'estimated'))
