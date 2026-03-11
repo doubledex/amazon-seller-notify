@@ -639,6 +639,14 @@ class MarketplaceListingsSyncService
             return $normalized;
         }
 
+        if (is_object($value)) {
+            if ($value instanceof \Stringable) {
+                return $this->normalizeUtf8String((string) $value);
+            }
+
+            return $this->normalizeUtf8ForJson(get_object_vars($value));
+        }
+
         if (is_string($value)) {
             return $this->normalizeUtf8String($value);
         }
