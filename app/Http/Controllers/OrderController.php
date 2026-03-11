@@ -235,12 +235,36 @@ class OrderController extends Controller
                 ];
             }
 
-            $allOrders = $orderModels->map(function (Order $order) use ($mfFallbackMap, $itemNetFallbackMap, $feeFallbackMap, $landedCostMap) {
+            $itemQtyMap = [];
+            if (!empty($orderIdsOnPage)) {
+                $itemQtyRows = DB::table('order_items')
+                    ->selectRaw('
+                        amazon_order_id,
+                        SUM(COALESCE(quantity_unshipped, 0)) as qty_unshipped,
+                        SUM(COALESCE(quantity_shipped, 0)) as qty_shipped
+                    ')
+                    ->whereIn('amazon_order_id', $orderIdsOnPage)
+                    ->groupBy('amazon_order_id')
+                    ->get();
+                foreach ($itemQtyRows as $row) {
+                    $orderId = (string) ($row->amazon_order_id ?? '');
+                    if ($orderId === '') {
+                        continue;
+                    }
+                    $itemQtyMap[$orderId] = [
+                        'unshipped' => (int) ($row->qty_unshipped ?? 0),
+                        'shipped' => (int) ($row->qty_shipped ?? 0),
+                    ];
+                }
+            }
+
+            $allOrders = $orderModels->map(function (Order $order) use ($mfFallbackMap, $itemNetFallbackMap, $feeFallbackMap, $landedCostMap, $itemQtyMap) {
                 $raw = $order->raw_order;
                 if (is_string($raw)) {
                     $decoded = json_decode($raw, true);
                     $raw = is_array($decoded) ? $decoded : [];
                 }
+                $qty = $itemQtyMap[$order->amazon_order_id] ?? ['unshipped' => 0, 'shipped' => 0];
                 $fallbackNet = $itemNetFallbackMap[$order->amazon_order_id] ?? null;
                 $netAmount = $order->order_net_ex_tax;
                 $netCurrency = $order->order_net_ex_tax_currency ?: $order->order_total_currency;
@@ -332,6 +356,8 @@ class OrderController extends Controller
                         'MarketplaceId' => $order->marketplace_id,
                         'IsBusinessOrder' => $order->is_business_order,
                         'IsMarketplaceFacilitator' => $order->is_marketplace_facilitator ?? ($mfFallbackMap[$order->amazon_order_id] ?? null),
+                        'NumberOfItemsUnshipped' => (int) ($qty['unshipped'] ?? 0),
+                        'NumberOfItemsShipped' => (int) ($qty['shipped'] ?? 0),
                         'ShippingAddress' => [
                             'City' => $order->shipping_city,
                             'CountryCode' => $order->shipping_country_code,
@@ -342,8 +368,28 @@ class OrderController extends Controller
                     ];
                 } else {
                     $raw['IsMarketplaceFacilitator'] = $order->is_marketplace_facilitator ?? ($mfFallbackMap[$order->amazon_order_id] ?? null);
+                    $raw['IsBusinessOrder'] = array_key_exists('IsBusinessOrder', $raw)
+                        ? (bool) $raw['IsBusinessOrder']
+                        : (bool) $order->is_business_order;
                     $raw['PurchaseDateLocal'] = $order->purchase_date_local ? $order->purchase_date_local->format('c') : ($raw['PurchaseDateLocal'] ?? null);
                     $raw['MarketplaceTimezone'] = $order->marketplace_timezone ?? ($raw['MarketplaceTimezone'] ?? null);
+                    if (!isset($raw['NumberOfItemsUnshipped']) || !is_numeric($raw['NumberOfItemsUnshipped'])) {
+                        $raw['NumberOfItemsUnshipped'] = (int) ($qty['unshipped'] ?? 0);
+                    }
+                    if (!isset($raw['NumberOfItemsShipped']) || !is_numeric($raw['NumberOfItemsShipped'])) {
+                        $raw['NumberOfItemsShipped'] = (int) ($qty['shipped'] ?? 0);
+                    }
+                    $ship = is_array($raw['ShippingAddress'] ?? null) ? $raw['ShippingAddress'] : [];
+                    $raw['ShippingAddress'] = [
+                        'City' => trim((string) ($ship['City'] ?? '')) !== '' ? $ship['City'] : $order->shipping_city,
+                        'CountryCode' => trim((string) ($ship['CountryCode'] ?? '')) !== '' ? $ship['CountryCode'] : $order->shipping_country_code,
+                        'PostalCode' => trim((string) ($ship['PostalCode'] ?? '')) !== '' ? $ship['PostalCode'] : $order->shipping_postal_code,
+                        'CompanyName' => trim((string) ($ship['CompanyName'] ?? '')) !== '' ? $ship['CompanyName'] : $order->shipping_company,
+                        'StateOrRegion' => trim((string) ($ship['StateOrRegion'] ?? '')) !== '' ? $ship['StateOrRegion'] : $order->shipping_region,
+                    ];
+                    if (trim((string) ($raw['FulfillmentChannel'] ?? '')) === '') {
+                        $raw['FulfillmentChannel'] = $order->fulfillment_channel;
+                    }
                     $raw['OrderNetExTax'] = [
                         'Amount' => $netAmount,
                         'CurrencyCode' => $netCurrency ?: ($raw['OrderNetExTax']['CurrencyCode'] ?? $order->order_total_currency ?? null),
@@ -627,6 +673,47 @@ class OrderController extends Controller
                 $orderArray = is_array($decoded) ? $decoded : [];
             }
         }
+
+        $fulfillmentLines = [];
+        $fulfillmentTotals = [
+            'line_count' => 0,
+            'quantity_ordered' => 0,
+            'quantity_shipped' => 0,
+            'quantity_unshipped' => 0,
+        ];
+        foreach ($items as $itemModel) {
+            $qtyOrdered = $itemModel->quantity_ordered !== null ? (int) $itemModel->quantity_ordered : null;
+            $qtyShipped = $itemModel->quantity_shipped !== null ? (int) $itemModel->quantity_shipped : null;
+            $qtyUnshipped = $itemModel->quantity_unshipped !== null ? (int) $itemModel->quantity_unshipped : null;
+            if ($qtyUnshipped === null && $qtyOrdered !== null && $qtyShipped !== null) {
+                $qtyUnshipped = max(0, $qtyOrdered - $qtyShipped);
+            }
+
+            $fulfillmentLines[] = [
+                'order_item_id' => $itemModel->order_item_id,
+                'asin' => $itemModel->asin,
+                'seller_sku' => $itemModel->seller_sku,
+                'title' => $itemModel->title,
+                'quantity_ordered' => $qtyOrdered,
+                'quantity_shipped' => $qtyShipped,
+                'quantity_unshipped' => $qtyUnshipped,
+            ];
+
+            $fulfillmentTotals['line_count']++;
+            $fulfillmentTotals['quantity_ordered'] += max(0, (int) ($qtyOrdered ?? 0));
+            $fulfillmentTotals['quantity_shipped'] += max(0, (int) ($qtyShipped ?? 0));
+            $fulfillmentTotals['quantity_unshipped'] += max(0, (int) ($qtyUnshipped ?? 0));
+        }
+
+        $orderArray['Fulfillment'] = [
+            'totals' => [
+                'line_count' => $fulfillmentTotals['line_count'],
+                'quantity_ordered' => $fulfillmentTotals['quantity_ordered'],
+                'quantity_shipped' => $fulfillmentTotals['quantity_shipped'],
+                'quantity_unshipped' => $fulfillmentTotals['quantity_unshipped'],
+            ],
+            'lines' => $fulfillmentLines,
+        ];
 
         $addressArray = [];
         if ($address) {
