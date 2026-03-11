@@ -416,6 +416,49 @@ class OrderController extends Controller
                         'Formula' => 'net_sales_ex_tax_gbp - amazon_fees_gbp - landed_cost_gbp',
                     ];
                 }
+
+                $proceeds = is_array($raw['proceeds'] ?? null) ? $raw['proceeds'] : [];
+                $proceedsPaymentMethods = is_array($proceeds['paymentMethods'] ?? null) ? $proceeds['paymentMethods'] : [];
+                $proceedsFirstPaymentMethod = $proceedsPaymentMethods[0] ?? null;
+                if (is_array($proceedsFirstPaymentMethod)) {
+                    $proceedsFirstPaymentMethod = $proceedsFirstPaymentMethod['paymentMethod']
+                        ?? $proceedsFirstPaymentMethod['method']
+                        ?? null;
+                }
+                $paymentData = is_array($raw['payment'] ?? null) ? $raw['payment'] : [];
+                $paymentMethodResolved = trim((string) ($raw['PaymentMethodDetails'][0] ?? ''));
+                if ($paymentMethodResolved === '') {
+                    $paymentMethodResolved = trim((string) ($raw['paymentMethodDetails'][0] ?? ''));
+                }
+                if ($paymentMethodResolved === '') {
+                    $paymentMethodResolved = trim((string) ($raw['PaymentMethod'] ?? ''));
+                }
+                if ($paymentMethodResolved === '') {
+                    $paymentMethodResolved = trim((string) ($raw['paymentMethod'] ?? ''));
+                }
+                if ($paymentMethodResolved === '') {
+                    $paymentMethodResolved = trim((string) ($paymentData['paymentMethod'] ?? ''));
+                }
+                if ($paymentMethodResolved === '') {
+                    $paymentMethodResolved = trim((string) ($paymentData['method'] ?? ''));
+                }
+                if ($paymentMethodResolved === '') {
+                    $paymentMethodResolved = trim((string) ($proceeds['paymentMethod'] ?? ''));
+                }
+                if ($paymentMethodResolved === '') {
+                    $paymentMethodResolved = trim((string) ($proceeds['method'] ?? ''));
+                }
+                if ($paymentMethodResolved === '') {
+                    $paymentMethodResolved = trim((string) ($proceedsFirstPaymentMethod ?? ''));
+                }
+                if ($paymentMethodResolved === '') {
+                    $paymentMethodResolved = trim((string) ($order->payment_method ?? ''));
+                }
+                if ($paymentMethodResolved !== '') {
+                    $raw['PaymentMethod'] = $paymentMethodResolved;
+                    $raw['PaymentMethodDetails'] = [$paymentMethodResolved];
+                }
+
                 return $raw;
             })->values()->all();
             $postalGeoMap = $this->buildPostalGeoMapForOrders($allOrders);
