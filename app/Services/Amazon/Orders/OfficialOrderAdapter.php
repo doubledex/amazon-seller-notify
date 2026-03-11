@@ -253,9 +253,19 @@ class OfficialOrderAdapter implements AmazonOrderApi
             default => ($fulfilledBy !== '' ? $fulfilledBy : null),
         };
 
+        $proceedsPaymentMethods = (array) ($proceeds['paymentMethods'] ?? []);
+        $proceedsFirstPaymentMethod = $proceedsPaymentMethods[0] ?? null;
+        if (is_array($proceedsFirstPaymentMethod)) {
+            $proceedsFirstPaymentMethod = $proceedsFirstPaymentMethod['paymentMethod']
+                ?? $proceedsFirstPaymentMethod['method']
+                ?? null;
+        }
         $paymentMethod = $order['paymentMethod']
             ?? $payment['paymentMethod']
             ?? $payment['method']
+            ?? $proceeds['paymentMethod']
+            ?? $proceeds['method']
+            ?? $proceedsFirstPaymentMethod
             ?? null;
 
         $itemsShipped = $itemCounts['numberOfItemsShipped']

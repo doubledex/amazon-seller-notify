@@ -1555,6 +1555,21 @@ class OrderController extends Controller
         $proceeds = (array) ($order['proceeds'] ?? []);
         $grandTotal = (array) ($proceeds['grandTotal'] ?? []);
         $buyer = (array) ($order['buyer'] ?? []);
+        $payment = (array) ($order['payment'] ?? []);
+        $proceedsPaymentMethods = (array) ($proceeds['paymentMethods'] ?? []);
+        $proceedsFirstPaymentMethod = $proceedsPaymentMethods[0] ?? null;
+        if (is_array($proceedsFirstPaymentMethod)) {
+            $proceedsFirstPaymentMethod = $proceedsFirstPaymentMethod['paymentMethod']
+                ?? $proceedsFirstPaymentMethod['method']
+                ?? null;
+        }
+        $paymentMethod = $order['paymentMethod']
+            ?? $payment['paymentMethod']
+            ?? $payment['method']
+            ?? $proceeds['paymentMethod']
+            ?? $proceeds['method']
+            ?? $proceedsFirstPaymentMethod
+            ?? null;
 
         return [
             'AmazonOrderId' => $order['orderId'] ?? null,
@@ -1562,6 +1577,8 @@ class OrderController extends Controller
             'LastUpdateDate' => $order['lastUpdatedTime'] ?? null,
             'OrderStatus' => $fulfillment['fulfillmentStatus'] ?? null,
             'FulfillmentChannel' => $fulfillment['fulfilledBy'] ?? null,
+            'PaymentMethodDetails' => $paymentMethod ? [$paymentMethod] : [],
+            'PaymentMethod' => $paymentMethod,
             'SalesChannel' => $salesChannel['channelName'] ?? null,
             'MarketplaceId' => $salesChannel['marketplaceId'] ?? null,
             'IsBusinessOrder' => !empty($buyer['buyerCompanyName']),
