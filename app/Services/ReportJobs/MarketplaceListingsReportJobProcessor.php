@@ -49,7 +49,7 @@ class MarketplaceListingsReportJobProcessor implements ReportJobProcessor
                     'is_parent' => $isParent,
                     'source_report_id' => $job->external_report_id,
                     'last_seen_at' => $now,
-                    'raw_listing' => $row,
+                    'raw_listing' => $this->normalizeUtf8ForJson($row),
                 ]
             );
 
@@ -102,5 +102,45 @@ class MarketplaceListingsReportJobProcessor implements ReportJobProcessor
         }
 
         return 'MFN';
+    }
+
+    private function normalizeUtf8ForJson(mixed $value): mixed
+    {
+        if (is_array($value)) {
+            $normalized = [];
+            foreach ($value as $key => $item) {
+                $normalizedKey = is_string($key) ? $this->normalizeUtf8String($key) : $key;
+                $normalized[$normalizedKey] = $this->normalizeUtf8ForJson($item);
+            }
+
+            return $normalized;
+        }
+
+        if (is_string($value)) {
+            return $this->normalizeUtf8String($value);
+        }
+
+        return $value;
+    }
+
+    private function normalizeUtf8String(string $value): string
+    {
+        if ($value === '' || mb_check_encoding($value, 'UTF-8')) {
+            return $value;
+        }
+
+        if (function_exists('iconv')) {
+            $converted = iconv('UTF-8', 'UTF-8//IGNORE', $value);
+            if (is_string($converted) && $converted !== '' && mb_check_encoding($converted, 'UTF-8')) {
+                return $converted;
+            }
+        }
+
+        $converted = @mb_convert_encoding($value, 'UTF-8', 'UTF-8,ISO-8859-1,Windows-1252');
+        if (is_string($converted) && $converted !== '' && mb_check_encoding($converted, 'UTF-8')) {
+            return $converted;
+        }
+
+        return preg_replace('/[^\x09\x0A\x0D\x20-\x7E]/', '?', $value) ?? '';
     }
 }
