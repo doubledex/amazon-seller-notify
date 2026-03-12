@@ -91,6 +91,102 @@ class InboundShipmentSyncService
         return $summary;
     }
 
+    public function fetchDebugShipmentPayloads(string $regionCode, string $marketplaceId, string $shipmentId, int $days = 365): array
+    {
+        $regionCode = strtoupper(trim($regionCode));
+        $marketplaceId = trim($marketplaceId);
+        $shipmentId = trim($shipmentId);
+        $days = max(1, min($days, 365));
+
+        if ($regionCode === '' || $marketplaceId === '' || $shipmentId === '') {
+            throw new \InvalidArgumentException('Region, marketplace, and shipment ID are required for inbound debug fetch.');
+        }
+
+        $api2024 = $this->officialSpApiService->makeInboundV20240320Api($regionCode);
+        $apiV0 = $this->officialSpApiService->makeInboundV0Api($regionCode);
+
+        if ($api2024 !== null) {
+            $updatedAfter = Carbon::now('UTC')->subDays($days);
+            $refs = $this->collectShipmentReferences($api2024, $regionCode, $marketplaceId, $updatedAfter, true);
+            foreach ($refs as $ref) {
+                if (($ref['shipment_id'] ?? '') !== $shipmentId) {
+                    continue;
+                }
+
+                $shipment = $this->callWithRetries(
+                    fn () => $api2024->getShipment($ref['inbound_plan_id'], $shipmentId),
+                    'fbaInbound.getShipment'
+                );
+                $itemResult = $this->collectShipmentItems($api2024, $ref['inbound_plan_id'], $shipmentId);
+                $boxResult = $this->collectShipmentBoxes($api2024, $ref['inbound_plan_id'], $shipmentId);
+                $palletResult = $this->collectShipmentPallets($api2024, $ref['inbound_plan_id'], $shipmentId);
+
+                return [
+                    'source_api' => 'fulfillment/inbound/v2024-03-20',
+                    'shipment_id' => $shipmentId,
+                    'marketplace_id' => $marketplaceId,
+                    'region_code' => $regionCode,
+                    'inbound_plan_id' => $ref['inbound_plan_id'],
+                    'fetched_at_utc' => now()->utc()->toIso8601String(),
+                    'shipment_payload' => $this->shipmentPayloadV2024($shipment),
+                    'items_payload' => $this->itemsPayloadV2024(
+                        $itemResult['items'],
+                        $boxResult['boxes'],
+                        $palletResult['pallets'],
+                        $itemResult['pages'],
+                        $boxResult['pages'],
+                        $palletResult['pages']
+                    ),
+                ];
+            }
+        }
+
+        if ($apiV0 !== null) {
+            $itemsResponse = $this->callWithRetries(
+                fn () => $apiV0->getShipmentItemsByShipmentId(
+                    shipment_id: $shipmentId,
+                    marketplace_id: $marketplaceId
+                ),
+                'fbaInbound.v0.getShipmentItemsByShipmentId'
+            );
+
+            $shipmentsResponse = $this->callWithRetries(
+                fn () => $apiV0->getShipments(
+                    query_type: 'SHIPMENT',
+                    marketplace_id: $marketplaceId,
+                    shipment_status_list: null,
+                    shipment_id_list: [$shipmentId],
+                    last_updated_after: null,
+                    last_updated_before: null,
+                    next_token: null,
+                ),
+                'fbaInbound.v0.getShipments'
+            );
+
+            $shipmentPayload = [];
+            foreach ((array) ($shipmentsResponse->getPayload()?->getShipmentData() ?? []) as $shipment) {
+                if (trim((string) ($shipment->getShipmentId() ?? '')) === $shipmentId) {
+                    $shipmentPayload = $this->shipmentPayloadV0($shipment);
+                    break;
+                }
+            }
+
+            $items = (array) ($itemsResponse->getPayload()?->getItemData() ?? []);
+
+            return [
+                'source_api' => 'fulfillment/inbound/v0',
+                'shipment_id' => $shipmentId,
+                'marketplace_id' => $marketplaceId,
+                'region_code' => $regionCode,
+                'fetched_at_utc' => now()->utc()->toIso8601String(),
+                'shipment_payload' => $shipmentPayload,
+                'items_payload' => $this->itemsPayloadV0($items),
+            ];
+        }
+
+        throw new \RuntimeException('Unable to initialize inbound SP-API client for debug fetch.');
+    }
+
     private function syncRegion(string $regionCode, int $days, ?string $singleMarketplaceId = null, bool $debug = false): array
     {
         $config = $this->regionConfigService->spApiConfig($regionCode);

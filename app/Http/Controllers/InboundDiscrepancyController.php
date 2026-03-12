@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\InboundDiscrepancy;
 use App\Services\Amazon\Inbound\ClaimEvidenceBuilder;
 use App\Services\Amazon\Inbound\InboundClaimSlaService;
+use App\Services\Amazon\Inbound\InboundShipmentSyncService;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -94,18 +95,49 @@ class InboundDiscrepancyController extends Controller
 
     public function show(int $id)
     {
-        $discrepancy = InboundDiscrepancy::query()
-            ->with([
-                'shipment:id,shipment_id,region_code,marketplace_id,carrier_name,pro_tracking_number,shipment_created_at,shipment_closed_at,api_source_version,api_shipment_payload,api_items_payload',
-                'shipment.cartons:id,shipment_id,carton_id,sku,fnsku,units_per_carton,carton_count,expected_units',
-                'claimCases.evidences',
-                'slaTransitions',
-            ])
-            ->findOrFail($id);
+        $discrepancy = $this->loadDiscrepancy($id);
 
         return view('inbound.discrepancies.show', [
             'discrepancy' => $discrepancy,
+            'debugApiPayload' => null,
+            'debugApiStatus' => null,
         ]);
+    }
+
+    public function debugFetch(int $id, InboundShipmentSyncService $service)
+    {
+        $discrepancy = $this->loadDiscrepancy($id);
+        $shipment = $discrepancy->shipment;
+
+        if ($shipment === null) {
+            return back()->with('status', 'No shipment record is attached to this discrepancy.');
+        }
+
+        $regionCode = strtoupper(trim((string) ($shipment->region_code ?? '')));
+        $marketplaceId = trim((string) ($shipment->marketplace_id ?? ''));
+        $shipmentId = trim((string) ($shipment->shipment_id ?? ''));
+
+        try {
+            $debugApiPayload = $service->fetchDebugShipmentPayloads($regionCode, $marketplaceId, $shipmentId);
+
+            return view('inbound.discrepancies.show', [
+                'discrepancy' => $discrepancy,
+                'debugApiPayload' => $debugApiPayload,
+                'debugApiStatus' => 'Live inbound API payload fetched successfully.',
+            ]);
+        } catch (\Throwable $e) {
+            return view('inbound.discrepancies.show', [
+                'discrepancy' => $discrepancy,
+                'debugApiPayload' => [
+                    'error' => $e->getMessage(),
+                    'shipment_id' => $shipmentId,
+                    'marketplace_id' => $marketplaceId,
+                    'region_code' => $regionCode,
+                    'fetched_at_utc' => now()->utc()->toIso8601String(),
+                ],
+                'debugApiStatus' => 'Live inbound API fetch failed.',
+            ]);
+        }
     }
 
     public function evaluateSla(InboundClaimSlaService $service): RedirectResponse
@@ -137,5 +169,17 @@ class InboundDiscrepancyController extends Controller
             $discrepancy->id,
             $claimCase->id
         ));
+    }
+
+    private function loadDiscrepancy(int $id): InboundDiscrepancy
+    {
+        return InboundDiscrepancy::query()
+            ->with([
+                'shipment:id,shipment_id,region_code,marketplace_id,carrier_name,pro_tracking_number,shipment_created_at,shipment_closed_at,api_source_version,api_shipment_payload,api_items_payload',
+                'shipment.cartons:id,shipment_id,carton_id,sku,fnsku,units_per_carton,carton_count,expected_units',
+                'claimCases.evidences',
+                'slaTransitions',
+            ])
+            ->findOrFail($id);
     }
 }

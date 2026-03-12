@@ -74,6 +74,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/inventory/us-fc', [UsFcInventoryController::class, 'index'])->name('inventory.us_fc');
     Route::get('/inbound/discrepancies', [InboundDiscrepancyController::class, 'index'])->name('inbound.discrepancies.index');
     Route::get('/inbound/discrepancies/{id}', [InboundDiscrepancyController::class, 'show'])->name('inbound.discrepancies.show');
+    Route::post('/inbound/discrepancies/{id}/debug-fetch', [InboundDiscrepancyController::class, 'debugFetch'])->name('inbound.discrepancies.debug_fetch');
     Route::post('/inbound/discrepancies/evaluate-sla', [InboundDiscrepancyController::class, 'evaluateSla'])->name('inbound.discrepancies.evaluate_sla');
     Route::post('/inbound/discrepancies/{id}/build-evidence', [InboundDiscrepancyController::class, 'buildEvidence'])->name('inbound.discrepancies.build_evidence');
     Route::post('/amazon-api/inbound/sync', [AmazonApiController::class, 'syncInbound'])->name('amazon_api.inbound.sync');
