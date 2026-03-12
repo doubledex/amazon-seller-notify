@@ -380,46 +380,61 @@
                     </div>
                 </div>
 
-                <div class="mt-4 flex items-baseline gap-2">
-                    <div class="text-xs text-gray-500">Net (ex tax)</div>
-                    <div class="text-lg font-semibold">
-                        @if($isNetEstimated)* @endif
-                        {{ $netAmount !== null ? number_format((float) $netAmount, 2) : ($totalAmount ?? 'N/A') }} {{ $netCurrency ?? '' }}
+                <div class="mt-4 rounded-md border border-gray-200 bg-gray-50 divide-y divide-gray-200">
+                    <div class="px-3 py-2 flex items-start justify-between gap-4">
+                        <div class="text-xs text-gray-500">Net (ex tax)</div>
+                        <div class="text-right">
+                            <div class="text-sm font-semibold text-gray-900">
+                                @if($isNetEstimated)* @endif
+                                {{ $netAmount !== null ? number_format((float) $netAmount, 2) : ($totalAmount ?? 'N/A') }} {{ $netCurrency ?? '' }}
+                            </div>
+                            <div class="text-xs text-gray-600">
+                                @if($isNetEstimated)* @endif
+                                {{ $netGbpAmount !== null ? '£' . number_format((float) $netGbpAmount, 2) : 'N/A' }}
+                            </div>
+                        </div>
                     </div>
-                    <div class="text-sm text-gray-600">
-                        | @if($isNetEstimated)* @endif {{ $netGbpAmount !== null ? '£' . number_format((float) $netGbpAmount, 2) : 'N/A' }}
+                    <div class="px-3 py-2 flex items-start justify-between gap-4">
+                        <div class="text-xs text-gray-500">Amazon Fees</div>
+                        <div class="text-right">
+                            <div class="text-sm font-semibold text-gray-900">
+                                @if($feeSource === 'estimated_product_fees')* @endif
+                                {{ $feeAmount !== null ? number_format((float) $feeAmount, 2) : 'N/A' }} {{ $feeCurrency ?? '' }}
+                            </div>
+                            @if($feeSource === 'estimated_product_fees')
+                                <div class="text-xs text-gray-600">estimated fallback</div>
+                            @elseif($feeSource === 'finance_lines_fallback')
+                                <div class="text-xs text-gray-600">fee lines fallback</div>
+                            @endif
+                        </div>
                     </div>
-                </div>
-                <div class="mt-2 flex items-baseline gap-2">
-                    <div class="text-xs text-gray-500">Amazon Fees</div>
-                    <div class="text-sm font-semibold">
-                        @if($feeSource === 'estimated_product_fees')* @endif
-                        {{ $feeAmount ?? 'N/A' }} {{ $feeCurrency ?? '' }}
+                    <div class="px-3 py-2 flex items-start justify-between gap-4">
+                        <div class="text-xs text-gray-500">Landed Cost</div>
+                        <div class="text-right">
+                            <div class="text-sm font-semibold text-gray-900">
+                                {{ $landedAmount !== null ? number_format((float) $landedAmount, 2) : 'N/A' }} {{ $landedCurrency ?? '' }}
+                            </div>
+                            <div class="text-xs text-gray-600">
+                                {{ $landedGbpAmount !== null ? '£' . number_format((float) $landedGbpAmount, 2) : 'N/A' }}
+                            </div>
+                        </div>
                     </div>
-                    @if($feeSource === 'estimated_product_fees')
-                        <div class="text-xs text-gray-500">(estimated fallback)</div>
-                    @elseif($feeSource === 'finance_lines_fallback')
-                        <div class="text-xs text-gray-500">(fee lines fallback)</div>
-                    @endif
-                </div>
-                <div class="mt-2 flex items-baseline gap-2">
-                    <div class="text-xs text-gray-500">Landed Cost</div>
-                    <div class="text-sm font-semibold">
-                        {{ $landedAmount !== null ? number_format((float) $landedAmount, 2) : 'N/A' }} {{ $landedCurrency ?? '' }}
+                    <div class="px-3 py-2 flex items-start justify-between gap-4">
+                        <div class="text-xs text-gray-500">Margin</div>
+                        <div class="text-right">
+                            <div class="text-sm font-semibold text-gray-900">
+                                @if($isNetEstimated)* @endif
+                                {{ $marginAmount !== null ? number_format((float) $marginAmount, 2) : 'N/A' }} {{ $marginCurrency ?? '' }}
+                            </div>
+                            <div class="text-xs text-gray-600">
+                                @if($isNetEstimated)* @endif
+                                {{ $marginGbpAmount !== null ? '£' . number_format((float) $marginGbpAmount, 2) : 'N/A' }}
+                            </div>
+                            @if($marginAmount === null)
+                                <div class="text-xs text-gray-500 mt-1">requires net, fee, landed in same currency</div>
+                            @endif
+                        </div>
                     </div>
-                </div>
-                <div class="mt-2 flex items-baseline gap-2">
-                    <div class="text-xs text-gray-500">Margin</div>
-                    <div class="text-sm font-semibold">
-                        @if($isNetEstimated)* @endif
-                        {{ $marginAmount !== null ? number_format((float) $marginAmount, 2) : 'N/A' }} {{ $marginCurrency ?? '' }}
-                    </div>
-                    <div class="text-sm text-gray-600">
-                        | @if($isNetEstimated)* @endif {{ $marginGbpAmount !== null ? '£' . number_format((float) $marginGbpAmount, 2) : 'N/A' }}
-                    </div>
-                    @if($marginAmount === null)
-                        <div class="text-xs text-gray-500">(requires net, fee, landed in same currency)</div>
-                    @endif
                 </div>
             </div>
 
