@@ -67,7 +67,7 @@
                         <th class="text-right">Received</th>
                         <th class="text-right">Delta</th>
                         <th class="text-left">Split</th>
-                        <th class="text-left">Severity</th>
+                        <th class="text-left">Shipment Status</th>
                         <th class="text-left">Deadline</th>
                         <th class="text-right">Value</th>
                         <th class="text-left">Claim Cases</th>
@@ -76,6 +76,11 @@
                     <tbody>
                     @forelse($rows as $row)
                         <tr>
+                            @php
+                                $destinationFc = data_get($row->shipment?->api_shipment_payload, 'destination_fulfillment_center_id')
+                                    ?? ($row->destination_fulfillment_center_id ?? null);
+                                $shipmentStatus = data_get($row->shipment?->api_shipment_payload, 'shipment_status');
+                            @endphp
                             <td>
                                 <a href="{{ route('inbound.discrepancies.show', $row->id) }}" class="text-blue-700 underline">
                                     #{{ $row->id }}
@@ -83,7 +88,7 @@
                             </td>
                             <td>{{ $row->shipment_id }}</td>
                             <td>{{ $row->shipment?->ship_from_country_code ?? 'n/a' }}</td>
-                            <td>{{ $row->destination_fulfillment_center_id ?? 'n/a' }}</td>
+                            <td>{{ $destinationFc ?: 'n/a' }}</td>
                             <td>
                                 <div>{{ $row->sku ?: 'n/a' }}</div>
                                 <div class="text-xs text-gray-500">{{ $row->fnsku ?: 'n/a' }}</div>
@@ -92,7 +97,7 @@
                             <td class="text-right">{{ number_format((int) $row->received_units) }}</td>
                             <td class="text-right">{{ number_format((int) $row->delta) }}</td>
                             <td>{{ $row->split_carton ? 'Yes' : 'No' }}</td>
-                            <td>{{ $row->severity ?: 'n/a' }}</td>
+                            <td>{{ $shipmentStatus ?: 'n/a' }}</td>
                             <td>{{ optional($row->challenge_deadline_at)->format('Y-m-d H:i') ?? 'n/a' }}</td>
                             <td class="text-right">{{ number_format((float) $row->value_impact, 2) }}</td>
                             <td>{{ (int) $row->claim_cases_count }}</td>
