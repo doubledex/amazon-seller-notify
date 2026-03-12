@@ -171,10 +171,9 @@
                         </details>
                         <details class="mt-3">
                             <summary class="cursor-pointer text-sm font-semibold text-sky-900">Raw JSON</summary>
-                            <div class="mt-2 flex items-center justify-end">
-                                <button type="button" class="dev-json-copy-btn inline-flex items-center px-2 py-1 rounded border border-sky-300 bg-white text-sky-900 text-xs" data-copy-target="dev-raw-json-2026">Copy</button>
-                            </div>
-                            <pre id="dev-raw-json-2026" class="text-xs mt-2 bg-white p-3 rounded overflow-x-auto">{{ json_encode($devApi2026, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                            <div id="dev-json-tree-2026-raw" class="dev-json-tree"></div>
+                            <div id="dev-json-copy-status-2026-raw" class="dev-json-copy-status"></div>
+                            <script type="application/json" id="dev-json-tree-2026-raw-data">@json($devApi2026, JSON_UNESCAPED_SLASHES)</script>
                         </details>
                     @else
                         <div class="mt-3 text-sm text-sky-800">No stored 2026 snapshot yet.</div>
@@ -204,10 +203,9 @@
                         </details>
                         <details class="mt-3">
                             <summary class="cursor-pointer text-sm font-semibold text-amber-900">Raw JSON</summary>
-                            <div class="mt-2 flex items-center justify-end">
-                                <button type="button" class="dev-json-copy-btn inline-flex items-center px-2 py-1 rounded border border-amber-300 bg-white text-amber-900 text-xs" data-copy-target="dev-raw-json-v0">Copy</button>
-                            </div>
-                            <pre id="dev-raw-json-v0" class="text-xs mt-2 bg-white p-3 rounded overflow-x-auto">{{ json_encode($devApiV0, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                            <div id="dev-json-tree-v0-raw" class="dev-json-tree"></div>
+                            <div id="dev-json-copy-status-v0-raw" class="dev-json-copy-status"></div>
+                            <script type="application/json" id="dev-json-tree-v0-raw-data">@json($devApiV0, JSON_UNESCAPED_SLASHES)</script>
                         </details>
                     @else
                         <div class="mt-3 text-sm text-amber-800">No stored v0 snapshot yet.</div>
@@ -356,31 +354,15 @@
                     }
 
                     mountTree('dev-json-tree-2026', 'dev-json-tree-2026-data', 'dev-json-copy-status-2026');
+                    mountTree('dev-json-tree-2026-raw', 'dev-json-tree-2026-raw-data', 'dev-json-copy-status-2026-raw');
                     mountTree('dev-json-tree-v0', 'dev-json-tree-v0-data', 'dev-json-copy-status-v0');
-
-                    document.querySelectorAll('.dev-json-copy-btn').forEach(function (button) {
-                        button.addEventListener('click', async function () {
-                            const targetId = button.getAttribute('data-copy-target');
-                            const target = targetId ? document.getElementById(targetId) : null;
-                            if (!target) {
-                                return;
-                            }
-                            const text = target.textContent || '';
-                            try {
-                                await navigator.clipboard.writeText(text);
-                                const original = button.textContent;
-                                button.textContent = 'Copied';
-                                setTimeout(function () {
-                                    button.textContent = original;
-                                }, 1200);
-                            } catch (e) {
-                                button.textContent = 'Copy failed';
-                                setTimeout(function () {
-                                    button.textContent = 'Copy';
-                                }, 1200);
-                            }
-                        });
-                    });
+                    mountTree('dev-json-tree-v0-raw', 'dev-json-tree-v0-raw-data', 'dev-json-copy-status-v0-raw');
+                    mountTree('dev-json-tree-financial-summary', 'dev-json-tree-financial-summary-data', 'dev-json-copy-status-financial-summary');
+                    mountTree('dev-json-tree-raw-amazon-fees', 'dev-json-tree-raw-amazon-fees-data', 'dev-json-copy-status-raw-amazon-fees');
+                    mountTree('dev-json-tree-estimated-fees', 'dev-json-tree-estimated-fees-data', 'dev-json-copy-status-estimated-fees');
+                    mountTree('dev-json-tree-raw-order', 'dev-json-tree-raw-order-data', 'dev-json-copy-status-raw-order');
+                    mountTree('dev-json-tree-stored-raw-order', 'dev-json-tree-stored-raw-order-data', 'dev-json-copy-status-stored-raw-order');
+                    mountTree('dev-json-tree-raw-items', 'dev-json-tree-raw-items-data', 'dev-json-copy-status-raw-items');
                 })();
             </script>
 
@@ -692,7 +674,9 @@
                     <div class="text-xs text-gray-500 mt-2">Amazon notes financial events can lag up to 48 hours.</div>
                     <details class="mt-3">
                         <summary class="cursor-pointer text-sm font-semibold">Raw Financial Events JSON (Debug)</summary>
-                        <pre class="text-xs mt-3 bg-gray-50 p-3 rounded overflow-x-auto">{{ json_encode($financialSummary, JSON_PRETTY_PRINT) }}</pre>
+                        <div id="dev-json-tree-financial-summary" class="dev-json-tree"></div>
+                        <div id="dev-json-copy-status-financial-summary" class="dev-json-copy-status"></div>
+                        <script type="application/json" id="dev-json-tree-financial-summary-data">@json($financialSummary, JSON_UNESCAPED_SLASHES)</script>
                     </details>
                 @endif
             </div>
@@ -753,7 +737,9 @@
                                 ->values()
                                 ->all();
                         @endphp
-                        <pre class="text-xs mt-3 bg-gray-50 p-3 rounded overflow-x-auto">{{ json_encode($rawAmazonFeePayloads, JSON_PRETTY_PRINT) }}</pre>
+                        <div id="dev-json-tree-raw-amazon-fees" class="dev-json-tree"></div>
+                        <div id="dev-json-copy-status-raw-amazon-fees" class="dev-json-copy-status"></div>
+                        <script type="application/json" id="dev-json-tree-raw-amazon-fees-data">@json($rawAmazonFeePayloads, JSON_UNESCAPED_SLASHES)</script>
                     </details>
                 @else
                     <div class="text-sm text-gray-600">No fee line items synced yet for this order.</div>
@@ -813,7 +799,9 @@
                             ->values()
                             ->all();
                     @endphp
-                    <pre class="text-xs mt-3 bg-gray-50 p-3 rounded overflow-x-auto">{{ json_encode($estimatedRawPayloads, JSON_PRETTY_PRINT) }}</pre>
+                    <div id="dev-json-tree-estimated-fees" class="dev-json-tree"></div>
+                    <div id="dev-json-copy-status-estimated-fees" class="dev-json-copy-status"></div>
+                    <script type="application/json" id="dev-json-tree-estimated-fees-data">@json($estimatedRawPayloads, JSON_UNESCAPED_SLASHES)</script>
                 </details>
             </div>
 
@@ -920,7 +908,9 @@
                 <div class="p-4 rounded-lg border border-gray-200 bg-white shadow-sm">
                     <details>
                         <summary class="cursor-pointer text-sm font-semibold">Raw Order JSON (Debug)</summary>
-                        <pre class="text-xs mt-3 bg-gray-50 p-3 rounded overflow-x-auto">{{ json_encode($order, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                        <div id="dev-json-tree-raw-order" class="dev-json-tree"></div>
+                        <div id="dev-json-copy-status-raw-order" class="dev-json-copy-status"></div>
+                        <script type="application/json" id="dev-json-tree-raw-order-data">@json($order, JSON_UNESCAPED_SLASHES)</script>
                     </details>
                 </div>
                 <div class="p-4 rounded-lg border border-gray-200 bg-white shadow-sm">
@@ -935,13 +925,17 @@
                                 $storedRawOrder = [];
                             }
                         @endphp
-                        <pre class="text-xs mt-3 bg-gray-50 p-3 rounded overflow-x-auto">{{ json_encode($storedRawOrder, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                        <div id="dev-json-tree-stored-raw-order" class="dev-json-tree"></div>
+                        <div id="dev-json-copy-status-stored-raw-order" class="dev-json-copy-status"></div>
+                        <script type="application/json" id="dev-json-tree-stored-raw-order-data">@json($storedRawOrder, JSON_UNESCAPED_SLASHES)</script>
                     </details>
                 </div>
                 <div class="p-4 rounded-lg border border-gray-200 bg-white shadow-sm lg:col-span-2">
                     <details>
                         <summary class="cursor-pointer text-sm font-semibold">Raw Items JSON</summary>
-                        <pre class="text-xs mt-3 bg-gray-50 p-3 rounded overflow-x-auto">{{ json_encode($items, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                        <div id="dev-json-tree-raw-items" class="dev-json-tree"></div>
+                        <div id="dev-json-copy-status-raw-items" class="dev-json-copy-status"></div>
+                        <script type="application/json" id="dev-json-tree-raw-items-data">@json($items, JSON_UNESCAPED_SLASHES)</script>
                     </details>
                 </div>
             </div>
