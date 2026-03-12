@@ -60,7 +60,7 @@
                     <tr>
                         <th class="text-left">ID</th>
                         <th class="text-left">Shipment</th>
-                        <th class="text-left">Ship-From Country</th>
+                        <th class="text-left">Ship-From</th>
                         <th class="text-left">Destination FC</th>
                         <th class="text-left">SKU/FNSKU</th>
                         <th class="text-right">Expected</th>
@@ -77,6 +77,11 @@
                     @forelse($rows as $row)
                         <tr>
                             @php
+                                $shipFromCity = data_get($row->shipment?->api_shipment_payload, 'ship_from_address.city');
+                                $shipFromCountry = data_get($row->shipment?->api_shipment_payload, 'ship_from_address.country_code');
+                                $shipFromLabel = collect([$shipFromCity, $shipFromCountry])
+                                    ->filter(fn ($value) => trim((string) $value) !== '')
+                                    ->implode(', ');
                                 $destinationFc = data_get($row->shipment?->api_shipment_payload, 'destination_fulfillment_center_id')
                                     ?? ($row->destination_fulfillment_center_id ?? null);
                                 $shipmentStatus = data_get($row->shipment?->api_shipment_payload, 'shipment_status');
@@ -87,7 +92,7 @@
                                 </a>
                             </td>
                             <td>{{ $row->shipment_id }}</td>
-                            <td>{{ $row->shipment?->ship_from_country_code ?? 'n/a' }}</td>
+                            <td>{{ $shipFromLabel !== '' ? $shipFromLabel : 'n/a' }}</td>
                             <td>{{ $destinationFc ?: 'n/a' }}</td>
                             <td>
                                 <div>{{ $row->sku ?: 'n/a' }}</div>
