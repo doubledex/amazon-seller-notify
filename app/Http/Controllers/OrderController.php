@@ -632,7 +632,11 @@ class OrderController extends Controller
                             if (!$itemId) {
                                 continue;
                             }
-                            $lineNet = $this->orderNetValueService->valuesFromApiItem($item, $marketplaceCountryCode);
+                            $lineNet = $this->orderNetValueService->valuesFromApiItem(
+                                $item,
+                                $marketplaceCountryCode,
+                                (string) ($order['OrderStatus'] ?? $orderRecord?->order_status ?? '')
+                            );
                             $orderedQty = isset($item['QuantityOrdered']) ? (int) $item['QuantityOrdered'] : null;
                             $shippedQty = isset($item['QuantityShipped']) ? (int) $item['QuantityShipped'] : null;
                             $unshippedQty = null;
@@ -653,8 +657,10 @@ class OrderController extends Controller
                                     'quantity_unshipped' => $unshippedQty,
                                     'item_price_amount' => $item['ItemPrice']['Amount'] ?? null,
                                     'line_net_ex_tax' => $lineNet['line_net_ex_tax'],
+                                    'estimated_line_net_ex_tax' => $lineNet['estimated_line_net_ex_tax'] ?? null,
                                     'item_price_currency' => $item['ItemPrice']['CurrencyCode'] ?? null,
                                     'line_net_currency' => $lineNet['line_net_currency'],
+                                    'estimated_line_currency' => $lineNet['estimated_line_currency'] ?? null,
                                     'raw_item' => $item,
                                 ]
                             );

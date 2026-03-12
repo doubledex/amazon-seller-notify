@@ -293,7 +293,7 @@ class OrderSyncService
                                     continue;
                                 }
                                 $marketplaceCountry = strtoupper(trim((string) ($marketplaceCountryMap[$order['MarketplaceId'] ?? ''] ?? '')));
-                                $lineNet = $orderNetValueService->valuesFromApiItem($item, $marketplaceCountry);
+                                $lineNet = $orderNetValueService->valuesFromApiItem($item, $marketplaceCountry, (string) ($order['OrderStatus'] ?? ''));
                                 $orderedQty = isset($item['QuantityOrdered']) ? (int) $item['QuantityOrdered'] : null;
                                 $shippedQty = isset($item['QuantityShipped']) ? (int) $item['QuantityShipped'] : null;
                                 $unshippedQty = null;
@@ -314,8 +314,10 @@ class OrderSyncService
                                         'quantity_unshipped' => $unshippedQty,
                                         'item_price_amount' => $item['ItemPrice']['Amount'] ?? null,
                                         'line_net_ex_tax' => $lineNet['line_net_ex_tax'],
+                                        'estimated_line_net_ex_tax' => $lineNet['estimated_line_net_ex_tax'] ?? null,
                                         'item_price_currency' => $item['ItemPrice']['CurrencyCode'] ?? null,
                                         'line_net_currency' => $lineNet['line_net_currency'],
+                                        'estimated_line_currency' => $lineNet['estimated_line_currency'] ?? null,
                                         'raw_item' => json_encode($item),
                                     ]
                                 );

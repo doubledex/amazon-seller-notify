@@ -29,6 +29,7 @@ class BackfillOrderNetValues extends Command
                         ->whereIn('orders.amazon_order_id', $orderIds)
                         ->select([
                             'orders.amazon_order_id as amazon_order_id',
+                            'orders.order_status as order_status',
                             'marketplaces.country_code as country_code',
                         ])
                         ->get();
@@ -37,7 +38,10 @@ class BackfillOrderNetValues extends Command
                         if ($orderId === '') {
                             continue;
                         }
-                        $orderCountryMap[$orderId] = strtoupper(trim((string) ($row->country_code ?? '')));
+                        $orderCountryMap[$orderId] = [
+                            'country_code' => strtoupper(trim((string) ($row->country_code ?? ''))),
+                            'order_status' => (string) ($row->order_status ?? ''),
+                        ];
                     }
                 }
 
@@ -55,10 +59,14 @@ class BackfillOrderNetValues extends Command
                         $raw = [];
                     }
 
-                    $countryCode = $orderCountryMap[(string) $item->amazon_order_id] ?? null;
-                    $values = $netService->valuesFromApiItem($raw, $countryCode);
+                    $orderMeta = $orderCountryMap[(string) $item->amazon_order_id] ?? [];
+                    $countryCode = is_array($orderMeta) ? ($orderMeta['country_code'] ?? null) : null;
+                    $orderStatus = is_array($orderMeta) ? ($orderMeta['order_status'] ?? null) : null;
+                    $values = $netService->valuesFromApiItem($raw, $countryCode, $orderStatus);
                     $item->line_net_ex_tax = $values['line_net_ex_tax'];
                     $item->line_net_currency = $values['line_net_currency'];
+                    $item->estimated_line_net_ex_tax = $values['estimated_line_net_ex_tax'] ?? null;
+                    $item->estimated_line_currency = $values['estimated_line_currency'] ?? null;
                     $item->save();
 
                     if (!empty($item->amazon_order_id)) {

@@ -313,7 +313,22 @@ class OfficialOrderAdapter implements AmazonOrderApi
     {
         $product = (array) ($item['product'] ?? []);
         $price = (array) ($product['price'] ?? []);
+        $unitPrice = (array) ($price['unitPrice'] ?? []);
         $fulfillment = (array) ($item['fulfillment'] ?? []);
+        $proceeds = (array) ($item['proceeds'] ?? []);
+        $breakdowns = array_values(array_filter(array_map(function ($breakdown) {
+            if (!is_array($breakdown)) {
+                return null;
+            }
+            $subtotal = (array) ($breakdown['subtotal'] ?? []);
+            return [
+                'Type' => $breakdown['type'] ?? null,
+                'Subtotal' => [
+                    'Amount' => $subtotal['amount'] ?? null,
+                    'CurrencyCode' => $subtotal['currencyCode'] ?? null,
+                ],
+            ];
+        }, (array) ($proceeds['breakdowns'] ?? []))));
 
         return [
             'OrderItemId' => $item['orderItemId'] ?? null,
@@ -324,8 +339,11 @@ class OfficialOrderAdapter implements AmazonOrderApi
             'QuantityShipped' => $fulfillment['quantityFulfilled'] ?? null,
             'QuantityUnshipped' => $fulfillment['quantityUnfulfilled'] ?? null,
             'ItemPrice' => [
-                'Amount' => $price['amount'] ?? null,
-                'CurrencyCode' => $price['currencyCode'] ?? null,
+                'Amount' => $unitPrice['amount'] ?? ($price['amount'] ?? null),
+                'CurrencyCode' => $unitPrice['currencyCode'] ?? ($price['currencyCode'] ?? null),
+            ],
+            'Proceeds' => [
+                'Breakdowns' => $breakdowns,
             ],
         ];
     }
