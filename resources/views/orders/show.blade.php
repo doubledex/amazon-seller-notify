@@ -120,6 +120,15 @@
                 }
             @endphp
 
+            <style>
+                .dev-json-tree { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; line-height: 1.5; }
+                .dev-json-key { color: #0f766e; }
+                .dev-json-string { color: #166534; }
+                .dev-json-number { color: #1d4ed8; }
+                .dev-json-boolean { color: #7c3aed; }
+                .dev-json-null { color: #dc2626; }
+            </style>
+
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                 <details class="p-4 rounded-lg border border-sky-200 bg-sky-50 shadow-sm">
                     <summary class="cursor-pointer text-sm font-semibold text-sky-900">Dev API Snapshot: Orders 2026-01-01</summary>
@@ -138,23 +147,15 @@
                         </div>
                         <details class="mt-3">
                             <summary class="cursor-pointer text-sm font-semibold text-sky-900">Formatted View</summary>
-                            <div class="mt-2 overflow-x-auto">
-                                <table class="w-full border-collapse text-xs" border="1" cellpadding="6" cellspacing="0">
-                                    <tbody>
-                                        <tr><th class="bg-sky-100 text-left">API Version</th><td>{{ $devApi2026['api_version'] ?? 'N/A' }}</td></tr>
-                                        <tr><th class="bg-sky-100 text-left">Order ID</th><td>{{ $devApi2026['order_id'] ?? 'N/A' }}</td></tr>
-                                        <tr><th class="bg-sky-100 text-left">Region</th><td>{{ $devApi2026['region'] ?? 'N/A' }}</td></tr>
-                                        <tr><th class="bg-sky-100 text-left">Included Data</th><td>{{ implode(', ', (array) data_get($devApi2026, 'request.included_data', [])) }}</td></tr>
-                                        <tr><th class="bg-sky-100 text-left">Error</th><td>{{ data_get($devApi2026, 'error.message', 'None') }}</td></tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div class="mt-2 text-xs text-sky-900">Body preview:</div>
-                            <pre class="text-xs mt-1 bg-white p-3 rounded overflow-x-auto">{{ json_encode(data_get($devApi2026, 'response.body', []), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                            <div id="dev-json-tree-2026" class="dev-json-tree mt-2 bg-white p-3 rounded overflow-x-auto"></div>
+                            <script type="application/json" id="dev-json-tree-2026-data">@json($devApi2026, JSON_UNESCAPED_SLASHES)</script>
                         </details>
                         <details class="mt-3">
                             <summary class="cursor-pointer text-sm font-semibold text-sky-900">Raw JSON</summary>
-                            <pre class="text-xs mt-2 bg-white p-3 rounded overflow-x-auto">{{ json_encode($devApi2026, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                            <div class="mt-2 flex items-center justify-end">
+                                <button type="button" class="dev-json-copy-btn inline-flex items-center px-2 py-1 rounded border border-sky-300 bg-white text-sky-900 text-xs" data-copy-target="dev-raw-json-2026">Copy</button>
+                            </div>
+                            <pre id="dev-raw-json-2026" class="text-xs mt-2 bg-white p-3 rounded overflow-x-auto">{{ json_encode($devApi2026, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
                         </details>
                     @else
                         <div class="mt-3 text-sm text-sky-800">No stored 2026 snapshot yet.</div>
@@ -178,29 +179,144 @@
                         </div>
                         <details class="mt-3">
                             <summary class="cursor-pointer text-sm font-semibold text-amber-900">Formatted View</summary>
-                            <div class="mt-2 overflow-x-auto">
-                                <table class="w-full border-collapse text-xs" border="1" cellpadding="6" cellspacing="0">
-                                    <tbody>
-                                        <tr><th class="bg-amber-100 text-left">API Version</th><td>{{ $devApiV0['api_version'] ?? 'N/A' }}</td></tr>
-                                        <tr><th class="bg-amber-100 text-left">Order ID</th><td>{{ $devApiV0['order_id'] ?? 'N/A' }}</td></tr>
-                                        <tr><th class="bg-amber-100 text-left">Region</th><td>{{ $devApiV0['region'] ?? 'N/A' }}</td></tr>
-                                        <tr><th class="bg-amber-100 text-left">Included Data</th><td>{{ implode(', ', (array) data_get($devApiV0, 'request.included_data', [])) }}</td></tr>
-                                        <tr><th class="bg-amber-100 text-left">Error</th><td>{{ data_get($devApiV0, 'error.message', 'None') }}</td></tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div class="mt-2 text-xs text-amber-900">Body preview:</div>
-                            <pre class="text-xs mt-1 bg-white p-3 rounded overflow-x-auto">{{ json_encode(data_get($devApiV0, 'response.body', []), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                            <div id="dev-json-tree-v0" class="dev-json-tree mt-2 bg-white p-3 rounded overflow-x-auto"></div>
+                            <script type="application/json" id="dev-json-tree-v0-data">@json($devApiV0, JSON_UNESCAPED_SLASHES)</script>
                         </details>
                         <details class="mt-3">
                             <summary class="cursor-pointer text-sm font-semibold text-amber-900">Raw JSON</summary>
-                            <pre class="text-xs mt-2 bg-white p-3 rounded overflow-x-auto">{{ json_encode($devApiV0, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                            <div class="mt-2 flex items-center justify-end">
+                                <button type="button" class="dev-json-copy-btn inline-flex items-center px-2 py-1 rounded border border-amber-300 bg-white text-amber-900 text-xs" data-copy-target="dev-raw-json-v0">Copy</button>
+                            </div>
+                            <pre id="dev-raw-json-v0" class="text-xs mt-2 bg-white p-3 rounded overflow-x-auto">{{ json_encode($devApiV0, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
                         </details>
                     @else
                         <div class="mt-3 text-sm text-amber-800">No stored v0 snapshot yet.</div>
                     @endif
                 </details>
             </div>
+
+            <script>
+                (function () {
+                    function createValueNode(value) {
+                        const span = document.createElement('span');
+                        if (value === null) {
+                            span.className = 'dev-json-null';
+                            span.textContent = 'null';
+                            return span;
+                        }
+                        if (typeof value === 'string') {
+                            span.className = 'dev-json-string';
+                            span.textContent = `"${value}"`;
+                            return span;
+                        }
+                        if (typeof value === 'number') {
+                            span.className = 'dev-json-number';
+                            span.textContent = String(value);
+                            return span;
+                        }
+                        if (typeof value === 'boolean') {
+                            span.className = 'dev-json-boolean';
+                            span.textContent = value ? 'true' : 'false';
+                            return span;
+                        }
+                        span.textContent = String(value);
+                        return span;
+                    }
+
+                    function renderTree(value, key) {
+                        const wrapper = document.createElement('div');
+                        if (Array.isArray(value)) {
+                            const details = document.createElement('details');
+                            details.open = key === undefined;
+                            const summary = document.createElement('summary');
+                            summary.className = 'cursor-pointer';
+                            summary.innerHTML = `${key !== undefined ? `<span class="dev-json-key">"${key}"</span>: ` : ''}[${value.length}]`;
+                            details.appendChild(summary);
+
+                            value.forEach(function (item, idx) {
+                                const row = document.createElement('div');
+                                row.className = 'pl-5';
+                                row.appendChild(renderTree(item, idx));
+                                details.appendChild(row);
+                            });
+                            wrapper.appendChild(details);
+                            return wrapper;
+                        }
+                        if (value && typeof value === 'object') {
+                            const keys = Object.keys(value);
+                            const details = document.createElement('details');
+                            details.open = key === undefined;
+                            const summary = document.createElement('summary');
+                            summary.className = 'cursor-pointer';
+                            summary.innerHTML = `${key !== undefined ? `<span class="dev-json-key">"${key}"</span>: ` : ''}{${keys.length}}`;
+                            details.appendChild(summary);
+
+                            keys.forEach(function (childKey) {
+                                const row = document.createElement('div');
+                                row.className = 'pl-5';
+                                row.appendChild(renderTree(value[childKey], childKey));
+                                details.appendChild(row);
+                            });
+                            wrapper.appendChild(details);
+                            return wrapper;
+                        }
+
+                        const line = document.createElement('div');
+                        if (key !== undefined) {
+                            const keySpan = document.createElement('span');
+                            keySpan.className = 'dev-json-key';
+                            keySpan.textContent = `"${key}"`;
+                            line.appendChild(keySpan);
+                            line.appendChild(document.createTextNode(': '));
+                        }
+                        line.appendChild(createValueNode(value));
+                        wrapper.appendChild(line);
+                        return wrapper;
+                    }
+
+                    function mountTree(treeContainerId, dataScriptId) {
+                        const container = document.getElementById(treeContainerId);
+                        const dataScript = document.getElementById(dataScriptId);
+                        if (!container || !dataScript) {
+                            return;
+                        }
+                        try {
+                            const payload = JSON.parse(dataScript.textContent || 'null');
+                            container.innerHTML = '';
+                            container.appendChild(renderTree(payload));
+                        } catch (e) {
+                            container.textContent = 'Failed to parse JSON payload.';
+                        }
+                    }
+
+                    mountTree('dev-json-tree-2026', 'dev-json-tree-2026-data');
+                    mountTree('dev-json-tree-v0', 'dev-json-tree-v0-data');
+
+                    document.querySelectorAll('.dev-json-copy-btn').forEach(function (button) {
+                        button.addEventListener('click', async function () {
+                            const targetId = button.getAttribute('data-copy-target');
+                            const target = targetId ? document.getElementById(targetId) : null;
+                            if (!target) {
+                                return;
+                            }
+                            const text = target.textContent || '';
+                            try {
+                                await navigator.clipboard.writeText(text);
+                                const original = button.textContent;
+                                button.textContent = 'Copied';
+                                setTimeout(function () {
+                                    button.textContent = original;
+                                }, 1200);
+                            } catch (e) {
+                                button.textContent = 'Copy failed';
+                                setTimeout(function () {
+                                    button.textContent = 'Copy';
+                                }, 1200);
+                            }
+                        });
+                    });
+                })();
+            </script>
 
             <div class="mb-6 p-4 rounded-lg border border-gray-200 bg-white shadow-sm">
                 <div class="flex flex-wrap items-center gap-3 mb-3">
