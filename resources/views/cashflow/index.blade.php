@@ -299,7 +299,7 @@
 
                 try {
                     const previousRunAtMs = await fetchLatestOutstandingRunAtMs().catch(() => null);
-                    setSyncStatus('Queueing cashflow sync...');
+                    setSyncStatus('Running cashflow sync...');
 
                     const response = await fetch(syncNowUrl, {
                         method: 'POST',
@@ -311,15 +311,22 @@
                     const json = await response.json().catch(() => null);
 
                     if (!response.ok) {
-                        const message = json && json.error ? json.error : `Failed to queue sync (HTTP ${response.status}).`;
+                        const message = json && json.error ? json.error : `Failed to run sync (HTTP ${response.status}).`;
                         setSyncStatus(message, true);
                         return;
                     }
 
-                    setSyncStatus('Queued. Waiting for new snapshot...');
+                    if ((json && json.status) === 'completed') {
+                        setSyncStatus((json && json.message) ? json.message : 'Sync complete. Data refreshed.');
+                        await load();
+                        setSyncButtonBusy(false);
+                        return;
+                    }
+
+                    setSyncStatus('Sync accepted. Waiting for new snapshot...');
                     startSyncPolling(previousRunAtMs);
                 } catch (error) {
-                    setSyncStatus('Failed to queue cashflow sync.', true);
+                    setSyncStatus('Failed to run cashflow sync.', true);
                     setSyncButtonBusy(false);
                 }
             });

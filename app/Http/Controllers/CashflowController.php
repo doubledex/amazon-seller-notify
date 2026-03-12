@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 
 class CashflowController extends Controller
@@ -84,18 +85,29 @@ class CashflowController extends Controller
     public function syncNow(): JsonResponse
     {
         try {
-            Artisan::queue('cashflow:sync-outstanding');
+            $exitCode = Artisan::call('cashflow:sync-outstanding');
+
+            if ($exitCode !== 0) {
+                Log::error('cashflow sync command failed', [
+                    'command' => 'cashflow:sync-outstanding',
+                    'exit_code' => $exitCode,
+                ]);
+
+                return response()->json([
+                    'error' => 'Cashflow sync failed.',
+                ], 500);
+            }
 
             return response()->json([
-                'status' => 'queued',
-                'message' => 'Cashflow outstanding sync queued.',
-                'queued_at_utc' => now()->utc()->toIso8601String(),
-            ], 202);
+                'status' => 'completed',
+                'message' => 'Cashflow outstanding sync completed.',
+                'completed_at_utc' => now()->utc()->toIso8601String(),
+            ]);
         } catch (\Throwable $e) {
             report($e);
 
             return response()->json([
-                'error' => 'Failed to queue cashflow sync.',
+                'error' => 'Failed to run cashflow sync.',
             ], 500);
         }
     }
