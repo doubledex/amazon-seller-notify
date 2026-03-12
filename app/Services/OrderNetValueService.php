@@ -12,27 +12,21 @@ class OrderNetValueService
         $isFullyShipped = strtoupper(trim((string) $orderStatus)) === 'SHIPPED';
         $proceedsItemSubtotalAmount = $this->proceedsItemSubtotalAmount($item);
         $proceedsItemSubtotalCurrency = $this->proceedsItemSubtotalCurrency($item);
-        if ($isFullyShipped && $proceedsItemSubtotalAmount !== null) {
-            return [
-                'line_net_ex_tax' => round(max(0.0, $proceedsItemSubtotalAmount), 2),
-                'line_net_currency' => $proceedsItemSubtotalCurrency ?: $this->currency($item),
-                'estimated_line_net_ex_tax' => null,
-                'estimated_line_currency' => null,
-            ];
-        }
-
-        $unitPriceAmount = $this->unitPriceAmount($item);
-        $unitPriceCurrency = $this->unitPriceCurrency($item);
-        if ($unitPriceAmount !== null) {
-            $quantityOrdered = $this->intValue($item['QuantityOrdered'] ?? null);
-            $quantity = max(1, $quantityOrdered ?? 1);
-            $estimatedLine = $unitPriceAmount * $quantity;
-
+        if ($proceedsItemSubtotalAmount !== null) {
+            $currency = $proceedsItemSubtotalCurrency ?: $this->currency($item);
+            if ($isFullyShipped) {
+                return [
+                    'line_net_ex_tax' => round(max(0.0, $proceedsItemSubtotalAmount), 2),
+                    'line_net_currency' => $currency,
+                    'estimated_line_net_ex_tax' => null,
+                    'estimated_line_currency' => null,
+                ];
+            }
             return [
                 'line_net_ex_tax' => null,
                 'line_net_currency' => null,
-                'estimated_line_net_ex_tax' => round(max(0.0, $estimatedLine), 2),
-                'estimated_line_currency' => $unitPriceCurrency ?: $this->currency($item),
+                'estimated_line_net_ex_tax' => round(max(0.0, $proceedsItemSubtotalAmount), 2),
+                'estimated_line_currency' => $currency,
             ];
         }
 
@@ -173,7 +167,7 @@ class OrderNetValueService
                 }
             }
             if ($sum > 0) {
-                $source = 'estimated_unit_price';
+                $source = 'estimated_proceeds_item_subtotal';
             }
         }
 
@@ -202,28 +196,6 @@ class OrderNetValueService
                 'order_net_ex_tax_currency' => $chosenCurrency,
                 'order_net_ex_tax_source' => $source,
             ]);
-    }
-
-    private function unitPriceAmount(array $item): ?float
-    {
-        $raw = $item['product']['price']['unitPrice']['amount']
-            ?? $item['Product']['Price']['UnitPrice']['Amount']
-            ?? null;
-        if ($raw === null || $raw === '') {
-            return null;
-        }
-
-        return (float) $raw;
-    }
-
-    private function unitPriceCurrency(array $item): ?string
-    {
-        $currency = $item['product']['price']['unitPrice']['currencyCode']
-            ?? $item['Product']['Price']['UnitPrice']['CurrencyCode']
-            ?? null;
-        $currency = strtoupper(trim((string) $currency));
-
-        return $currency !== '' ? $currency : null;
     }
 
     private function proceedsItemSubtotalAmount(array $item): ?float
@@ -282,18 +254,6 @@ class OrderNetValueService
         }
 
         return null;
-    }
-
-    private function intValue(mixed $value): ?int
-    {
-        if ($value === null || $value === '') {
-            return null;
-        }
-        if (!is_numeric($value)) {
-            return null;
-        }
-
-        return (int) $value;
     }
 
     private function amount(array $item, string $key): ?float

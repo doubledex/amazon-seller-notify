@@ -332,46 +332,28 @@ class OfficialOrderAdapter implements AmazonOrderApi
                 continue;
             }
 
-            if ($isFullyShipped) {
-                $breakdowns = (array) (($item['proceeds'] ?? [])['breakdowns'] ?? []);
-                foreach ($breakdowns as $breakdown) {
-                    if (!is_array($breakdown)) {
-                        continue;
-                    }
-                    $type = strtoupper(trim((string) ($breakdown['type'] ?? '')));
-                    if ($type !== 'ITEM') {
-                        continue;
-                    }
-                    $amount = $breakdown['subtotal']['amount'] ?? null;
-                    if ($amount === null || $amount === '' || !is_numeric($amount)) {
-                        continue;
-                    }
-                    $sum += (float) $amount;
-                    $hasAtLeastOne = true;
-                    if ($currency === null) {
-                        $candidate = strtoupper(trim((string) ($breakdown['subtotal']['currencyCode'] ?? '')));
-                        if ($candidate !== '') {
-                            $currency = $candidate;
-                        }
-                    }
-                    break;
+            $breakdowns = (array) (($item['proceeds'] ?? [])['breakdowns'] ?? []);
+            foreach ($breakdowns as $breakdown) {
+                if (!is_array($breakdown)) {
+                    continue;
                 }
-                continue;
-            }
-
-            $unitPriceAmount = $item['product']['price']['unitPrice']['amount'] ?? null;
-            if ($unitPriceAmount === null || $unitPriceAmount === '' || !is_numeric($unitPriceAmount)) {
-                continue;
-            }
-            $qtyOrdered = $item['quantityOrdered'] ?? null;
-            $qty = is_numeric($qtyOrdered) ? max(1, (int) $qtyOrdered) : 1;
-            $sum += ((float) $unitPriceAmount) * $qty;
-            $hasAtLeastOne = true;
-            if ($currency === null) {
-                $candidate = strtoupper(trim((string) ($item['product']['price']['unitPrice']['currencyCode'] ?? '')));
-                if ($candidate !== '') {
-                    $currency = $candidate;
+                $type = strtoupper(trim((string) ($breakdown['type'] ?? '')));
+                if ($type !== 'ITEM') {
+                    continue;
                 }
+                $amount = $breakdown['subtotal']['amount'] ?? null;
+                if ($amount === null || $amount === '' || !is_numeric($amount)) {
+                    continue;
+                }
+                $sum += (float) $amount;
+                $hasAtLeastOne = true;
+                if ($currency === null) {
+                    $candidate = strtoupper(trim((string) ($breakdown['subtotal']['currencyCode'] ?? '')));
+                    if ($candidate !== '') {
+                        $currency = $candidate;
+                    }
+                }
+                break;
             }
         }
 
@@ -382,7 +364,7 @@ class OfficialOrderAdapter implements AmazonOrderApi
         return [
             'amount' => round($sum, 2),
             'currency' => $currency,
-            'source' => $isFullyShipped ? 'proceeds_item_subtotal' : 'estimated_unit_price',
+            'source' => $isFullyShipped ? 'proceeds_item_subtotal' : 'estimated_proceeds_item_subtotal',
         ];
     }
 
