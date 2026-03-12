@@ -167,13 +167,13 @@
                             <summary class="cursor-pointer text-sm font-semibold text-sky-900">Formatted View</summary>
                             <div id="dev-json-tree-2026" class="dev-json-tree"></div>
                             <div id="dev-json-copy-status-2026" class="dev-json-copy-status"></div>
-                            <script type="application/json" id="dev-json-tree-2026-data">@json($devApi2026, JSON_UNESCAPED_SLASHES)</script>
+                            <script type="application/json" id="dev-json-tree-2026-data">@json($devApi2026, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)</script>
                         </details>
                         <details class="mt-3">
                             <summary class="cursor-pointer text-sm font-semibold text-sky-900">Raw JSON</summary>
                             <div id="dev-json-tree-2026-raw" class="dev-json-tree"></div>
                             <div id="dev-json-copy-status-2026-raw" class="dev-json-copy-status"></div>
-                            <script type="application/json" id="dev-json-tree-2026-raw-data">@json($devApi2026, JSON_UNESCAPED_SLASHES)</script>
+                            <script type="application/json" id="dev-json-tree-2026-raw-data">@json($devApi2026, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)</script>
                         </details>
                     @else
                         <div class="mt-3 text-sm text-sky-800">No stored 2026 snapshot yet.</div>
@@ -199,13 +199,13 @@
                             <summary class="cursor-pointer text-sm font-semibold text-amber-900">Formatted View</summary>
                             <div id="dev-json-tree-v0" class="dev-json-tree"></div>
                             <div id="dev-json-copy-status-v0" class="dev-json-copy-status"></div>
-                            <script type="application/json" id="dev-json-tree-v0-data">@json($devApiV0, JSON_UNESCAPED_SLASHES)</script>
+                            <script type="application/json" id="dev-json-tree-v0-data">@json($devApiV0, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)</script>
                         </details>
                         <details class="mt-3">
                             <summary class="cursor-pointer text-sm font-semibold text-amber-900">Raw JSON</summary>
                             <div id="dev-json-tree-v0-raw" class="dev-json-tree"></div>
                             <div id="dev-json-copy-status-v0-raw" class="dev-json-copy-status"></div>
-                            <script type="application/json" id="dev-json-tree-v0-raw-data">@json($devApiV0, JSON_UNESCAPED_SLASHES)</script>
+                            <script type="application/json" id="dev-json-tree-v0-raw-data">@json($devApiV0, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)</script>
                         </details>
                     @else
                         <div class="mt-3 text-sm text-amber-800">No stored v0 snapshot yet.</div>
@@ -353,16 +353,24 @@
                         }
                     }
 
-                    mountTree('dev-json-tree-2026', 'dev-json-tree-2026-data', 'dev-json-copy-status-2026');
-                    mountTree('dev-json-tree-2026-raw', 'dev-json-tree-2026-raw-data', 'dev-json-copy-status-2026-raw');
-                    mountTree('dev-json-tree-v0', 'dev-json-tree-v0-data', 'dev-json-copy-status-v0');
-                    mountTree('dev-json-tree-v0-raw', 'dev-json-tree-v0-raw-data', 'dev-json-copy-status-v0-raw');
-                    mountTree('dev-json-tree-financial-summary', 'dev-json-tree-financial-summary-data', 'dev-json-copy-status-financial-summary');
-                    mountTree('dev-json-tree-raw-amazon-fees', 'dev-json-tree-raw-amazon-fees-data', 'dev-json-copy-status-raw-amazon-fees');
-                    mountTree('dev-json-tree-estimated-fees', 'dev-json-tree-estimated-fees-data', 'dev-json-copy-status-estimated-fees');
-                    mountTree('dev-json-tree-raw-order', 'dev-json-tree-raw-order-data', 'dev-json-copy-status-raw-order');
-                    mountTree('dev-json-tree-stored-raw-order', 'dev-json-tree-stored-raw-order-data', 'dev-json-copy-status-stored-raw-order');
-                    mountTree('dev-json-tree-raw-items', 'dev-json-tree-raw-items-data', 'dev-json-copy-status-raw-items');
+                    function initJsonTrees() {
+                        mountTree('dev-json-tree-2026', 'dev-json-tree-2026-data', 'dev-json-copy-status-2026');
+                        mountTree('dev-json-tree-2026-raw', 'dev-json-tree-2026-raw-data', 'dev-json-copy-status-2026-raw');
+                        mountTree('dev-json-tree-v0', 'dev-json-tree-v0-data', 'dev-json-copy-status-v0');
+                        mountTree('dev-json-tree-v0-raw', 'dev-json-tree-v0-raw-data', 'dev-json-copy-status-v0-raw');
+                        mountTree('dev-json-tree-financial-summary', 'dev-json-tree-financial-summary-data', 'dev-json-copy-status-financial-summary');
+                        mountTree('dev-json-tree-raw-amazon-fees', 'dev-json-tree-raw-amazon-fees-data', 'dev-json-copy-status-raw-amazon-fees');
+                        mountTree('dev-json-tree-estimated-fees', 'dev-json-tree-estimated-fees-data', 'dev-json-copy-status-estimated-fees');
+                        mountTree('dev-json-tree-raw-order', 'dev-json-tree-raw-order-data', 'dev-json-copy-status-raw-order');
+                        mountTree('dev-json-tree-stored-raw-order', 'dev-json-tree-stored-raw-order-data', 'dev-json-copy-status-stored-raw-order');
+                        mountTree('dev-json-tree-raw-items', 'dev-json-tree-raw-items-data', 'dev-json-copy-status-raw-items');
+                    }
+
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', initJsonTrees);
+                    } else {
+                        initJsonTrees();
+                    }
                 })();
             </script>
 
@@ -676,7 +684,7 @@
                         <summary class="cursor-pointer text-sm font-semibold">Raw Financial Events JSON (Debug)</summary>
                         <div id="dev-json-tree-financial-summary" class="dev-json-tree"></div>
                         <div id="dev-json-copy-status-financial-summary" class="dev-json-copy-status"></div>
-                        <script type="application/json" id="dev-json-tree-financial-summary-data">@json($financialSummary, JSON_UNESCAPED_SLASHES)</script>
+                        <script type="application/json" id="dev-json-tree-financial-summary-data">@json($financialSummary, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)</script>
                     </details>
                 @endif
             </div>
@@ -739,7 +747,7 @@
                         @endphp
                         <div id="dev-json-tree-raw-amazon-fees" class="dev-json-tree"></div>
                         <div id="dev-json-copy-status-raw-amazon-fees" class="dev-json-copy-status"></div>
-                        <script type="application/json" id="dev-json-tree-raw-amazon-fees-data">@json($rawAmazonFeePayloads, JSON_UNESCAPED_SLASHES)</script>
+                        <script type="application/json" id="dev-json-tree-raw-amazon-fees-data">@json($rawAmazonFeePayloads, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)</script>
                     </details>
                 @else
                     <div class="text-sm text-gray-600">No fee line items synced yet for this order.</div>
@@ -801,7 +809,7 @@
                     @endphp
                     <div id="dev-json-tree-estimated-fees" class="dev-json-tree"></div>
                     <div id="dev-json-copy-status-estimated-fees" class="dev-json-copy-status"></div>
-                    <script type="application/json" id="dev-json-tree-estimated-fees-data">@json($estimatedRawPayloads, JSON_UNESCAPED_SLASHES)</script>
+                    <script type="application/json" id="dev-json-tree-estimated-fees-data">@json($estimatedRawPayloads, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)</script>
                 </details>
             </div>
 
@@ -910,7 +918,7 @@
                         <summary class="cursor-pointer text-sm font-semibold">Raw Order JSON (Debug)</summary>
                         <div id="dev-json-tree-raw-order" class="dev-json-tree"></div>
                         <div id="dev-json-copy-status-raw-order" class="dev-json-copy-status"></div>
-                        <script type="application/json" id="dev-json-tree-raw-order-data">@json($order, JSON_UNESCAPED_SLASHES)</script>
+                        <script type="application/json" id="dev-json-tree-raw-order-data">@json($order, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)</script>
                     </details>
                 </div>
                 <div class="p-4 rounded-lg border border-gray-200 bg-white shadow-sm">
@@ -927,7 +935,7 @@
                         @endphp
                         <div id="dev-json-tree-stored-raw-order" class="dev-json-tree"></div>
                         <div id="dev-json-copy-status-stored-raw-order" class="dev-json-copy-status"></div>
-                        <script type="application/json" id="dev-json-tree-stored-raw-order-data">@json($storedRawOrder, JSON_UNESCAPED_SLASHES)</script>
+                        <script type="application/json" id="dev-json-tree-stored-raw-order-data">@json($storedRawOrder, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)</script>
                     </details>
                 </div>
                 <div class="p-4 rounded-lg border border-gray-200 bg-white shadow-sm lg:col-span-2">
@@ -935,7 +943,7 @@
                         <summary class="cursor-pointer text-sm font-semibold">Raw Items JSON</summary>
                         <div id="dev-json-tree-raw-items" class="dev-json-tree"></div>
                         <div id="dev-json-copy-status-raw-items" class="dev-json-copy-status"></div>
-                        <script type="application/json" id="dev-json-tree-raw-items-data">@json($items, JSON_UNESCAPED_SLASHES)</script>
+                        <script type="application/json" id="dev-json-tree-raw-items-data">@json($items, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)</script>
                     </details>
                 </div>
             </div>
