@@ -1,5 +1,14 @@
 @php
     $messageBody = json_decode($message->body);
+    $messageBodyArray = json_decode((string) $message->body, true);
+    $payloadBody = null;
+    if (is_array($messageBodyArray)) {
+        if (isset($messageBodyArray['payload']) && is_array($messageBodyArray['payload'])) {
+            $payloadBody = $messageBodyArray['payload'];
+        } elseif (isset($messageBodyArray['Payload']) && is_array($messageBodyArray['Payload'])) {
+            $payloadBody = $messageBodyArray['Payload'];
+        }
+    }
 @endphp
 
 <table> {{-- Local Message Queue --}}
@@ -233,6 +242,132 @@
     </table>
 @endif
 
-<p><strong>Body:</strong> {{ $message->body }}</p>
+<h2>Payload Body JSON</h2>
+@if (is_array($payloadBody))
+    <style>
+        .payload-json-tree {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+        .payload-json-key { color: #0f766e; }
+        .payload-json-string { color: #166534; }
+        .payload-json-number { color: #1d4ed8; }
+        .payload-json-boolean { color: #7c3aed; }
+        .payload-json-null { color: #dc2626; }
+    </style>
+
+    <div id="payload-json-tree" class="payload-json-tree"></div>
+    <script type="application/json" id="payload-json-data">@json($payloadBody, JSON_UNESCAPED_SLASHES)</script>
+
+    <details>
+        <summary>Raw Payload JSON</summary>
+        <pre id="payload-raw-json">{{ json_encode($payloadBody, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+    </details>
+
+    <script>
+        (function () {
+            const dataScript = document.getElementById('payload-json-data');
+            const container = document.getElementById('payload-json-tree');
+            if (!dataScript || !container) {
+                return;
+            }
+
+            function primitiveSpan(value) {
+                const span = document.createElement('span');
+                if (value === null) {
+                    span.className = 'payload-json-null';
+                    span.textContent = 'null';
+                    return span;
+                }
+
+                if (typeof value === 'string') {
+                    span.className = 'payload-json-string';
+                    span.textContent = '"' + value + '"';
+                    return span;
+                }
+
+                if (typeof value === 'number') {
+                    span.className = 'payload-json-number';
+                    span.textContent = String(value);
+                    return span;
+                }
+
+                if (typeof value === 'boolean') {
+                    span.className = 'payload-json-boolean';
+                    span.textContent = value ? 'true' : 'false';
+                    return span;
+                }
+
+                span.textContent = String(value);
+                return span;
+            }
+
+            function renderNode(value, key) {
+                if (value === null || typeof value !== 'object') {
+                    const row = document.createElement('div');
+                    if (key !== undefined) {
+                        const keySpan = document.createElement('span');
+                        keySpan.className = 'payload-json-key';
+                        keySpan.textContent = '"' + key + '": ';
+                        row.appendChild(keySpan);
+                    }
+                    row.appendChild(primitiveSpan(value));
+                    return row;
+                }
+
+                const details = document.createElement('details');
+                details.open = key === undefined;
+
+                const summary = document.createElement('summary');
+                if (key !== undefined) {
+                    const keySpan = document.createElement('span');
+                    keySpan.className = 'payload-json-key';
+                    keySpan.textContent = '"' + key + '"';
+                    summary.appendChild(keySpan);
+                    summary.appendChild(document.createTextNode(': '));
+                }
+
+                if (Array.isArray(value)) {
+                    summary.appendChild(document.createTextNode('[' + value.length + ']'));
+                } else {
+                    const keys = Object.keys(value);
+                    summary.appendChild(document.createTextNode('{' + keys.length + '}'));
+                }
+                details.appendChild(summary);
+
+                const body = document.createElement('div');
+                body.style.paddingLeft = '1rem';
+
+                if (Array.isArray(value)) {
+                    value.forEach(function (item, index) {
+                        body.appendChild(renderNode(item, String(index)));
+                    });
+                } else {
+                    Object.keys(value).forEach(function (childKey) {
+                        body.appendChild(renderNode(value[childKey], childKey));
+                    });
+                }
+
+                details.appendChild(body);
+                return details;
+            }
+
+            try {
+                const payload = JSON.parse(dataScript.textContent || 'null');
+                container.appendChild(renderNode(payload));
+            } catch (e) {
+                container.textContent = 'Failed to parse payload JSON.';
+            }
+        })();
+    </script>
+@else
+    <p>No payload object found in this message body.</p>
+@endif
+
+<details>
+    <summary>Raw Message Body</summary>
+    <pre>{{ $message->body }}</pre>
+</details>
 
 <a href="{{ route('sqs_messages.index') }}">Back to List</a>
