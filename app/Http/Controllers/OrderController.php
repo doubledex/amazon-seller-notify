@@ -974,39 +974,57 @@ class OrderController extends Controller
     public function fetchDevOrder2026(Request $request, string $order_id)
     {
         $regionService = new RegionConfigService();
-        $region = $regionService->defaultSpApiRegion();
         $officialSpApiService = new OfficialSpApiService($regionService);
-        $api = $officialSpApiService->makeGetOrderV20260101Api($region);
-
-        if ($api === null) {
-            return redirect()
-                ->route('orders.show', ['order_id' => $order_id])
-                ->with('dev_fetch_status', 'Failed to create Orders 2026 API client.');
-        }
+        $regionContext = $this->resolveDevOrderRegionCandidates($order_id, $regionService);
 
         $snapshot = [
             'api_version' => 'orders/2026-01-01',
             'order_id' => $order_id,
-            'region' => $region,
+            'region' => null,
+            'marketplace_id' => $regionContext['marketplace_id'],
             'request' => [
                 'included_data' => self::DEV_ORDER_2026_INCLUDED_DATA,
             ],
+            'region_candidates' => $regionContext['candidates'],
+            'attempts' => [],
             'fetched_at' => now()->toIso8601String(),
         ];
 
-        try {
-            [$model, $status, $headers] = $api->getOrderWithHttpInfo($order_id, self::DEV_ORDER_2026_INCLUDED_DATA);
-            $snapshot['response'] = [
-                'status' => (int) $status,
-                'headers' => $this->normalizeResponseHeadersForStorage((array) $headers),
-                'body' => $this->modelToArray($model),
-            ];
-        } catch (\Throwable $e) {
-            $snapshot['error'] = [
-                'message' => $e->getMessage(),
-                'class' => $e::class,
-                'code' => (int) $e->getCode(),
-            ];
+        $successRegion = null;
+        foreach ($regionContext['candidates'] as $region) {
+            $attempt = ['region' => $region];
+            $api = $officialSpApiService->makeGetOrderV20260101Api($region);
+            if ($api === null) {
+                $attempt['error'] = [
+                    'message' => 'Failed to create Orders 2026 API client for region.',
+                    'class' => 'ClientCreationError',
+                    'code' => 0,
+                ];
+                $snapshot['attempts'][] = $attempt;
+                continue;
+            }
+
+            try {
+                [$model, $status, $headers] = $api->getOrderWithHttpInfo($order_id, self::DEV_ORDER_2026_INCLUDED_DATA);
+                $snapshot['response'] = [
+                    'status' => (int) $status,
+                    'headers' => $this->normalizeResponseHeadersForStorage((array) $headers),
+                    'body' => $this->modelToArray($model),
+                ];
+                $snapshot['region'] = $region;
+                $attempt['status'] = (int) $status;
+                $snapshot['attempts'][] = $attempt;
+                $successRegion = $region;
+                break;
+            } catch (\Throwable $e) {
+                $attempt['error'] = [
+                    'message' => $e->getMessage(),
+                    'class' => $e::class,
+                    'code' => (int) $e->getCode(),
+                ];
+                $snapshot['attempts'][] = $attempt;
+                $snapshot['error'] = $attempt['error'];
+            }
         }
 
         Order::query()->updateOrCreate(
@@ -1019,45 +1037,65 @@ class OrderController extends Controller
 
         return redirect()
             ->route('orders.show', ['order_id' => $order_id])
-            ->with('dev_fetch_status', 'Stored Orders 2026 snapshot for dev review.');
+            ->with('dev_fetch_status', $successRegion !== null
+                ? 'Stored Orders 2026 snapshot for dev review (region ' . $successRegion . ').'
+                : 'Stored Orders 2026 error snapshot for dev review (all regions failed).');
     }
 
     public function fetchDevOrderV0(Request $request, string $order_id)
     {
         $regionService = new RegionConfigService();
-        $region = $regionService->defaultSpApiRegion();
         $officialSpApiService = new OfficialSpApiService($regionService);
-        $api = $officialSpApiService->makeOrdersV0Api($region);
-
-        if ($api === null) {
-            return redirect()
-                ->route('orders.show', ['order_id' => $order_id])
-                ->with('dev_fetch_status', 'Failed to create Orders v0 API client.');
-        }
+        $regionContext = $this->resolveDevOrderRegionCandidates($order_id, $regionService);
 
         $snapshot = [
             'api_version' => 'orders/v0',
             'order_id' => $order_id,
-            'region' => $region,
+            'region' => null,
+            'marketplace_id' => $regionContext['marketplace_id'],
             'request' => [
                 'included_data' => [],
             ],
+            'region_candidates' => $regionContext['candidates'],
+            'attempts' => [],
             'fetched_at' => now()->toIso8601String(),
         ];
 
-        try {
-            [$model, $status, $headers] = $api->getOrderWithHttpInfo($order_id);
-            $snapshot['response'] = [
-                'status' => (int) $status,
-                'headers' => $this->normalizeResponseHeadersForStorage((array) $headers),
-                'body' => $this->modelToArray($model),
-            ];
-        } catch (\Throwable $e) {
-            $snapshot['error'] = [
-                'message' => $e->getMessage(),
-                'class' => $e::class,
-                'code' => (int) $e->getCode(),
-            ];
+        $successRegion = null;
+        foreach ($regionContext['candidates'] as $region) {
+            $attempt = ['region' => $region];
+            $api = $officialSpApiService->makeOrdersV0Api($region);
+            if ($api === null) {
+                $attempt['error'] = [
+                    'message' => 'Failed to create Orders v0 API client for region.',
+                    'class' => 'ClientCreationError',
+                    'code' => 0,
+                ];
+                $snapshot['attempts'][] = $attempt;
+                continue;
+            }
+
+            try {
+                [$model, $status, $headers] = $api->getOrderWithHttpInfo($order_id);
+                $snapshot['response'] = [
+                    'status' => (int) $status,
+                    'headers' => $this->normalizeResponseHeadersForStorage((array) $headers),
+                    'body' => $this->modelToArray($model),
+                ];
+                $snapshot['region'] = $region;
+                $attempt['status'] = (int) $status;
+                $snapshot['attempts'][] = $attempt;
+                $successRegion = $region;
+                break;
+            } catch (\Throwable $e) {
+                $attempt['error'] = [
+                    'message' => $e->getMessage(),
+                    'class' => $e::class,
+                    'code' => (int) $e->getCode(),
+                ];
+                $snapshot['attempts'][] = $attempt;
+                $snapshot['error'] = $attempt['error'];
+            }
         }
 
         Order::query()->updateOrCreate(
@@ -1070,7 +1108,9 @@ class OrderController extends Controller
 
         return redirect()
             ->route('orders.show', ['order_id' => $order_id])
-            ->with('dev_fetch_status', 'Stored Orders v0 snapshot for dev review.');
+            ->with('dev_fetch_status', $successRegion !== null
+                ? 'Stored Orders v0 snapshot for dev review (region ' . $successRegion . ').'
+                : 'Stored Orders v0 error snapshot for dev review (all regions failed).');
     }
 
     /**
@@ -1668,6 +1708,59 @@ class OrderController extends Controller
         }
 
         return $normalized;
+    }
+
+    private function resolveDevOrderRegionCandidates(string $orderId, RegionConfigService $regionService): array
+    {
+        $marketplaceId = trim((string) Order::query()
+            ->where('amazon_order_id', $orderId)
+            ->value('marketplace_id'));
+        $marketplaceId = $marketplaceId !== '' ? $marketplaceId : null;
+
+        $configuredRegions = $regionService->spApiRegions();
+        if (empty($configuredRegions)) {
+            $configuredRegions = [$regionService->defaultSpApiRegion()];
+        }
+
+        $inferredRegion = null;
+        if ($marketplaceId !== null) {
+            foreach ($configuredRegions as $region) {
+                $regionMarketplaces = (array) ($regionService->spApiConfig($region)['marketplace_ids'] ?? []);
+                $regionMarketplaces = array_values(array_filter(array_map(static fn ($id) => trim((string) $id), $regionMarketplaces)));
+                if (in_array($marketplaceId, $regionMarketplaces, true)) {
+                    $inferredRegion = $region;
+                    break;
+                }
+            }
+        }
+
+        $candidates = [];
+        if ($inferredRegion !== null) {
+            $candidates[] = $inferredRegion;
+        }
+
+        $candidates[] = $regionService->defaultSpApiRegion();
+        foreach ($configuredRegions as $region) {
+            $candidates[] = $region;
+        }
+        foreach (['EU', 'NA', 'FE'] as $region) {
+            $candidates[] = $region;
+        }
+
+        $normalized = [];
+        foreach ($candidates as $region) {
+            $region = strtoupper(trim((string) $region));
+            if (!in_array($region, ['EU', 'NA', 'FE'], true) || in_array($region, $normalized, true)) {
+                continue;
+            }
+            $normalized[] = $region;
+        }
+
+        return [
+            'marketplace_id' => $marketplaceId,
+            'inferred_region' => $inferredRegion,
+            'candidates' => $normalized,
+        ];
     }
 
     private function getRetryAfterSeconds($headers): int
