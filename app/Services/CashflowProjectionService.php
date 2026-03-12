@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Integrations\Amazon\SpApi\FinancesAdapter;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -12,6 +13,7 @@ class CashflowProjectionService
 {
     private const OUTSTANDING_LOOKBACK_DAYS = 130;
     private const OUTSTANDING_MAX_PAGES_PER_MARKETPLACE = 10;
+    private const SNAPSHOT_REGION_COOLDOWN_SECONDS = 300;
 
     public function __construct(
         private readonly ?FinancesAdapter $financesAdapter = null,
@@ -318,6 +320,10 @@ class CashflowProjectionService
         $marketplacesProcessed = 0;
 
         foreach ($regions as $region) {
+            if ($this->isSnapshotRegionCooldownActive($region)) {
+                continue;
+            }
+
             $config = $regionService->spApiConfig($region);
             $marketplaceIds = array_values(array_filter(array_map(
                 static fn ($id) => strtoupper(trim((string) $id)),
@@ -344,6 +350,10 @@ class CashflowProjectionService
                             'marketplace_id' => $marketplaceId,
                             'status' => (int) ($response['status'] ?? 500),
                         ]);
+                        if ((int) ($response['status'] ?? 500) === 429) {
+                            $this->activateSnapshotRegionCooldown($region, $marketplaceId);
+                            continue 3;
+                        }
                         break;
                     }
 
@@ -589,6 +599,46 @@ class CashflowProjectionService
         }
 
         return 'posted_date';
+    }
+
+    private function snapshotRegionCooldownCacheKey(string $region): string
+    {
+        return 'cashflow:snapshot_region_cooldown:' . strtoupper(trim($region));
+    }
+
+    private function isSnapshotRegionCooldownActive(string $region): bool
+    {
+        $key = $this->snapshotRegionCooldownCacheKey($region);
+        $until = Cache::get($key);
+        if (!$until instanceof Carbon) {
+            return false;
+        }
+
+        if ($until->lte(now())) {
+            Cache::forget($key);
+            return false;
+        }
+
+        Log::info('cashflow snapshot region skipped due cooldown', [
+            'region' => strtoupper(trim($region)),
+            'cooldown_until' => $until->toIso8601String(),
+            'remaining_seconds' => max(0, (int) ceil(now()->floatDiffInSeconds($until, false))),
+        ]);
+
+        return true;
+    }
+
+    private function activateSnapshotRegionCooldown(string $region, string $marketplaceId): void
+    {
+        $until = now()->addSeconds(self::SNAPSHOT_REGION_COOLDOWN_SECONDS);
+        Cache::put($this->snapshotRegionCooldownCacheKey($region), $until, $until);
+
+        Log::warning('cashflow snapshot region cooldown activated', [
+            'region' => strtoupper(trim($region)),
+            'marketplace_id' => strtoupper(trim($marketplaceId)),
+            'cooldown_seconds' => self::SNAPSHOT_REGION_COOLDOWN_SECONDS,
+            'cooldown_until' => $until->toIso8601String(),
+        ]);
     }
 
     private function formatUtcDateTime(mixed $value): ?string
