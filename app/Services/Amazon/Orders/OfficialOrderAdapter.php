@@ -281,6 +281,7 @@ class OfficialOrderAdapter implements AmazonOrderApi
             ?? $itemCounts['quantityUnshipped']
             ?? $itemCounts['unshippedCount']
             ?? null;
+        $orderNet = $this->calculateOrderNetFromOrderItems($order, (string) ($orderStatus ?? ''));
 
         return [
             'AmazonOrderId' => $order['orderId'] ?? null,
@@ -299,6 +300,11 @@ class OfficialOrderAdapter implements AmazonOrderApi
                 'Amount' => $grandTotal['amount'] ?? null,
                 'CurrencyCode' => $grandTotal['currencyCode'] ?? null,
             ],
+            'OrderNetExTax' => [
+                'Amount' => $orderNet['amount'],
+                'CurrencyCode' => $orderNet['currency'],
+                'Source' => $orderNet['source'],
+            ],
             'ShippingAddress' => [
                 'City' => $address['city'] ?? null,
                 'CountryCode' => $address['countryCode'] ?? null,
@@ -306,6 +312,77 @@ class OfficialOrderAdapter implements AmazonOrderApi
                 'CompanyName' => $address['companyName'] ?? ($buyer['buyerCompanyName'] ?? null),
                 'StateOrRegion' => $address['stateOrRegion'] ?? null,
             ],
+        ];
+    }
+
+    private function calculateOrderNetFromOrderItems(array $order, string $orderStatus): array
+    {
+        $items = (array) ($order['orderItems'] ?? []);
+        if (empty($items)) {
+            return ['amount' => null, 'currency' => null, 'source' => null];
+        }
+
+        $isFullyShipped = strtoupper(trim($orderStatus)) === 'SHIPPED';
+        $sum = 0.0;
+        $currency = null;
+        $hasAtLeastOne = false;
+
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            if ($isFullyShipped) {
+                $breakdowns = (array) (($item['proceeds'] ?? [])['breakdowns'] ?? []);
+                foreach ($breakdowns as $breakdown) {
+                    if (!is_array($breakdown)) {
+                        continue;
+                    }
+                    $type = strtoupper(trim((string) ($breakdown['type'] ?? '')));
+                    if ($type !== 'ITEM') {
+                        continue;
+                    }
+                    $amount = $breakdown['subtotal']['amount'] ?? null;
+                    if ($amount === null || $amount === '' || !is_numeric($amount)) {
+                        continue;
+                    }
+                    $sum += (float) $amount;
+                    $hasAtLeastOne = true;
+                    if ($currency === null) {
+                        $candidate = strtoupper(trim((string) ($breakdown['subtotal']['currencyCode'] ?? '')));
+                        if ($candidate !== '') {
+                            $currency = $candidate;
+                        }
+                    }
+                    break;
+                }
+                continue;
+            }
+
+            $unitPriceAmount = $item['product']['price']['unitPrice']['amount'] ?? null;
+            if ($unitPriceAmount === null || $unitPriceAmount === '' || !is_numeric($unitPriceAmount)) {
+                continue;
+            }
+            $qtyOrdered = $item['quantityOrdered'] ?? null;
+            $qty = is_numeric($qtyOrdered) ? max(1, (int) $qtyOrdered) : 1;
+            $sum += ((float) $unitPriceAmount) * $qty;
+            $hasAtLeastOne = true;
+            if ($currency === null) {
+                $candidate = strtoupper(trim((string) ($item['product']['price']['unitPrice']['currencyCode'] ?? '')));
+                if ($candidate !== '') {
+                    $currency = $candidate;
+                }
+            }
+        }
+
+        if (!$hasAtLeastOne || $sum <= 0) {
+            return ['amount' => null, 'currency' => null, 'source' => null];
+        }
+
+        return [
+            'amount' => round($sum, 2),
+            'currency' => $currency,
+            'source' => $isFullyShipped ? 'line_items_proceeds_item_subtotal' : 'estimated_unit_price_incl_tax',
         ];
     }
 

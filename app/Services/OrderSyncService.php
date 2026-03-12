@@ -193,6 +193,9 @@ class OrderSyncService
                     $ship = $order['ShippingAddress'] ?? [];
                     $paymentMethod = $order['PaymentMethodDetails'][0] ?? ($order['PaymentMethod'] ?? null);
                     $marketplaceId = $order['MarketplaceId'] ?? null;
+                    $orderNetAmount = $order['OrderNetExTax']['Amount'] ?? null;
+                    $orderNetCurrency = $order['OrderNetExTax']['CurrencyCode'] ?? null;
+                    $orderNetSource = $order['OrderNetExTax']['Source'] ?? null;
                     $purchaseDate = $order['PurchaseDate'] ?? null;
                     if ($purchaseDate) {
                         try {
@@ -216,6 +219,9 @@ class OrderSyncService
                         'is_business_order' => !empty($order['IsBusinessOrder']),
                         'order_total_amount' => $order['OrderTotal']['Amount'] ?? null,
                         'order_total_currency' => $order['OrderTotal']['CurrencyCode'] ?? null,
+                        'order_net_ex_tax' => is_numeric($orderNetAmount) ? (float) $orderNetAmount : null,
+                        'order_net_ex_tax_currency' => is_string($orderNetCurrency) ? strtoupper(trim($orderNetCurrency)) : null,
+                        'order_net_ex_tax_source' => is_string($orderNetSource) ? trim($orderNetSource) : null,
                         'shipping_city' => $ship['City'] ?? null,
                         'shipping_country_code' => $ship['CountryCode'] ?? null,
                         'shipping_postal_code' => $ship['PostalCode'] ?? null,
@@ -246,6 +252,9 @@ class OrderSyncService
                             'is_business_order',
                             'order_total_amount',
                             'order_total_currency',
+                            'order_net_ex_tax',
+                            'order_net_ex_tax_currency',
+                            'order_net_ex_tax_source',
                             'shipping_city',
                             'shipping_country_code',
                             'shipping_postal_code',
@@ -530,6 +539,24 @@ class OrderSyncService
             $updates['payment_method'] = $paymentMethod;
             $raw['PaymentMethod'] = $paymentMethod;
             $raw['PaymentMethodDetails'] = [$paymentMethod];
+        }
+
+        $summaryNetAmount = $summary['OrderNetExTax']['Amount'] ?? null;
+        $summaryNetCurrency = trim((string) ($summary['OrderNetExTax']['CurrencyCode'] ?? ''));
+        $summaryNetSource = trim((string) ($summary['OrderNetExTax']['Source'] ?? ''));
+        if (is_numeric($summaryNetAmount)) {
+            $updates['order_net_ex_tax'] = (float) $summaryNetAmount;
+            $raw['OrderNetExTax'] = [
+                'Amount' => (float) $summaryNetAmount,
+                'CurrencyCode' => $summaryNetCurrency !== '' ? strtoupper($summaryNetCurrency) : ($raw['OrderNetExTax']['CurrencyCode'] ?? null),
+                'Source' => $summaryNetSource !== '' ? $summaryNetSource : ($raw['OrderNetExTax']['Source'] ?? null),
+            ];
+            if ($summaryNetCurrency !== '') {
+                $updates['order_net_ex_tax_currency'] = strtoupper($summaryNetCurrency);
+            }
+            if ($summaryNetSource !== '') {
+                $updates['order_net_ex_tax_source'] = $summaryNetSource;
+            }
         }
 
         if (array_key_exists('NumberOfItemsShipped', $summary) && is_numeric($summary['NumberOfItemsShipped'])) {
