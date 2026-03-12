@@ -14,6 +14,22 @@ class OfficialOrderAdapter implements AmazonOrderApi
     private const MAX_ATTEMPTS = 4;
     private const SEARCH_INCLUDED_DATA = ['BUYER', 'RECIPIENT', 'PROCEEDS', 'FULFILLMENT', 'PACKAGES'];
     private const GET_ORDER_INCLUDED_DATA = ['BUYER', 'RECIPIENT', 'PROCEEDS', 'FULFILLMENT', 'PACKAGES'];
+    private const VAT_RATE_BY_COUNTRY = [
+        'AT' => 0.20,
+        'BE' => 0.21,
+        'DE' => 0.19,
+        'DK' => 0.25,
+        'ES' => 0.21,
+        'FI' => 0.24,
+        'FR' => 0.20,
+        'GB' => 0.20,
+        'IE' => 0.23,
+        'IT' => 0.22,
+        'NL' => 0.21,
+        'PL' => 0.23,
+        'SE' => 0.25,
+    ];
+    private ?array $marketplaceCountryMap = null;
 
     public function __construct(
         private readonly OfficialSpApiService $officialSpApiService,
@@ -281,7 +297,11 @@ class OfficialOrderAdapter implements AmazonOrderApi
             ?? $itemCounts['quantityUnshipped']
             ?? $itemCounts['unshippedCount']
             ?? null;
-        $orderNet = $this->calculateOrderNetFromOrderItems($order, (string) ($orderStatus ?? ''));
+        $orderNet = $this->calculateOrderNetFromOrderItems(
+            $order,
+            (string) ($orderStatus ?? ''),
+            (string) ($salesChannel['marketplaceId'] ?? '')
+        );
 
         return [
             'AmazonOrderId' => $order['orderId'] ?? null,
@@ -315,7 +335,7 @@ class OfficialOrderAdapter implements AmazonOrderApi
         ];
     }
 
-    private function calculateOrderNetFromOrderItems(array $order, string $orderStatus): array
+    private function calculateOrderNetFromOrderItems(array $order, string $orderStatus, string $marketplaceId): array
     {
         $items = (array) ($order['orderItems'] ?? []);
         if (empty($items)) {
@@ -332,28 +352,48 @@ class OfficialOrderAdapter implements AmazonOrderApi
                 continue;
             }
 
-            $breakdowns = (array) (($item['proceeds'] ?? [])['breakdowns'] ?? []);
-            foreach ($breakdowns as $breakdown) {
-                if (!is_array($breakdown)) {
-                    continue;
-                }
-                $type = strtoupper(trim((string) ($breakdown['type'] ?? '')));
-                if ($type !== 'ITEM') {
-                    continue;
-                }
-                $amount = $breakdown['subtotal']['amount'] ?? null;
-                if ($amount === null || $amount === '' || !is_numeric($amount)) {
-                    continue;
-                }
-                $sum += (float) $amount;
-                $hasAtLeastOne = true;
-                if ($currency === null) {
-                    $candidate = strtoupper(trim((string) ($breakdown['subtotal']['currencyCode'] ?? '')));
-                    if ($candidate !== '') {
-                        $currency = $candidate;
+            if ($isFullyShipped) {
+                $breakdowns = (array) (($item['proceeds'] ?? [])['breakdowns'] ?? []);
+                foreach ($breakdowns as $breakdown) {
+                    if (!is_array($breakdown)) {
+                        continue;
                     }
+                    $type = strtoupper(trim((string) ($breakdown['type'] ?? '')));
+                    if ($type !== 'ITEM') {
+                        continue;
+                    }
+                    $amount = $breakdown['subtotal']['amount'] ?? null;
+                    if ($amount === null || $amount === '' || !is_numeric($amount)) {
+                        continue;
+                    }
+                    $sum += (float) $amount;
+                    $hasAtLeastOne = true;
+                    if ($currency === null) {
+                        $candidate = strtoupper(trim((string) ($breakdown['subtotal']['currencyCode'] ?? '')));
+                        if ($candidate !== '') {
+                            $currency = $candidate;
+                        }
+                    }
+                    break;
                 }
-                break;
+                continue;
+            }
+
+            $unitPriceAmount = $item['product']['price']['unitPrice']['amount'] ?? null;
+            if ($unitPriceAmount === null || $unitPriceAmount === '' || !is_numeric($unitPriceAmount)) {
+                continue;
+            }
+            $qtyOrdered = $item['quantityOrdered'] ?? null;
+            $qty = is_numeric($qtyOrdered) ? max(1, (int) $qtyOrdered) : 1;
+            $gross = ((float) $unitPriceAmount) * $qty;
+            $taxRate = $this->marketplaceTaxRateByMarketplaceId($marketplaceId);
+            $sum += $this->removeTaxFromGross($gross, $taxRate);
+            $hasAtLeastOne = true;
+            if ($currency === null) {
+                $candidate = strtoupper(trim((string) ($item['product']['price']['unitPrice']['currencyCode'] ?? '')));
+                if ($candidate !== '') {
+                    $currency = $candidate;
+                }
             }
         }
 
@@ -364,8 +404,41 @@ class OfficialOrderAdapter implements AmazonOrderApi
         return [
             'amount' => round($sum, 2),
             'currency' => $currency,
-            'source' => $isFullyShipped ? 'proceeds_item_subtotal' : 'estimated_proceeds_item_subtotal',
+            'source' => $isFullyShipped ? 'proceeds_item_subtotal' : 'est_unit_minus_tax',
         ];
+    }
+
+    private function marketplaceTaxRateByMarketplaceId(string $marketplaceId): float
+    {
+        $country = $this->marketplaceCountryCode($marketplaceId);
+        return (float) (self::VAT_RATE_BY_COUNTRY[$country] ?? 0.0);
+    }
+
+    private function marketplaceCountryCode(string $marketplaceId): string
+    {
+        $marketplaceId = trim($marketplaceId);
+        if ($marketplaceId === '') {
+            return '';
+        }
+        if ($this->marketplaceCountryMap === null) {
+            $map = $this->marketplaceService->getMarketplaceMap();
+            $normalized = [];
+            foreach ($map as $id => $country) {
+                $normalized[(string) $id] = strtoupper(trim((string) $country));
+            }
+            $this->marketplaceCountryMap = $normalized;
+        }
+
+        return strtoupper(trim((string) ($this->marketplaceCountryMap[$marketplaceId] ?? '')));
+    }
+
+    private function removeTaxFromGross(float $gross, float $taxRate): float
+    {
+        if ($taxRate <= 0) {
+            return $gross;
+        }
+
+        return $gross / (1 + $taxRate);
     }
 
     private function normalizeOrderItem(array $item): array

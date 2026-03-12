@@ -7,26 +7,56 @@ use App\Models\OrderItem;
 
 class OrderNetValueService
 {
+    private const VAT_RATE_BY_COUNTRY = [
+        'AT' => 0.20,
+        'BE' => 0.21,
+        'DE' => 0.19,
+        'DK' => 0.25,
+        'ES' => 0.21,
+        'FI' => 0.24,
+        'FR' => 0.20,
+        'GB' => 0.20,
+        'IE' => 0.23,
+        'IT' => 0.22,
+        'NL' => 0.21,
+        'PL' => 0.23,
+        'SE' => 0.25,
+    ];
+
     public function valuesFromApiItem(array $item, ?string $marketplaceCountryCode = null, ?string $orderStatus = null): array
     {
         $isFullyShipped = strtoupper(trim((string) $orderStatus)) === 'SHIPPED';
-        $proceedsItemSubtotalAmount = $this->proceedsItemSubtotalAmount($item);
-        $proceedsItemSubtotalCurrency = $this->proceedsItemSubtotalCurrency($item);
-        if ($proceedsItemSubtotalAmount !== null) {
-            $currency = $proceedsItemSubtotalCurrency ?: $this->currency($item);
-            if ($isFullyShipped) {
+        if ($isFullyShipped) {
+            $proceedsItemSubtotalAmount = $this->proceedsItemSubtotalAmount($item);
+            $proceedsItemSubtotalCurrency = $this->proceedsItemSubtotalCurrency($item);
+            if ($proceedsItemSubtotalAmount === null) {
                 return [
-                    'line_net_ex_tax' => round(max(0.0, $proceedsItemSubtotalAmount), 2),
-                    'line_net_currency' => $currency,
+                    'line_net_ex_tax' => null,
+                    'line_net_currency' => $this->currency($item),
                     'estimated_line_net_ex_tax' => null,
                     'estimated_line_currency' => null,
                 ];
             }
             return [
+                'line_net_ex_tax' => round(max(0.0, $proceedsItemSubtotalAmount), 2),
+                'line_net_currency' => $proceedsItemSubtotalCurrency ?: $this->currency($item),
+                'estimated_line_net_ex_tax' => null,
+                'estimated_line_currency' => null,
+            ];
+        }
+
+        $unitPriceAmount = $this->unitPriceAmount($item);
+        if ($unitPriceAmount !== null) {
+            $quantityOrdered = $this->intValue($item['QuantityOrdered'] ?? null);
+            $quantity = max(1, $quantityOrdered ?? 1);
+            $gross = $unitPriceAmount * $quantity;
+            $rate = $this->marketplaceTaxRate($marketplaceCountryCode);
+            $exTax = $this->removeTaxFromGross($gross, $rate);
+            return [
                 'line_net_ex_tax' => null,
                 'line_net_currency' => null,
-                'estimated_line_net_ex_tax' => round(max(0.0, $proceedsItemSubtotalAmount), 2),
-                'estimated_line_currency' => $currency,
+                'estimated_line_net_ex_tax' => round(max(0.0, $exTax), 2),
+                'estimated_line_currency' => $this->unitPriceCurrency($item) ?: $this->currency($item),
             ];
         }
 
@@ -167,7 +197,7 @@ class OrderNetValueService
                 }
             }
             if ($sum > 0) {
-                $source = 'estimated_proceeds_item_subtotal';
+                $source = 'est_unit_minus_tax';
             }
         }
 
@@ -254,6 +284,53 @@ class OrderNetValueService
         }
 
         return null;
+    }
+
+    private function marketplaceTaxRate(?string $marketplaceCountryCode): float
+    {
+        $country = strtoupper(trim((string) $marketplaceCountryCode));
+        return (float) (self::VAT_RATE_BY_COUNTRY[$country] ?? 0.0);
+    }
+
+    private function removeTaxFromGross(float $gross, float $taxRate): float
+    {
+        if ($taxRate <= 0) {
+            return $gross;
+        }
+
+        return $gross / (1 + $taxRate);
+    }
+
+    private function unitPriceAmount(array $item): ?float
+    {
+        $raw = $item['product']['price']['unitPrice']['amount']
+            ?? $item['Product']['Price']['UnitPrice']['Amount']
+            ?? $item['ItemPrice']['Amount']
+            ?? null;
+        if ($raw === null || $raw === '' || !is_numeric($raw)) {
+            return null;
+        }
+
+        return (float) $raw;
+    }
+
+    private function unitPriceCurrency(array $item): ?string
+    {
+        $raw = $item['product']['price']['unitPrice']['currencyCode']
+            ?? $item['Product']['Price']['UnitPrice']['CurrencyCode']
+            ?? $item['ItemPrice']['CurrencyCode']
+            ?? null;
+        $currency = strtoupper(trim((string) $raw));
+        return $currency !== '' ? $currency : null;
+    }
+
+    private function intValue(mixed $value): ?int
+    {
+        if ($value === null || $value === '' || !is_numeric($value)) {
+            return null;
+        }
+
+        return (int) $value;
     }
 
     private function amount(array $item, string $key): ?float
