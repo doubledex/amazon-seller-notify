@@ -123,6 +123,14 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                 <details class="p-4 rounded-lg border border-sky-200 bg-sky-50 shadow-sm">
                     <summary class="cursor-pointer text-sm font-semibold text-sky-900">Dev API Snapshot: Orders 2026-01-01</summary>
+                    <div class="mt-3">
+                        <form method="POST" action="{{ route('orders.dev_fetch_2026', ['order_id' => $order['AmazonOrderId'] ?? $orderRecord?->amazon_order_id ?? request()->route('order_id')]) }}">
+                            @csrf
+                            <button type="submit" class="inline-flex items-center px-3 py-2 rounded-md border border-sky-300 bg-white text-sky-900 text-sm">
+                                Call API (2026)
+                            </button>
+                        </form>
+                    </div>
                     @if ($devApi2026)
                         <div class="mt-3 text-xs text-sky-800">
                             <div>Fetched: {{ $devApi2026['fetched_at'] ?? ($orderRecord?->dev_order_api_2026_fetched_at?->toIso8601String() ?? 'N/A') }}</div>
@@ -155,6 +163,14 @@
 
                 <details class="p-4 rounded-lg border border-amber-200 bg-amber-50 shadow-sm">
                     <summary class="cursor-pointer text-sm font-semibold text-amber-900">Dev API Snapshot: Orders v0</summary>
+                    <div class="mt-3">
+                        <form method="POST" action="{{ route('orders.dev_fetch_v0', ['order_id' => $order['AmazonOrderId'] ?? $orderRecord?->amazon_order_id ?? request()->route('order_id')]) }}">
+                            @csrf
+                            <button type="submit" class="inline-flex items-center px-3 py-2 rounded-md border border-amber-300 bg-white text-amber-900 text-sm">
+                                Call API (v0)
+                            </button>
+                        </form>
+                    </div>
                     @if ($devApiV0)
                         <div class="mt-3 text-xs text-amber-800">
                             <div>Fetched: {{ $devApiV0['fetched_at'] ?? ($orderRecord?->dev_order_api_v0_fetched_at?->toIso8601String() ?? 'N/A') }}</div>
