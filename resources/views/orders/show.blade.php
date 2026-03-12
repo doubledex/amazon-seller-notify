@@ -122,12 +122,27 @@
             @endphp
 
             <style>
-                .dev-json-tree { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; line-height: 1.5; }
-                .dev-json-key { color: #0f766e; }
-                .dev-json-string { color: #166534; }
-                .dev-json-number { color: #1d4ed8; }
-                .dev-json-boolean { color: #7c3aed; }
-                .dev-json-null { color: #dc2626; }
+                .dev-json-tree {
+                    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+                    font-size: 14px;
+                    line-height: 1.65;
+                    background: #111827;
+                    color: #f3f4f6;
+                    border: 1px solid #374151;
+                    border-radius: 8px;
+                    padding: 12px;
+                    margin-top: 8px;
+                    overflow-x: auto;
+                }
+                .dev-json-tree details > div {
+                    border-left: 1px solid #374151;
+                    margin-left: 6px;
+                }
+                .dev-json-key { color: #93c5fd; }
+                .dev-json-string { color: #86efac; }
+                .dev-json-number { color: #fca5a5; }
+                .dev-json-boolean { color: #fcd34d; }
+                .dev-json-null { color: #d1d5db; font-style: italic; }
             </style>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
@@ -148,7 +163,7 @@
                         </div>
                         <details class="mt-3">
                             <summary class="cursor-pointer text-sm font-semibold text-sky-900">Formatted View</summary>
-                            <div id="dev-json-tree-2026" class="dev-json-tree mt-2 bg-white p-3 rounded overflow-x-auto"></div>
+                            <div id="dev-json-tree-2026" class="dev-json-tree"></div>
                             <script type="application/json" id="dev-json-tree-2026-data">@json($devApi2026, JSON_UNESCAPED_SLASHES)</script>
                         </details>
                         <details class="mt-3">
@@ -180,7 +195,7 @@
                         </div>
                         <details class="mt-3">
                             <summary class="cursor-pointer text-sm font-semibold text-amber-900">Formatted View</summary>
-                            <div id="dev-json-tree-v0" class="dev-json-tree mt-2 bg-white p-3 rounded overflow-x-auto"></div>
+                            <div id="dev-json-tree-v0" class="dev-json-tree"></div>
                             <script type="application/json" id="dev-json-tree-v0-data">@json($devApiV0, JSON_UNESCAPED_SLASHES)</script>
                         </details>
                         <details class="mt-3">
@@ -231,7 +246,14 @@
                             details.open = key === undefined;
                             const summary = document.createElement('summary');
                             summary.className = 'cursor-pointer';
-                            summary.innerHTML = `${key !== undefined ? `<span class="dev-json-key">"${key}"</span>: ` : ''}[${value.length}]`;
+                            if (key !== undefined) {
+                                const keySpan = document.createElement('span');
+                                keySpan.className = 'dev-json-key';
+                                keySpan.textContent = `"${key}"`;
+                                summary.appendChild(keySpan);
+                                summary.appendChild(document.createTextNode(': '));
+                            }
+                            summary.appendChild(document.createTextNode(`[${value.length}]`));
                             details.appendChild(summary);
 
                             value.forEach(function (item, idx) {
@@ -249,7 +271,14 @@
                             details.open = key === undefined;
                             const summary = document.createElement('summary');
                             summary.className = 'cursor-pointer';
-                            summary.innerHTML = `${key !== undefined ? `<span class="dev-json-key">"${key}"</span>: ` : ''}{${keys.length}}`;
+                            if (key !== undefined) {
+                                const keySpan = document.createElement('span');
+                                keySpan.className = 'dev-json-key';
+                                keySpan.textContent = `"${key}"`;
+                                summary.appendChild(keySpan);
+                                summary.appendChild(document.createTextNode(': '));
+                            }
+                            summary.appendChild(document.createTextNode(`{${keys.length}}`));
                             details.appendChild(summary);
 
                             keys.forEach(function (childKey) {
