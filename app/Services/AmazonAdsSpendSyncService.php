@@ -304,13 +304,23 @@ class AmazonAdsSpendSyncService
 
                     if ($reportId === '') {
                         $failed++;
-                        Log::warning('Ads queue create failed (no report id)', [
-                            'profile_id' => $profileId,
-                            'ad_product' => $config['adProduct'],
-                            'status' => $createResponse->status(),
-                            'request_id' => $this->extractRequestId($createResponse),
-                            'body' => $createResponse->body(),
-                        ]);
+                        if ($createResponse->status() === 429) {
+                            Log::info('Ads queue create deferred due to throttling', [
+                                'profile_id' => $profileId,
+                                'ad_product' => $config['adProduct'],
+                                'status' => $createResponse->status(),
+                                'request_id' => $this->extractRequestId($createResponse),
+                                'body' => $createResponse->body(),
+                            ]);
+                        } else {
+                            Log::warning('Ads queue create failed (no report id)', [
+                                'profile_id' => $profileId,
+                                'ad_product' => $config['adProduct'],
+                                'status' => $createResponse->status(),
+                                'request_id' => $this->extractRequestId($createResponse),
+                                'body' => $createResponse->body(),
+                            ]);
+                        }
                         continue;
                     }
 
@@ -1293,7 +1303,7 @@ class AmazonAdsSpendSyncService
             'api_region' => strtoupper($apiRegion),
             'ad_product' => strtoupper($adProduct),
             'cooldown_until' => $until->toIso8601String(),
-            'remaining_seconds' => now()->diffInSeconds($until, false),
+            'remaining_seconds' => max(0, (int) ceil(now()->floatDiffInSeconds($until, false))),
         ]);
 
         return true;
