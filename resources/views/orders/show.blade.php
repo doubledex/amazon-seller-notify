@@ -64,6 +64,7 @@
                 }
                 $landedAmount = $landedCostAmount ?? null;
                 $landedCurrency = $landedCostCurrency ?? null;
+                $landedGbpAmount = $landedGbpAmountResolved ?? null;
                 $marginAmount = $marginAmount ?? null;
                 $marginCurrency = $marginCurrency ?? $netCurrency;
                 $marginGbpAmount = $marginGbpAmountResolved ?? null;

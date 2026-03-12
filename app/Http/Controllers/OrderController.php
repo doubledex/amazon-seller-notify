@@ -968,6 +968,7 @@ class OrderController extends Controller
             'netCurrencyResolved' => $netCurrency,
             'netSourceResolved' => $netSource,
             'netGbpAmountResolved' => $netGbpAmount,
+            'landedGbpAmountResolved' => $landedGbpAmount,
             'marginAmount' => $marginAmount,
             'marginCurrency' => $marginCurrency,
             'marginGbpAmountResolved' => $marginGbpAmount,
