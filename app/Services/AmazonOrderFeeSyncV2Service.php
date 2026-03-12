@@ -6,6 +6,7 @@ use App\Models\Order;
 use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\Psr7\Request as Psr7Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use SpApi\AuthAndAuth\LWAAuthorizationCredentials;
@@ -14,6 +15,7 @@ use SpApi\Configuration as OfficialSpApiConfiguration;
 class AmazonOrderFeeSyncV2Service
 {
     private const MAX_ATTEMPTS = 6;
+    private const REGION_COOLDOWN_SECONDS = 300;
 
     public function sync(Carbon $from, Carbon $to, ?string $region = null): array
     {
@@ -83,7 +85,11 @@ class AmazonOrderFeeSyncV2Service
         $spConfig = new OfficialSpApiConfiguration([], $lwa);
         $spConfig->setHost($host);
 
-        $http = new GuzzleClient();
+        if ($this->isRegionCooldownActive($region)) {
+            return [[], 0];
+        }
+
+        $http = new GuzzleClient(['http_errors' => false]);
         $url = $host . '/finances/2024-06-19/transactions';
 
         $marketplaceIds = array_values(array_filter(array_map(
@@ -113,6 +119,10 @@ class AmazonOrderFeeSyncV2Service
                     'fees-v2.listTransactions'
                 );
                 if (!$response || ($response['status'] ?? 500) >= 400) {
+                    if (($response['status'] ?? 500) === 429) {
+                        $this->activateRegionCooldown($region);
+                        break 2;
+                    }
                     break;
                 }
 
@@ -685,15 +695,57 @@ class AmazonOrderFeeSyncV2Service
                 $retryAfter = $response->getHeaderLine('Retry-After');
                 sleep(is_numeric($retryAfter) ? max(1, (int) $retryAfter) : 10);
             } catch (\Throwable $e) {
+                $delaySeconds = min(30, max(1, 2 ** $attempt));
                 Log::warning('fees-v2 API exception', [
                     'operation' => $operation,
                     'attempt' => $attempt,
                     'error' => $e->getMessage(),
+                    'retry_delay_seconds' => $delaySeconds,
                 ]);
+                sleep($delaySeconds);
             }
         }
 
         return $last;
+    }
+
+    private function regionCooldownCacheKey(string $region): string
+    {
+        return 'fees_v2:region_cooldown:' . strtoupper(trim($region));
+    }
+
+    private function isRegionCooldownActive(string $region): bool
+    {
+        $key = $this->regionCooldownCacheKey($region);
+        $until = Cache::get($key);
+        if (!$until instanceof Carbon) {
+            return false;
+        }
+
+        if ($until->lte(now())) {
+            Cache::forget($key);
+            return false;
+        }
+
+        Log::info('fees-v2 region skipped due cooldown', [
+            'region' => strtoupper(trim($region)),
+            'cooldown_until' => $until->toIso8601String(),
+            'remaining_seconds' => max(0, (int) ceil(now()->floatDiffInSeconds($until, false))),
+        ]);
+
+        return true;
+    }
+
+    private function activateRegionCooldown(string $region): void
+    {
+        $until = now()->addSeconds(self::REGION_COOLDOWN_SECONDS);
+        Cache::put($this->regionCooldownCacheKey($region), $until, $until);
+
+        Log::warning('fees-v2 region cooldown activated', [
+            'region' => strtoupper(trim($region)),
+            'cooldown_seconds' => self::REGION_COOLDOWN_SECONDS,
+            'cooldown_until' => $until->toIso8601String(),
+        ]);
     }
 
     private function firstArray(array $source, array $keys): array
