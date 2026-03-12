@@ -1,14 +1,7 @@
 @php
     $messageBody = json_decode($message->body);
     $messageBodyArray = json_decode((string) $message->body, true);
-    $payloadBody = null;
-    if (is_array($messageBodyArray)) {
-        if (isset($messageBodyArray['payload']) && is_array($messageBodyArray['payload'])) {
-            $payloadBody = $messageBodyArray['payload'];
-        } elseif (isset($messageBodyArray['Payload']) && is_array($messageBodyArray['Payload'])) {
-            $payloadBody = $messageBodyArray['Payload'];
-        }
-    }
+    $fullPayload = is_array($messageBodyArray) ? $messageBodyArray : null;
 @endphp
 
 <table> {{-- Local Message Queue --}}
@@ -242,27 +235,38 @@
     </table>
 @endif
 
-<h2>Payload Body JSON</h2>
-@if (is_array($payloadBody))
+<h2>Message Payload JSON</h2>
+@if (is_array($fullPayload))
     <style>
         .payload-json-tree {
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-            font-size: 12px;
-            line-height: 1.45;
+            font-size: 14px;
+            line-height: 1.65;
+            background: #111827;
+            color: #f3f4f6;
+            border: 1px solid #374151;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 8px;
+            overflow-x: auto;
         }
-        .payload-json-key { color: #0f766e; }
-        .payload-json-string { color: #166534; }
-        .payload-json-number { color: #1d4ed8; }
-        .payload-json-boolean { color: #7c3aed; }
-        .payload-json-null { color: #dc2626; }
+        .payload-json-tree details > div {
+            border-left: 1px solid #374151;
+            margin-left: 6px;
+        }
+        .payload-json-key { color: #93c5fd; }
+        .payload-json-string { color: #86efac; }
+        .payload-json-number { color: #fca5a5; }
+        .payload-json-boolean { color: #fcd34d; }
+        .payload-json-null { color: #d1d5db; font-style: italic; }
     </style>
 
     <div id="payload-json-tree" class="payload-json-tree"></div>
-    <script type="application/json" id="payload-json-data">@json($payloadBody, JSON_UNESCAPED_SLASHES)</script>
+    <script type="application/json" id="payload-json-data">@json($fullPayload, JSON_UNESCAPED_SLASHES)</script>
 
     <details>
-        <summary>Raw Payload JSON</summary>
-        <pre id="payload-raw-json">{{ json_encode($payloadBody, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+        <summary>Raw Message Payload JSON</summary>
+        <pre id="payload-raw-json">{{ json_encode($fullPayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
     </details>
 
     <script>
@@ -362,7 +366,7 @@
         })();
     </script>
 @else
-    <p>No payload object found in this message body.</p>
+    <p>No JSON payload found in this message body.</p>
 @endif
 
 <details>
