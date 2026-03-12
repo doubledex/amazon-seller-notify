@@ -99,8 +99,8 @@ class InboundDiscrepancyController extends Controller
 
         return view('inbound.discrepancies.show', [
             'discrepancy' => $discrepancy,
-            'debugApiPayload' => null,
-            'debugApiStatus' => null,
+            'debugApiPayload' => session()->get($this->debugApiPayloadSessionKey($id)),
+            'debugApiStatus' => session()->get($this->debugApiStatusSessionKey($id)),
         ]);
     }
 
@@ -119,24 +119,21 @@ class InboundDiscrepancyController extends Controller
 
         try {
             $debugApiPayload = $service->fetchDebugShipmentPayloads($regionCode, $marketplaceId, $shipmentId);
+            session()->put($this->debugApiPayloadSessionKey($id), $debugApiPayload);
+            session()->put($this->debugApiStatusSessionKey($id), 'Live inbound API payload fetched successfully.');
 
-            return view('inbound.discrepancies.show', [
-                'discrepancy' => $discrepancy,
-                'debugApiPayload' => $debugApiPayload,
-                'debugApiStatus' => 'Live inbound API payload fetched successfully.',
-            ]);
+            return redirect()->route('inbound.discrepancies.show', $id);
         } catch (\Throwable $e) {
-            return view('inbound.discrepancies.show', [
-                'discrepancy' => $discrepancy,
-                'debugApiPayload' => [
-                    'error' => $e->getMessage(),
-                    'shipment_id' => $shipmentId,
-                    'marketplace_id' => $marketplaceId,
-                    'region_code' => $regionCode,
-                    'fetched_at_utc' => now()->utc()->toIso8601String(),
-                ],
-                'debugApiStatus' => 'Live inbound API fetch failed.',
+            session()->put($this->debugApiPayloadSessionKey($id), [
+                'error' => $e->getMessage(),
+                'shipment_id' => $shipmentId,
+                'marketplace_id' => $marketplaceId,
+                'region_code' => $regionCode,
+                'fetched_at_utc' => now()->utc()->toIso8601String(),
             ]);
+            session()->put($this->debugApiStatusSessionKey($id), 'Live inbound API fetch failed.');
+
+            return redirect()->route('inbound.discrepancies.show', $id);
         }
     }
 
@@ -181,5 +178,15 @@ class InboundDiscrepancyController extends Controller
                 'slaTransitions',
             ])
             ->findOrFail($id);
+    }
+
+    private function debugApiPayloadSessionKey(int $id): string
+    {
+        return 'inbound_discrepancy_debug_payload.' . $id;
+    }
+
+    private function debugApiStatusSessionKey(int $id): string
+    {
+        return 'inbound_discrepancy_debug_status.' . $id;
     }
 }

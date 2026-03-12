@@ -60,6 +60,41 @@
             </div>
 
             <div class="bg-white dark:bg-gray-800 shadow-sm sm:rounded-lg p-4">
+                <div class="flex flex-wrap items-center gap-3">
+                    <form method="POST" action="{{ route('inbound.discrepancies.debug_fetch', $discrepancy->id) }}">
+                        @csrf
+                        <button type="submit" class="px-3 py-2 rounded-md border text-sm border-amber-300 bg-amber-50 text-amber-800">
+                            Debug Call API
+                        </button>
+                    </form>
+                    <form method="POST" action="{{ route('inbound.discrepancies.build_evidence', $discrepancy->id) }}">
+                        @csrf
+                        <button type="submit" class="px-3 py-2 rounded-md border text-sm border-blue-300 bg-blue-50 text-blue-700">
+                            Build/Refresh claim dossier
+                        </button>
+                    </form>
+                    <a href="{{ route('inbound.discrepancies.index') }}" class="text-sm underline">Back to queue</a>
+                </div>
+            </div>
+
+            @if (is_array($debugApiPayload))
+                <div class="bg-white dark:bg-gray-800 shadow-sm sm:rounded-lg p-4 overflow-x-auto">
+                    <h3 class="font-semibold mb-2">Live API Debug Payload</h3>
+                    <div class="text-sm mb-2">
+                        <strong>Source API:</strong> {{ data_get($debugApiPayload, 'source_api', 'n/a') }}
+                    </div>
+                    <div class="space-y-3">
+                        <details open>
+                            <summary class="cursor-pointer text-sm font-medium">Live API payload JSON</summary>
+                            <div id="dev-json-tree-live-inbound" class="dev-json-tree"></div>
+                            <div id="dev-json-copy-status-live-inbound" class="dev-json-copy-status"></div>
+                            <script type="application/json" id="dev-json-tree-live-inbound-data">@json($debugApiPayload, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)</script>
+                        </details>
+                    </div>
+                </div>
+            @endif
+
+            <div class="bg-white dark:bg-gray-800 shadow-sm sm:rounded-lg p-4">
                 <h3 class="font-semibold mb-2">Quantities</h3>
                 <table class="w-full text-sm border-collapse" border="1" cellpadding="6" cellspacing="0">
                     <tbody>
@@ -105,41 +140,6 @@
                     </details>
                 </div>
             </div>
-
-            <div class="bg-white dark:bg-gray-800 shadow-sm sm:rounded-lg p-4">
-                <div class="flex flex-wrap items-center gap-3">
-                    <form method="POST" action="{{ route('inbound.discrepancies.debug_fetch', $discrepancy->id) }}">
-                        @csrf
-                        <button type="submit" class="px-3 py-2 rounded-md border text-sm border-amber-300 bg-amber-50 text-amber-800">
-                            Debug Call API
-                        </button>
-                    </form>
-                    <form method="POST" action="{{ route('inbound.discrepancies.build_evidence', $discrepancy->id) }}">
-                        @csrf
-                        <button type="submit" class="px-3 py-2 rounded-md border text-sm border-blue-300 bg-blue-50 text-blue-700">
-                            Build/Refresh claim dossier
-                        </button>
-                    </form>
-                    <a href="{{ route('inbound.discrepancies.index') }}" class="text-sm underline">Back to queue</a>
-                </div>
-            </div>
-
-            @if (is_array($debugApiPayload))
-                <div class="bg-white dark:bg-gray-800 shadow-sm sm:rounded-lg p-4 overflow-x-auto">
-                    <h3 class="font-semibold mb-2">Live API Debug Payload</h3>
-                    <div class="text-sm mb-2">
-                        <strong>Source API:</strong> {{ data_get($debugApiPayload, 'source_api', 'n/a') }}
-                    </div>
-                    <div class="space-y-3">
-                        <details open>
-                            <summary class="cursor-pointer text-sm font-medium">Live API payload JSON</summary>
-                            <div id="dev-json-tree-live-inbound" class="dev-json-tree"></div>
-                            <div id="dev-json-copy-status-live-inbound" class="dev-json-copy-status"></div>
-                            <script type="application/json" id="dev-json-tree-live-inbound-data">@json($debugApiPayload, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)</script>
-                        </details>
-                    </div>
-                </div>
-            @endif
 
             <div class="bg-white dark:bg-gray-800 shadow-sm sm:rounded-lg p-4 overflow-x-auto">
                 <h3 class="font-semibold mb-2">Claim Cases</h3>
