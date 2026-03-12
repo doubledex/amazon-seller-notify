@@ -17,6 +17,8 @@ class AmazonAdsSpendSyncService
     private const SOURCE = 'amazon_ads_api';
     private const MAX_BACKGROUND_RETRIES = 20;
     private const STUCK_REPORT_SECONDS = 3600;
+    private const CREATE_COOLDOWN_DEFAULT_SECONDS = 60;
+    private const CREATE_COOLDOWN_SPONSORED_BRANDS_SECONDS = 300;
 
     private const EU_COUNTRY_CODES = [
         'AT', 'BE', 'DE', 'DK', 'ES', 'FI', 'FR', 'IE', 'IT', 'LU', 'NL', 'NO', 'PL', 'SE', 'CH', 'TR',
@@ -220,11 +222,16 @@ class AmazonAdsSpendSyncService
                         $chunkTo->toDateString()
                     );
                     if ($existingOutstanding) {
-                        if ($existingOutstanding->next_check_at === null || $existingOutstanding->next_check_at->gt(now())) {
+                        if ($existingOutstanding->next_check_at === null) {
                             $existingOutstanding->next_check_at = now();
                             $existingOutstanding->save();
                         }
                         $existing++;
+                        continue;
+                    }
+
+                    if ($this->isCreateCooldownActive($apiRegion, $config['adProduct'])) {
+                        $failed++;
                         continue;
                     }
 
@@ -278,8 +285,9 @@ class AmazonAdsSpendSyncService
 
                         if ($statusCode === 429) {
                             $this->logRetryHeaders($createResponse, 'queue-create', $profileId, $config['adProduct'], $attempt);
-                            sleep($this->withJitter($this->resolveRetryDelaySeconds($createResponse, 5 + ($attempt * 2)), 0.25));
-                            continue;
+                            $cooldownSeconds = $this->resolveCreateCooldownSeconds($createResponse, $config['adProduct']);
+                            $this->activateCreateCooldown($apiRegion, $config['adProduct'], $cooldownSeconds, $profileId, $createResponse);
+                            break;
                         }
 
                         break;
@@ -1252,6 +1260,65 @@ class AmazonAdsSpendSyncService
             'delay_seconds' => $delay,
         ]);
         return $delay;
+    }
+
+    private function resolveCreateCooldownSeconds(Response $response, string $adProduct): int
+    {
+        $fallbackSeconds = strtoupper($adProduct) === 'SPONSORED_BRANDS'
+            ? self::CREATE_COOLDOWN_SPONSORED_BRANDS_SECONDS
+            : self::CREATE_COOLDOWN_DEFAULT_SECONDS;
+
+        return max($fallbackSeconds, $this->resolveRetryDelaySeconds($response, $fallbackSeconds));
+    }
+
+    private function createCooldownCacheKey(string $apiRegion, string $adProduct): string
+    {
+        return 'amazon_ads:create_cooldown:' . strtoupper($apiRegion) . ':' . strtoupper($adProduct);
+    }
+
+    private function isCreateCooldownActive(string $apiRegion, string $adProduct): bool
+    {
+        $key = $this->createCooldownCacheKey($apiRegion, $adProduct);
+        $until = Cache::get($key);
+        if (!$until instanceof Carbon) {
+            return false;
+        }
+
+        if ($until->lte(now())) {
+            Cache::forget($key);
+            return false;
+        }
+
+        Log::info('Ads queue create skipped due cooldown', [
+            'api_region' => strtoupper($apiRegion),
+            'ad_product' => strtoupper($adProduct),
+            'cooldown_until' => $until->toIso8601String(),
+            'remaining_seconds' => now()->diffInSeconds($until, false),
+        ]);
+
+        return true;
+    }
+
+    private function activateCreateCooldown(
+        string $apiRegion,
+        string $adProduct,
+        int $seconds,
+        string $profileId,
+        Response $response
+    ): void {
+        $seconds = max(1, $seconds);
+        $until = now()->addSeconds($seconds);
+        Cache::put($this->createCooldownCacheKey($apiRegion, $adProduct), $until, $until);
+
+        Log::warning('Ads queue create cooldown activated', [
+            'api_region' => strtoupper($apiRegion),
+            'profile_id' => $profileId,
+            'ad_product' => strtoupper($adProduct),
+            'status' => $response->status(),
+            'request_id' => $this->extractRequestId($response),
+            'cooldown_seconds' => $seconds,
+            'cooldown_until' => $until->toIso8601String(),
+        ]);
     }
 
     private function logRetryHeaders(
