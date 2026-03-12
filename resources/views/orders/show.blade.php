@@ -143,6 +143,8 @@
                 .dev-json-number { color: #fca5a5; }
                 .dev-json-boolean { color: #fcd34d; }
                 .dev-json-null { color: #d1d5db; font-style: italic; }
+                .dev-json-clickable { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+                .dev-json-copy-status { margin-top: 8px; font-size: 12px; color: #9ca3af; min-height: 18px; }
             </style>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
@@ -164,6 +166,7 @@
                         <details class="mt-3">
                             <summary class="cursor-pointer text-sm font-semibold text-sky-900">Formatted View</summary>
                             <div id="dev-json-tree-2026" class="dev-json-tree"></div>
+                            <div id="dev-json-copy-status-2026" class="dev-json-copy-status"></div>
                             <script type="application/json" id="dev-json-tree-2026-data">@json($devApi2026, JSON_UNESCAPED_SLASHES)</script>
                         </details>
                         <details class="mt-3">
@@ -196,6 +199,7 @@
                         <details class="mt-3">
                             <summary class="cursor-pointer text-sm font-semibold text-amber-900">Formatted View</summary>
                             <div id="dev-json-tree-v0" class="dev-json-tree"></div>
+                            <div id="dev-json-copy-status-v0" class="dev-json-copy-status"></div>
                             <script type="application/json" id="dev-json-tree-v0-data">@json($devApiV0, JSON_UNESCAPED_SLASHES)</script>
                         </details>
                         <details class="mt-3">
@@ -213,33 +217,64 @@
 
             <script>
                 (function () {
-                    function createValueNode(value) {
+                    function showCopyStatus(statusEl, text, isError) {
+                        statusEl.textContent = text;
+                        statusEl.style.color = isError ? '#fca5a5' : '#9ca3af';
+                        if (statusEl._timer) {
+                            clearTimeout(statusEl._timer);
+                        }
+                        statusEl._timer = setTimeout(function () {
+                            statusEl.textContent = '';
+                        }, 1400);
+                    }
+
+                    function pathSegmentForObjectKey(key) {
+                        if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)) {
+                            return '.' + key;
+                        }
+                        return "['" + key.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "']";
+                    }
+
+                    function stringifyValue(value) {
+                        if (typeof value === 'string') {
+                            return `"${value}"`;
+                        }
+                        return String(value);
+                    }
+
+                    function createValueNode(value, path, statusEl) {
                         const span = document.createElement('span');
                         if (value === null) {
                             span.className = 'dev-json-null';
                             span.textContent = 'null';
-                            return span;
-                        }
-                        if (typeof value === 'string') {
+                        } else if (typeof value === 'string') {
                             span.className = 'dev-json-string';
                             span.textContent = `"${value}"`;
-                            return span;
-                        }
-                        if (typeof value === 'number') {
+                        } else if (typeof value === 'number') {
                             span.className = 'dev-json-number';
                             span.textContent = String(value);
-                            return span;
-                        }
-                        if (typeof value === 'boolean') {
+                        } else if (typeof value === 'boolean') {
                             span.className = 'dev-json-boolean';
                             span.textContent = value ? 'true' : 'false';
-                            return span;
+                        } else {
+                            span.textContent = String(value);
                         }
-                        span.textContent = String(value);
+
+                        span.classList.add('dev-json-clickable');
+                        span.title = 'Click to copy path and value';
+                        span.addEventListener('click', async function () {
+                            const text = 'path: ' + path + '\nvalue: ' + stringifyValue(value);
+                            try {
+                                await navigator.clipboard.writeText(text);
+                                showCopyStatus(statusEl, 'Copied ' + path, false);
+                            } catch (e) {
+                                showCopyStatus(statusEl, 'Copy failed for ' + path, true);
+                            }
+                        });
                         return span;
                     }
 
-                    function renderTree(value, key) {
+                    function renderTree(value, key, path, statusEl) {
                         const wrapper = document.createElement('div');
                         if (Array.isArray(value)) {
                             const details = document.createElement('details');
@@ -259,7 +294,7 @@
                             value.forEach(function (item, idx) {
                                 const row = document.createElement('div');
                                 row.className = 'pl-5';
-                                row.appendChild(renderTree(item, idx));
+                                row.appendChild(renderTree(item, idx, path + '[' + idx + ']', statusEl));
                                 details.appendChild(row);
                             });
                             wrapper.appendChild(details);
@@ -284,7 +319,7 @@
                             keys.forEach(function (childKey) {
                                 const row = document.createElement('div');
                                 row.className = 'pl-5';
-                                row.appendChild(renderTree(value[childKey], childKey));
+                                row.appendChild(renderTree(value[childKey], childKey, path + pathSegmentForObjectKey(childKey), statusEl));
                                 details.appendChild(row);
                             });
                             wrapper.appendChild(details);
@@ -299,28 +334,29 @@
                             line.appendChild(keySpan);
                             line.appendChild(document.createTextNode(': '));
                         }
-                        line.appendChild(createValueNode(value));
+                        line.appendChild(createValueNode(value, path, statusEl));
                         wrapper.appendChild(line);
                         return wrapper;
                     }
 
-                    function mountTree(treeContainerId, dataScriptId) {
+                    function mountTree(treeContainerId, dataScriptId, statusId) {
                         const container = document.getElementById(treeContainerId);
                         const dataScript = document.getElementById(dataScriptId);
-                        if (!container || !dataScript) {
+                        const statusEl = document.getElementById(statusId);
+                        if (!container || !dataScript || !statusEl) {
                             return;
                         }
                         try {
                             const payload = JSON.parse(dataScript.textContent || 'null');
                             container.innerHTML = '';
-                            container.appendChild(renderTree(payload));
+                            container.appendChild(renderTree(payload, undefined, '$', statusEl));
                         } catch (e) {
                             container.textContent = 'Failed to parse JSON payload.';
                         }
                     }
 
-                    mountTree('dev-json-tree-2026', 'dev-json-tree-2026-data');
-                    mountTree('dev-json-tree-v0', 'dev-json-tree-v0-data');
+                    mountTree('dev-json-tree-2026', 'dev-json-tree-2026-data', 'dev-json-copy-status-2026');
+                    mountTree('dev-json-tree-v0', 'dev-json-tree-v0-data', 'dev-json-copy-status-v0');
 
                     document.querySelectorAll('.dev-json-copy-btn').forEach(function (button) {
                         button.addEventListener('click', async function () {

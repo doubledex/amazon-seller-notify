@@ -259,9 +259,12 @@
         .payload-json-number { color: #fca5a5; }
         .payload-json-boolean { color: #fcd34d; }
         .payload-json-null { color: #d1d5db; font-style: italic; }
+        .payload-json-clickable { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+        .payload-json-copy-status { margin-top: 8px; font-size: 12px; color: #9ca3af; min-height: 18px; }
     </style>
 
     <div id="payload-json-tree" class="payload-json-tree"></div>
+    <div id="payload-json-copy-status" class="payload-json-copy-status"></div>
     <script type="application/json" id="payload-json-data">@json($fullPayload, JSON_UNESCAPED_SLASHES)</script>
 
     <details>
@@ -273,41 +276,68 @@
         (function () {
             const dataScript = document.getElementById('payload-json-data');
             const container = document.getElementById('payload-json-tree');
-            if (!dataScript || !container) {
+            const statusEl = document.getElementById('payload-json-copy-status');
+            if (!dataScript || !container || !statusEl) {
                 return;
             }
 
-            function primitiveSpan(value) {
+            function showCopyStatus(text, isError) {
+                statusEl.textContent = text;
+                statusEl.style.color = isError ? '#fca5a5' : '#9ca3af';
+                window.clearTimeout(showCopyStatus._timer);
+                showCopyStatus._timer = window.setTimeout(function () {
+                    statusEl.textContent = '';
+                }, 1400);
+            }
+
+            function pathSegmentForObjectKey(key) {
+                if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)) {
+                    return '.' + key;
+                }
+                return "['" + key.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "']";
+            }
+
+            function stringifyValue(value) {
+                if (typeof value === 'string') {
+                    return '"' + value + '"';
+                }
+                return String(value);
+            }
+
+            function primitiveSpan(value, path) {
                 const span = document.createElement('span');
+                span.title = 'Click to copy path and value';
+
                 if (value === null) {
                     span.className = 'payload-json-null';
                     span.textContent = 'null';
-                    return span;
-                }
-
-                if (typeof value === 'string') {
+                } else if (typeof value === 'string') {
                     span.className = 'payload-json-string';
                     span.textContent = '"' + value + '"';
-                    return span;
-                }
-
-                if (typeof value === 'number') {
+                } else if (typeof value === 'number') {
                     span.className = 'payload-json-number';
                     span.textContent = String(value);
-                    return span;
-                }
-
-                if (typeof value === 'boolean') {
+                } else if (typeof value === 'boolean') {
                     span.className = 'payload-json-boolean';
                     span.textContent = value ? 'true' : 'false';
-                    return span;
+                } else {
+                    span.textContent = String(value);
                 }
 
-                span.textContent = String(value);
+                span.classList.add('payload-json-clickable');
+                span.addEventListener('click', async function () {
+                    const copyText = 'path: ' + path + '\nvalue: ' + stringifyValue(value);
+                    try {
+                        await navigator.clipboard.writeText(copyText);
+                        showCopyStatus('Copied ' + path);
+                    } catch (e) {
+                        showCopyStatus('Copy failed for ' + path, true);
+                    }
+                });
                 return span;
             }
 
-            function renderNode(value, key) {
+            function renderNode(value, key, path) {
                 if (value === null || typeof value !== 'object') {
                     const row = document.createElement('div');
                     if (key !== undefined) {
@@ -316,7 +346,7 @@
                         keySpan.textContent = '"' + key + '": ';
                         row.appendChild(keySpan);
                     }
-                    row.appendChild(primitiveSpan(value));
+                    row.appendChild(primitiveSpan(value, path));
                     return row;
                 }
 
@@ -345,11 +375,11 @@
 
                 if (Array.isArray(value)) {
                     value.forEach(function (item, index) {
-                        body.appendChild(renderNode(item, String(index)));
+                        body.appendChild(renderNode(item, String(index), path + '[' + index + ']'));
                     });
                 } else {
                     Object.keys(value).forEach(function (childKey) {
-                        body.appendChild(renderNode(value[childKey], childKey));
+                        body.appendChild(renderNode(value[childKey], childKey, path + pathSegmentForObjectKey(childKey)));
                     });
                 }
 
@@ -359,7 +389,7 @@
 
             try {
                 const payload = JSON.parse(dataScript.textContent || 'null');
-                container.appendChild(renderNode(payload));
+                container.appendChild(renderNode(payload, undefined, '$'));
             } catch (e) {
                 container.textContent = 'Failed to parse payload JSON.';
             }
