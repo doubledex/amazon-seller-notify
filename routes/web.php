@@ -51,6 +51,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/orders/map-data', [OrderController::class, 'mapData'])->name('orders.mapData');
     Route::post('/orders/sync-now', [OrderController::class, 'syncNow'])->name('orders.syncNow');
     Route::post('/orders/sync-older', [OrderController::class, 'syncOlder'])->name('orders.syncOlder');
+    Route::post('/orders/{order_id}/dev-fetch-2026', [OrderController::class, 'fetchDevOrder2026'])->name('orders.dev_fetch_2026');
+    Route::post('/orders/{order_id}/dev-fetch-v0', [OrderController::class, 'fetchDevOrderV0'])->name('orders.dev_fetch_v0');
     Route::get('/orders/{order_id}', [OrderController::class, 'show'])->name('orders.show');
     Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');
     Route::get('/marketplaces', [OrderController::class, 'marketplaces'])->name('marketplaces');

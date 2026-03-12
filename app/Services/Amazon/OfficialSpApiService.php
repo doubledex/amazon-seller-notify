@@ -7,6 +7,7 @@ use GuzzleHttp\Client as GuzzleClient;
 use SpApi\Api\finances\v2024_06_19\DefaultApi as FinancesV20240619Api;
 use SpApi\Api\fulfillment\inbound\v0\FbaInboundApi as FbaInboundV0Api;
 use SpApi\Api\fulfillment\inbound\v2024_03_20\FbaInboundApi as FbaInboundV20240320Api;
+use SpApi\Api\orders\v0\OrdersV0Api;
 use SpApi\Api\orders\v2026_01_01\GetOrderApi as OrdersV20260101GetOrderApi;
 use SpApi\Api\orders\v2026_01_01\SearchOrdersApi as OrdersV20260101SearchOrdersApi;
 use SpApi\Api\notifications\v1\NotificationsApi;
@@ -90,6 +91,17 @@ class OfficialSpApiService
         }
 
         return new OrdersV20260101GetOrderApi($officialConfig, new GuzzleClient());
+    }
+
+    public function makeOrdersV0Api(string $region): ?OrdersV0Api
+    {
+        $region = strtoupper(trim($region));
+        $officialConfig = $this->makeOfficialConfiguration($region);
+        if ($officialConfig === null) {
+            return null;
+        }
+
+        return new OrdersV0Api($officialConfig, new GuzzleClient());
     }
 
     public function makeFinancesV20240619Api(string $region): ?FinancesV20240619Api

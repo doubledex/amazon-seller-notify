@@ -4,13 +4,32 @@
             <h2 class="font-semibold text-xl text-gray-800 dark:text-gray-200 leading-tight">
                 Order {{ $order['AmazonOrderId'] ?? 'N/A' }}
             </h2>
-            <a href="{{ route('orders.index') }}" class="inline-flex items-center px-3 py-2 rounded-md border border-gray-300 bg-white text-gray-800 text-sm">
-                Back to Orders
-            </a>
+            <div class="flex items-center gap-2">
+                <form method="POST" action="{{ route('orders.dev_fetch_2026', ['order_id' => $order['AmazonOrderId'] ?? $orderRecord?->amazon_order_id ?? request()->route('order_id')]) }}">
+                    @csrf
+                    <button type="submit" class="inline-flex items-center px-3 py-2 rounded-md border border-sky-300 bg-sky-50 text-sky-800 text-sm">
+                        Dev: Fetch 2026
+                    </button>
+                </form>
+                <form method="POST" action="{{ route('orders.dev_fetch_v0', ['order_id' => $order['AmazonOrderId'] ?? $orderRecord?->amazon_order_id ?? request()->route('order_id')]) }}">
+                    @csrf
+                    <button type="submit" class="inline-flex items-center px-3 py-2 rounded-md border border-amber-300 bg-amber-50 text-amber-800 text-sm">
+                        Dev: Fetch v0
+                    </button>
+                </form>
+                <a href="{{ route('orders.index') }}" class="inline-flex items-center px-3 py-2 rounded-md border border-gray-300 bg-white text-gray-800 text-sm">
+                    Back to Orders
+                </a>
+            </div>
         </div>
     </x-slot>
 
     <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+        @if (session('dev_fetch_status'))
+            <div class="mb-4 p-3 rounded border border-blue-200 bg-blue-50 text-sm text-blue-900">
+                {{ session('dev_fetch_status') }}
+            </div>
+        @endif
         @if ($order)
             @php
                 $status = $order['OrderStatus'] ?? 'N/A';
@@ -83,6 +102,89 @@
                     }
                 };
             @endphp
+
+            @php
+                $devApi2026 = $orderRecord?->dev_order_api_2026_response;
+                if (is_string($devApi2026)) {
+                    $decodedDevApi2026 = json_decode($devApi2026, true);
+                    $devApi2026 = is_array($decodedDevApi2026) ? $decodedDevApi2026 : null;
+                } elseif (!is_array($devApi2026)) {
+                    $devApi2026 = null;
+                }
+                $devApiV0 = $orderRecord?->dev_order_api_v0_response;
+                if (is_string($devApiV0)) {
+                    $decodedDevApiV0 = json_decode($devApiV0, true);
+                    $devApiV0 = is_array($decodedDevApiV0) ? $decodedDevApiV0 : null;
+                } elseif (!is_array($devApiV0)) {
+                    $devApiV0 = null;
+                }
+            @endphp
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <details class="p-4 rounded-lg border border-sky-200 bg-sky-50 shadow-sm">
+                    <summary class="cursor-pointer text-sm font-semibold text-sky-900">Dev API Snapshot: Orders 2026-01-01</summary>
+                    @if ($devApi2026)
+                        <div class="mt-3 text-xs text-sky-800">
+                            <div>Fetched: {{ $devApi2026['fetched_at'] ?? ($orderRecord?->dev_order_api_2026_fetched_at?->toIso8601String() ?? 'N/A') }}</div>
+                            <div>Status: {{ data_get($devApi2026, 'response.status', 'N/A') }}</div>
+                        </div>
+                        <details class="mt-3">
+                            <summary class="cursor-pointer text-sm font-semibold text-sky-900">Formatted View</summary>
+                            <div class="mt-2 overflow-x-auto">
+                                <table class="w-full border-collapse text-xs" border="1" cellpadding="6" cellspacing="0">
+                                    <tbody>
+                                        <tr><th class="bg-sky-100 text-left">API Version</th><td>{{ $devApi2026['api_version'] ?? 'N/A' }}</td></tr>
+                                        <tr><th class="bg-sky-100 text-left">Order ID</th><td>{{ $devApi2026['order_id'] ?? 'N/A' }}</td></tr>
+                                        <tr><th class="bg-sky-100 text-left">Region</th><td>{{ $devApi2026['region'] ?? 'N/A' }}</td></tr>
+                                        <tr><th class="bg-sky-100 text-left">Included Data</th><td>{{ implode(', ', (array) data_get($devApi2026, 'request.included_data', [])) }}</td></tr>
+                                        <tr><th class="bg-sky-100 text-left">Error</th><td>{{ data_get($devApi2026, 'error.message', 'None') }}</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="mt-2 text-xs text-sky-900">Body preview:</div>
+                            <pre class="text-xs mt-1 bg-white p-3 rounded overflow-x-auto">{{ json_encode(data_get($devApi2026, 'response.body', []), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                        </details>
+                        <details class="mt-3">
+                            <summary class="cursor-pointer text-sm font-semibold text-sky-900">Raw JSON</summary>
+                            <pre class="text-xs mt-2 bg-white p-3 rounded overflow-x-auto">{{ json_encode($devApi2026, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                        </details>
+                    @else
+                        <div class="mt-3 text-sm text-sky-800">No stored 2026 snapshot yet.</div>
+                    @endif
+                </details>
+
+                <details class="p-4 rounded-lg border border-amber-200 bg-amber-50 shadow-sm">
+                    <summary class="cursor-pointer text-sm font-semibold text-amber-900">Dev API Snapshot: Orders v0</summary>
+                    @if ($devApiV0)
+                        <div class="mt-3 text-xs text-amber-800">
+                            <div>Fetched: {{ $devApiV0['fetched_at'] ?? ($orderRecord?->dev_order_api_v0_fetched_at?->toIso8601String() ?? 'N/A') }}</div>
+                            <div>Status: {{ data_get($devApiV0, 'response.status', 'N/A') }}</div>
+                        </div>
+                        <details class="mt-3">
+                            <summary class="cursor-pointer text-sm font-semibold text-amber-900">Formatted View</summary>
+                            <div class="mt-2 overflow-x-auto">
+                                <table class="w-full border-collapse text-xs" border="1" cellpadding="6" cellspacing="0">
+                                    <tbody>
+                                        <tr><th class="bg-amber-100 text-left">API Version</th><td>{{ $devApiV0['api_version'] ?? 'N/A' }}</td></tr>
+                                        <tr><th class="bg-amber-100 text-left">Order ID</th><td>{{ $devApiV0['order_id'] ?? 'N/A' }}</td></tr>
+                                        <tr><th class="bg-amber-100 text-left">Region</th><td>{{ $devApiV0['region'] ?? 'N/A' }}</td></tr>
+                                        <tr><th class="bg-amber-100 text-left">Included Data</th><td>{{ implode(', ', (array) data_get($devApiV0, 'request.included_data', [])) }}</td></tr>
+                                        <tr><th class="bg-amber-100 text-left">Error</th><td>{{ data_get($devApiV0, 'error.message', 'None') }}</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="mt-2 text-xs text-amber-900">Body preview:</div>
+                            <pre class="text-xs mt-1 bg-white p-3 rounded overflow-x-auto">{{ json_encode(data_get($devApiV0, 'response.body', []), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                        </details>
+                        <details class="mt-3">
+                            <summary class="cursor-pointer text-sm font-semibold text-amber-900">Raw JSON</summary>
+                            <pre class="text-xs mt-2 bg-white p-3 rounded overflow-x-auto">{{ json_encode($devApiV0, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                        </details>
+                    @else
+                        <div class="mt-3 text-sm text-amber-800">No stored v0 snapshot yet.</div>
+                    @endif
+                </details>
+            </div>
 
             <div class="mb-6 p-4 rounded-lg border border-gray-200 bg-white shadow-sm">
                 <div class="flex flex-wrap items-center gap-3 mb-3">

@@ -30,6 +30,8 @@ use App\Jobs\SyncOrdersJob;
 
 class OrderController extends Controller
 {
+    private const DEV_ORDER_2026_INCLUDED_DATA = ['BUYER', 'RECIPIENT', 'PROCEEDS', 'FULFILLMENT', 'PACKAGES'];
+
     private $marketplaceService;
     private $orderQueryService;
     private $marketplaceTimezoneService;
@@ -969,6 +971,108 @@ class OrderController extends Controller
         ]);
     }
 
+    public function fetchDevOrder2026(Request $request, string $order_id)
+    {
+        $regionService = new RegionConfigService();
+        $region = $regionService->defaultSpApiRegion();
+        $officialSpApiService = new OfficialSpApiService($regionService);
+        $api = $officialSpApiService->makeGetOrderV20260101Api($region);
+
+        if ($api === null) {
+            return redirect()
+                ->route('orders.show', ['order_id' => $order_id])
+                ->with('dev_fetch_status', 'Failed to create Orders 2026 API client.');
+        }
+
+        $snapshot = [
+            'api_version' => 'orders/2026-01-01',
+            'order_id' => $order_id,
+            'region' => $region,
+            'request' => [
+                'included_data' => self::DEV_ORDER_2026_INCLUDED_DATA,
+            ],
+            'fetched_at' => now()->toIso8601String(),
+        ];
+
+        try {
+            [$model, $status, $headers] = $api->getOrderWithHttpInfo($order_id, self::DEV_ORDER_2026_INCLUDED_DATA);
+            $snapshot['response'] = [
+                'status' => (int) $status,
+                'headers' => $this->normalizeResponseHeadersForStorage((array) $headers),
+                'body' => $this->modelToArray($model),
+            ];
+        } catch (\Throwable $e) {
+            $snapshot['error'] = [
+                'message' => $e->getMessage(),
+                'class' => $e::class,
+                'code' => (int) $e->getCode(),
+            ];
+        }
+
+        Order::query()->updateOrCreate(
+            ['amazon_order_id' => $order_id],
+            [
+                'dev_order_api_2026_response' => $snapshot,
+                'dev_order_api_2026_fetched_at' => now(),
+            ]
+        );
+
+        return redirect()
+            ->route('orders.show', ['order_id' => $order_id])
+            ->with('dev_fetch_status', 'Stored Orders 2026 snapshot for dev review.');
+    }
+
+    public function fetchDevOrderV0(Request $request, string $order_id)
+    {
+        $regionService = new RegionConfigService();
+        $region = $regionService->defaultSpApiRegion();
+        $officialSpApiService = new OfficialSpApiService($regionService);
+        $api = $officialSpApiService->makeOrdersV0Api($region);
+
+        if ($api === null) {
+            return redirect()
+                ->route('orders.show', ['order_id' => $order_id])
+                ->with('dev_fetch_status', 'Failed to create Orders v0 API client.');
+        }
+
+        $snapshot = [
+            'api_version' => 'orders/v0',
+            'order_id' => $order_id,
+            'region' => $region,
+            'request' => [
+                'included_data' => [],
+            ],
+            'fetched_at' => now()->toIso8601String(),
+        ];
+
+        try {
+            [$model, $status, $headers] = $api->getOrderWithHttpInfo($order_id);
+            $snapshot['response'] = [
+                'status' => (int) $status,
+                'headers' => $this->normalizeResponseHeadersForStorage((array) $headers),
+                'body' => $this->modelToArray($model),
+            ];
+        } catch (\Throwable $e) {
+            $snapshot['error'] = [
+                'message' => $e->getMessage(),
+                'class' => $e::class,
+                'code' => (int) $e->getCode(),
+            ];
+        }
+
+        Order::query()->updateOrCreate(
+            ['amazon_order_id' => $order_id],
+            [
+                'dev_order_api_v0_response' => $snapshot,
+                'dev_order_api_v0_fetched_at' => now(),
+            ]
+        );
+
+        return redirect()
+            ->route('orders.show', ['order_id' => $order_id])
+            ->with('dev_fetch_status', 'Stored Orders v0 snapshot for dev review.');
+    }
+
     /**
      * Get marketplace participation information from Amazon API
      */
@@ -1548,6 +1652,22 @@ class OrderController extends Controller
         }
 
         return [];
+    }
+
+    private function normalizeResponseHeadersForStorage(array $headers): array
+    {
+        $normalized = [];
+        foreach ($headers as $key => $values) {
+            if (is_array($values)) {
+                $normalized[$key] = count($values) === 1
+                    ? (string) ($values[0] ?? '')
+                    : array_values(array_map(static fn ($value) => (string) $value, $values));
+                continue;
+            }
+            $normalized[$key] = is_scalar($values) ? (string) $values : '';
+        }
+
+        return $normalized;
     }
 
     private function getRetryAfterSeconds($headers): int
