@@ -381,7 +381,7 @@
                     </div>
                 </div>
 
-                <div class="mt-4 rounded-md border border-gray-200 bg-gray-50 divide-y divide-gray-200">
+                <div class="mt-4 max-w-md rounded-md border border-gray-200 bg-gray-50 divide-y divide-gray-200">
                     <div class="px-3 py-2 flex items-start justify-between gap-4">
                         <div class="text-xs text-gray-500">Net (ex tax)</div>
                         <div class="text-right">
