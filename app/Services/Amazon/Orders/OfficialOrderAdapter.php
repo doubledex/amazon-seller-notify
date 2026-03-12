@@ -382,7 +382,7 @@ class OfficialOrderAdapter implements AmazonOrderApi
         return [
             'amount' => round($sum, 2),
             'currency' => $currency,
-            'source' => $isFullyShipped ? 'line_items_proceeds_item_subtotal' : 'estimated_unit_price_incl_tax',
+            'source' => $isFullyShipped ? 'proceeds_item_subtotal' : 'estimated_unit_price',
         ];
     }
 

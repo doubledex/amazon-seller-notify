@@ -161,7 +161,7 @@ class OrderNetValueService
         }
 
         if ($sum > 0) {
-            $source = 'line_items_proceeds_item_subtotal';
+            $source = 'proceeds_item_subtotal';
         } else {
             foreach ($estimatedTotals as $row) {
                 $amount = (float) ($row->total ?? 0);
@@ -173,7 +173,7 @@ class OrderNetValueService
                 }
             }
             if ($sum > 0) {
-                $source = 'estimated_unit_price_incl_tax';
+                $source = 'estimated_unit_price';
             }
         }
 
